@@ -40,6 +40,7 @@ impl Client {
         }
         // TODO:
         let result_str = self.reader.read_line();
+        self.reader.read_line();
         return Ok(result_str);
 
     }
@@ -80,20 +81,6 @@ impl Client {
     }
 }
 
-#[test]
-fn test_client() {
-    let client = connect(~"127.0.0.1", 11211).get();
-
-    client.flush();
-    client.set(~"foo", ~"bar", 0);
-    client.add(~"foo", ~"bar", 0);
-    client.get(~"foo").get();
-    client.replace(~"foo", ~"0", 0);
-    client.incr(~"foo", 1);
-    client.delete(~"foo", 0);
-
-}
-
 fn connect(addr: ~str, port: uint) -> Result<Client, net::tcp::TcpConnectErrData> {
     match net::tcp::connect(net::ip::v4::parse_addr(addr), port, &uv::global_loop::get()) {
         Err(err) => {
@@ -111,5 +98,19 @@ fn connect(addr: ~str, port: uint) -> Result<Client, net::tcp::TcpConnectErrData
             return Ok(client);
         }
     }
+
+}
+
+#[test]
+fn test_client() {
+    let client = connect(~"127.0.0.1", 11211).get();
+
+    client.flush();
+    client.set(~"foo", ~"bar", 0);
+    client.add(~"foo", ~"bar", 0);
+    client.get(~"foo").get();
+    client.replace(~"foo", ~"0", 0);
+    client.incr(~"foo", 1);
+    client.delete(~"foo", 0);
 
 }
