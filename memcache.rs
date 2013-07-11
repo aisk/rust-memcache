@@ -20,7 +20,41 @@ impl Client {
             return Err(result_str);
         }
     }
-    
+
+    fn delete(&self, key: ~str, time: uint) -> Result<~str, ~str> {
+        self.writer.write_str(fmt!("delete %s %u\r\n", key, time));
+        let result_str = self.reader.read_line();
+        if result_str == ~ "DELETED\r" {
+            return Ok(result_str);
+        }
+        else {
+            return Err(result_str);
+        }
+    }
+
+    fn get(&self, key: ~str) -> Result<~str, ~str> {
+        self.writer.write_str(fmt!("get %s\r\n", key));
+        let result_str = self.reader.read_line();
+        if result_str == ~"END\r" {
+            return Err(~"NOT_FOUND");
+        }
+        // TODO:
+        let result_str = self.reader.read_line();
+        return Ok(result_str);
+
+    }
+
+    fn incr(&self, key: ~str, value: int) -> Result<~str, ~str> {
+        self.writer.write_str(fmt!("incr %s %i\r\n", key, value));
+        let result_str = self.reader.read_line();
+        if result_str == ~"NOT_FOUND\r" {
+            return Err(result_str);
+        }
+        else {
+            return Ok(result_str);
+        }
+    }
+
     fn _store(&self, action: ~str, key: ~str, value: ~str, exp_time: uint) -> Result<~str, ~str> {
         self.writer.write_str(fmt!("%s %s 0 %u %u\r\n", action, key, exp_time, value.len()));
         self.writer.write_str(fmt!("%s\r\n", value));
@@ -50,10 +84,12 @@ fn main() {
     let client = connect(~"127.0.0.1", 11211).get();
 
     client.flush();
-
     client.set(~"foo", ~"bar", 0);
     client.add(~"foo", ~"bar", 0);
-    client.replace(~"foo", ~"bar", 0);
+    client.get(~"foo").get();
+    client.replace(~"foo", ~"0", 0);
+    client.incr(~"foo", 1);
+    client.delete(~"foo", 0);
 
 }
 
