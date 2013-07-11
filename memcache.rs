@@ -80,7 +80,8 @@ impl Client {
     }
 }
 
-fn main() {
+#[test]
+fn test_client() {
     let client = connect(~"127.0.0.1", 11211).get();
 
     client.flush();
