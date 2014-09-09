@@ -1,0 +1,4 @@
+[root]
+name = "memcache"
+version = "0.0.1"
+

@@ -1,0 +1,10 @@
+[package]
+
+name = "memcache"
+version = "0.0.1"
+authors = ["asaka"]
+
+
+[lib]
+
+name = "memcache"
