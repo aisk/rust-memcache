@@ -1,21 +1,16 @@
-use std::io::{BufferedStream, IoResult};
+use std::error::FromError;
+use std::io::{BufferedStream, IoError};
 use std::io::net::tcp::TcpStream;
 
 #[deriving(Show)]
-pub struct MemcacheError {
-    kind: MemcacheErrorKind,
+pub enum MemcacheError {
+    InternalIoError(IoError),
+    ServerError
 }
 
-#[deriving(Show)]
-pub enum MemcacheErrorKind {
-    Other,
-}
-
-impl MemcacheError {
-    pub fn new<T: IntoMaybeOwned<'static>>(kind: MemcacheErrorKind) -> MemcacheError {
-        MemcacheError {
-            kind: Other,
-        }
+impl FromError<IoError> for MemcacheError {
+    fn from_error(err: IoError) -> MemcacheError {
+        InternalIoError(err)
     }
 }
 
@@ -29,29 +24,22 @@ pub struct Connection {
 
 impl Connection {
     pub fn flush(&mut self) -> MemcacheResult<()> {
-        self.stream.write_str("flush_all\r\n").unwrap();
-        self.stream.flush().unwrap();
-        let result = self.stream.read_line().unwrap();
-        assert!(result == "OK\r\n".to_string());
-        if result == "OK\r\n".to_string() {
-            return Err(MemcacheError::new(Other));
+        try!(self.stream.write_str("flush_all\r\n"));
+        try!(self.stream.flush());
+        let result = try!(self.stream.read_line());
+        if result != "OK\r\n".to_string() {
+            return Err(ServerError);
         }
         return Ok(());
     }
 
-    pub fn connect(host: &str, port: u16) -> IoResult<Connection> {
-        match TcpStream::connect((host, port)) {
-            Ok(stream) => {
-                return Ok(Connection{
-                    host: host.to_string(),
-                    port: port,
-                    stream: BufferedStream::new(stream)
-                });
-            }
-            Err(err) => {
-                return Err(err);
-            }
-        }
+    pub fn connect(host: &str, port: u16) -> MemcacheResult<Connection> {
+        let stream = try!(TcpStream::connect((host, port)));
+        return Ok(Connection{
+            host: host.to_string(),
+            port: port,
+            stream: BufferedStream::new(stream)
+        });
     }
 }
 
