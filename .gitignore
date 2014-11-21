@@ -1,3 +1,5 @@
+Cargo.lock
+
 *.swp
 *.dSYM
 memcache~
