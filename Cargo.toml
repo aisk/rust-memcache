@@ -3,6 +3,7 @@ name = "memcache"
 version = "0.0.2"
 authors = ["asaka"]
 repository = "https://github.com/aisk/rust-memcache"
+readme = "README.md"
 license = "MIT"
 
 [lib]
