@@ -10,7 +10,7 @@ pub enum MemcacheError {
 
 impl FromError<IoError> for MemcacheError {
     fn from_error(err: IoError) -> MemcacheError {
-        InternalIoError(err)
+        MemcacheError::InternalIoError(err)
     }
 }
 
@@ -28,7 +28,7 @@ impl Connection {
         try!{ self.stream.flush() };
         let result = try!{ self.stream.read_line() };
         if result.as_slice() != "OK\r\n" {
-            return Err(ServerError);
+            return Err(MemcacheError::ServerError);
         }
         return Ok(());
     }
@@ -42,7 +42,7 @@ impl Connection {
         } else if result.as_slice() == "NOT_FOUND\r\n" {
             return Ok(false);
         } else {
-            return Err(ServerError);
+            return Err(MemcacheError::ServerError);
         }
     }
 
@@ -55,16 +55,16 @@ impl Connection {
         }
         let header: Vec<&str> = result.split(' ').collect();
         if header.len() != 4 || header[0] != "VALUE" || header[1] != key {
-            return Err(ServerError);
+            return Err(MemcacheError::ServerError);
         }
         let length: uint = match from_str(header[3].trim()) {
             Some(length) => { length }
-            None => { return Err(ServerError); }
+            None => { return Err(MemcacheError::ServerError); }
         };
         let body = try!{ self.stream.read_exact(length) };
         let value = match String::from_utf8(body) {
             Ok(value) => { value }
-            Err(_) => { return Err(ServerError); }
+            Err(_) => { return Err(MemcacheError::ServerError); }
         };
         return Ok(Some(value));
     }
@@ -80,7 +80,7 @@ impl Connection {
         } else if result.as_slice() == "NOT_STORED\r\n" {
             return Ok(false);
         }
-        return Err(ServerError);
+        return Err(MemcacheError::ServerError);
     }
 
     pub fn connect(host: &str, port: u16) -> MemcacheResult<Connection> {
