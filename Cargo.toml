@@ -1,10 +1,12 @@
 [package]
 name = "memcache"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["asaka"]
 repository = "https://github.com/aisk/rust-memcache"
 readme = "README.md"
 license = "MIT"
+description = "memcached client for rust"
+keywords = ["memcache", "memcached", "client", "driver"]
 
 [lib]
 name = "memcache"
