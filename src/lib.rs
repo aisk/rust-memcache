@@ -46,7 +46,7 @@ impl Connection {
         }
     }
 
-    pub fn get(&mut self, key: &str) -> MemcacheResult<Option<String>> {
+    pub fn get(&mut self, key: &str) -> MemcacheResult<Option<Vec<u8>>> {
         try!{ self.stream.write_str(format!("get {}\r\n", key).as_slice()) };
         try!{ self.stream.flush() };
         let result = try!{ self.stream.read_line() };
@@ -61,17 +61,13 @@ impl Connection {
             Some(length) => { length }
             None => { return Err(MemcacheError::ServerError); }
         };
-        let body = try!{ self.stream.read_exact(length) };
-        let value = match String::from_utf8(body) {
-            Ok(value) => { value }
-            Err(_) => { return Err(MemcacheError::ServerError); }
-        };
+        let value = try!{ self.stream.read_exact(length) };
         return Ok(Some(value));
     }
 
-    pub fn set(&mut self, key: &str, value: &str, exptime: int) -> MemcacheResult<bool> {
+    pub fn set(&mut self, key: &str, value: &[u8], exptime: int) -> MemcacheResult<bool> {
         try!{ self.stream.write_str(format!("set {} 0 {} {}\r\n", key, exptime, value.len()).as_slice()) };
-        try!{ self.stream.write_str(value) };
+        try!{ self.stream.write(value) };
         try!{ self.stream.write_str("\r\n") };
         try!{ self.stream.flush() };
         let result = try!{ self.stream.read_line() };
@@ -107,23 +103,23 @@ fn test_flush() -> () {
 #[test]
 fn test_set() -> () {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
-    conn.flush().unwrap();  // ensure memcached is clean
-    assert!{ conn.set("foo", "bar", 10).unwrap() == true };
+    conn.flush().unwrap();
+    assert!{ conn.set("foo", b"bar", 10).unwrap() == true };
 }
 
 #[test]
 fn test_get() -> () {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
-    conn.flush().unwrap();  // ensure memcached is clean
+    conn.flush().unwrap();
     assert!{ conn.get("foo").unwrap() == None };
 
-    assert!{ conn.set("foo", "bar", 0).unwrap() == true };
-    assert!{ conn.get("foo").unwrap().unwrap().as_slice() == "bar" };
+    assert!{ conn.set("foo", b"bar", 0).unwrap() == true };
+    assert!{ conn.get("foo").unwrap().unwrap().as_slice() == b"bar" };
 }
 
 #[test]
 fn test_delete() -> () {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
-    conn.flush().unwrap();  // ensure memcached is clean
+    conn.flush().unwrap();
     assert!{ conn.delete("foo").unwrap() == false };
 }
