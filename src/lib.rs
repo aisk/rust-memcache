@@ -2,7 +2,7 @@ use std::error::FromError;
 use std::io::{BufferedStream, IoError};
 use std::io::net::tcp::TcpStream;
 
-#[deriving(Show)]
+#[derive(Show)]
 pub enum MemcacheError {
     InternalIoError(IoError),
     ServerError
@@ -57,7 +57,7 @@ impl Connection {
         if header.len() != 4 || header[0] != "VALUE" || header[1] != key {
             return Err(MemcacheError::ServerError);
         }
-        let length: uint = match from_str(header[3].trim()) {
+        let length: uint = match header[3].trim().parse() {
             Some(length) => { length }
             None => { return Err(MemcacheError::ServerError); }
         };
