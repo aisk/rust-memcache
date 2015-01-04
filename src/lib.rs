@@ -46,7 +46,7 @@ impl Connection {
         }
     }
 
-    pub fn get(&mut self, key: &str) -> MemcacheResult<Option<Vec<u8>>> {
+    pub fn get(&mut self, key: &str) -> MemcacheResult<Option<(Vec<u8>, u16)>> {
         try!{ self.stream.write_str(format!("get {}\r\n", key).as_slice()) };
         try!{ self.stream.flush() };
         let result = try!{ self.stream.read_line() };
@@ -57,16 +57,20 @@ impl Connection {
         if header.len() != 4 || header[0] != "VALUE" || header[1] != key {
             return Err(MemcacheError::ServerError);
         }
+        let flags: u16 = match header[2].trim().parse() {
+            Some(flags) => { flags }
+            None => { return Err(MemcacheError::ServerError); }
+        };
         let length: uint = match header[3].trim().parse() {
             Some(length) => { length }
             None => { return Err(MemcacheError::ServerError); }
         };
         let value = try!{ self.stream.read_exact(length) };
-        return Ok(Some(value));
+        return Ok(Some((value, flags)));
     }
 
-    pub fn set(&mut self, key: &str, value: &[u8], exptime: int) -> MemcacheResult<bool> {
-        try!{ self.stream.write_str(format!("set {} 0 {} {}\r\n", key, exptime, value.len()).as_slice()) };
+    pub fn set(&mut self, key: &str, value: &[u8], exptime: int, flags: u16) -> MemcacheResult<bool> {
+        try!{ self.stream.write_str(format!("set {} {} {} {}\r\n", key, flags, exptime, value.len()).as_slice()) };
         try!{ self.stream.write(value) };
         try!{ self.stream.write_str("\r\n") };
         try!{ self.stream.flush() };
@@ -104,7 +108,7 @@ fn test_flush() -> () {
 fn test_set() -> () {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
     conn.flush().unwrap();
-    assert!{ conn.set("foo", b"bar", 10).unwrap() == true };
+    assert!{ conn.set("foo", b"bar", 10, 0).unwrap() == true };
 }
 
 #[test]
@@ -113,8 +117,10 @@ fn test_get() -> () {
     conn.flush().unwrap();
     assert!{ conn.get("foo").unwrap() == None };
 
-    assert!{ conn.set("foo", b"bar", 0).unwrap() == true };
-    assert!{ conn.get("foo").unwrap().unwrap().as_slice() == b"bar" };
+    assert!{ conn.set("foo", b"bar", 0, 10).unwrap() == true };
+    let result = conn.get("foo").unwrap().unwrap();
+    assert!{ result.0 == b"bar" };
+    assert!{ result.1 == 10 };
 }
 
 #[test]
