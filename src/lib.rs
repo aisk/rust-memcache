@@ -61,7 +61,7 @@ impl Connection {
             Some(flags) => { flags }
             None => { return Err(MemcacheError::ServerError); }
         };
-        let length: uint = match header[3].trim().parse() {
+        let length: usize = match header[3].trim().parse() {
             Some(length) => { length }
             None => { return Err(MemcacheError::ServerError); }
         };
@@ -69,7 +69,7 @@ impl Connection {
         return Ok(Some((value, flags)));
     }
 
-    pub fn set(&mut self, key: &str, value: &[u8], exptime: int, flags: u16) -> MemcacheResult<bool> {
+    pub fn set(&mut self, key: &str, value: &[u8], exptime: isize, flags: u16) -> MemcacheResult<bool> {
         try!{ self.stream.write_str(format!("set {} {} {} {}\r\n", key, flags, exptime, value.len()).as_slice()) };
         try!{ self.stream.write(value) };
         try!{ self.stream.write_str("\r\n") };
@@ -83,7 +83,7 @@ impl Connection {
         return Err(MemcacheError::ServerError);
     }
 
-    pub fn incr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(int)>> {
+    pub fn incr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
         try!{ self.stream.write_str(format!("incr {} {:b}\r\n", key, value).as_slice()) };
         try!{ self.stream.flush() };
         let result = try!{ self.stream.read_line() };
@@ -92,14 +92,14 @@ impl Connection {
         }
         let x: &[_] = &['\r', '\n'];
         // let trimed_result = result.trim_right_matches(x);
-        let value: int = match result.trim_right_matches(x).parse() {
+        let value: isize = match result.trim_right_matches(x).parse() {
             Some(value) => { value }
             None => { return Err(MemcacheError::ServerError) }
         };
         return Ok(Some(value));
     }
 
-    pub fn decr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(int)>> {
+    pub fn decr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
         try!{ self.stream.write_str(format!("decr {} {:b}\r\n", key, value).as_slice()) };
         try!{ self.stream.flush() };
         let result = try!{ self.stream.read_line() };
@@ -108,7 +108,7 @@ impl Connection {
         }
         let x: &[_] = &['\r', '\n'];
         // let trimed_result = result.trim_right_matches(x);
-        let value: int = match result.trim_right_matches(x).parse() {
+        let value: isize = match result.trim_right_matches(x).parse() {
             Some(value) => { value }
             None => { return Err(MemcacheError::ServerError) }
         };
