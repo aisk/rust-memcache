@@ -126,25 +126,25 @@ impl Connection {
 }
 
 #[test]
-fn test_connect() -> () {
+fn test_connect() {
     Connection::connect("localhost", 2333).unwrap();
 }
 
 #[test]
-fn test_flush() -> () {
+fn test_flush() {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
     conn.flush().unwrap();
 }
 
 #[test]
-fn test_set() -> () {
+fn test_set() {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
     conn.flush().unwrap();
     assert!{ conn.set("foo", b"bar", 10, 0).unwrap() == true };
 }
 
 #[test]
-fn test_get() -> () {
+fn test_get() {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
     conn.flush().unwrap();
     assert!{ conn.get("foo").unwrap() == None };
@@ -156,7 +156,7 @@ fn test_get() -> () {
 }
 
 #[test]
-fn test_delete() -> () {
+fn test_delete() {
     let mut conn = Connection::connect("localhost", 2333).unwrap();
     conn.flush().unwrap();
     assert!{ conn.delete("foo").unwrap() == false };
@@ -170,7 +170,7 @@ fn test_incr() {
     assert!{ result.unwrap() == None };
 
     conn.flush().unwrap();
-    conn.set("truth", format!("{}", 42).as_bytes(), 0, 0).unwrap();
+    conn.set("truth", b"42", 0, 0).unwrap();
     result = conn.incr("truth", 1);
     assert!{ result.unwrap().unwrap() == 43 };
 }
@@ -183,7 +183,7 @@ fn test_decr() {
     assert!{ result.unwrap() == None };
 
     conn.flush().unwrap();
-    conn.set("truth", format!("{}", 42).as_bytes(), 0, 0).unwrap();
+    conn.set("truth", b"42", 0, 0).unwrap();
     result = conn.decr("truth", 1);
     assert!{ result.unwrap().unwrap() == 41 };
 }
