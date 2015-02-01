@@ -143,17 +143,18 @@ fn test_set() {
     assert!{ conn.set("foo", b"bar", 10, 0).ok().unwrap() == true };
 }
 
-// #[test]
-// fn test_get() {
-//     let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
-//     assert!{ conn.flush().is_ok() };
-//     assert!{ conn.get("foo").ok().unwrap() == None };
-// 
-//     assert!{ conn.set("foo", b"bar", 0, 10).ok().unwrap() == true };
-//     let result = conn.get("foo").ok().unwrap();
-//     assert!{ result.unwrap().0 == b"bar" };
-//     assert!{ result.unwrap().1 == 10 };
-// }
+#[test]
+fn test_get() {
+    let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
+    assert!{ conn.flush().is_ok() };
+    assert!{ conn.get("foo").ok().unwrap() == None };
+
+    assert!{ conn.set("foo", b"bar", 0, 10).ok().unwrap() == true };
+    let result = conn.get("foo");
+    let result_tuple = result.ok().unwrap().unwrap();
+    assert!{ result_tuple.0 == b"bar" };
+    assert!{ result_tuple.1 == 10 };
+}
 
 #[test]
 fn test_delete() {
