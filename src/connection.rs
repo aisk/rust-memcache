@@ -1,15 +1,15 @@
-use std::error::FromError;
-use std::io::{BufferedStream, IoError};
-use std::io::net::tcp::TcpStream;
+use std::convert::From;
+use std::io::{BufStream, Error, Write, Read, BufRead};
+use std::net::TcpStream;
 
-#[derive(Show)]
+#[derive(Debug)]
 pub enum MemcacheError {
-    InternalIoError(IoError),
+    InternalIoError(Error),
     ServerError
 }
 
-impl FromError<IoError> for MemcacheError {
-    fn from_error(err: IoError) -> MemcacheError {
+impl From<Error> for MemcacheError {
+    fn from(err: Error) -> MemcacheError {
         MemcacheError::InternalIoError(err)
     }
 }
@@ -19,27 +19,29 @@ pub type MemcacheResult<T> = Result<T, MemcacheError>;
 pub struct Connection {
     pub host: String,
     pub port: u16,
-    stream: BufferedStream<TcpStream>,
+    stream: BufStream<TcpStream>,
 }
 
 impl Connection {
     pub fn flush(&mut self) -> MemcacheResult<()> {
-        try!{ self.stream.write_str("flush_all\r\n") };
+        try!{ self.stream.write("flush_all\r\n".as_bytes()) };
         try!{ self.stream.flush() };
-        let result = try!{ self.stream.read_line() };
-        if result.as_slice() != "OK\r\n" {
+        let mut line : String = String::new();
+        try!{ self.stream.read_line(&mut line) };
+        if line != "OK\r\n" {
             return Err(MemcacheError::ServerError);
         }
         return Ok(());
     }
 
     pub fn delete(&mut self, key: &str) -> MemcacheResult<bool> {
-        try!{ self.stream.write_str(format!("delete {}\r\n", key).as_slice()) };
+        try!{ self.stream.write(format!("delete {}\r\n", key).as_bytes()) };
         try!{ self.stream.flush() };
-        let result = try! { self.stream.read_line() };
-        if result.as_slice() == "DELETED\r\n" {
+        let mut line : String = String::new();
+        try! { self.stream.read_line(&mut line) };
+        if line == "DELETED\r\n" {
             return Ok(true);
-        } else if result.as_slice() == "NOT_FOUND\r\n" {
+        } else if line == "NOT_FOUND\r\n" {
             return Ok(false);
         } else {
             return Err(MemcacheError::ServerError);
@@ -47,70 +49,75 @@ impl Connection {
     }
 
     pub fn get(&mut self, key: &str) -> MemcacheResult<Option<(Vec<u8>, u16)>> {
-        try!{ self.stream.write_str(format!("get {}\r\n", key).as_slice()) };
+        try!{ self.stream.write(format!("get {}\r\n", key).as_bytes()) };
         try!{ self.stream.flush() };
-        let result = try!{ self.stream.read_line() };
-        if result.as_slice() == "END\r\n" {
+        let mut line : String = String::new();
+        try! { self.stream.read_line(&mut line) };
+        if line == "END\r\n" {
             return Ok(None);
         }
-        let header: Vec<&str> = result.split(' ').collect();
+        let header: Vec<&str> = line.split(' ').collect();
         if header.len() != 4 || header[0] != "VALUE" || header[1] != key {
             return Err(MemcacheError::ServerError);
         }
         let flags: u16 = match header[2].trim().parse() {
-            Some(flags) => { flags }
-            None => { return Err(MemcacheError::ServerError); }
+            Ok(flags) => { flags }
+            Err(err) => { return Err(MemcacheError::ServerError); }
         };
         let length: usize = match header[3].trim().parse() {
-            Some(length) => { length }
-            None => { return Err(MemcacheError::ServerError); }
+            Ok(length) => { length }
+            Err(err) => { return Err(MemcacheError::ServerError); }
         };
-        let value = try!{ self.stream.read_exact(length) };
-        return Ok(Some((value, flags)));
+        let mut buf : Vec<u8> = Vec::with_capacity(length);
+        self.stream.read(&mut buf);
+        return Ok(Some((buf, flags)));
     }
 
     pub fn set(&mut self, key: &str, value: &[u8], exptime: isize, flags: u16) -> MemcacheResult<bool> {
-        try!{ self.stream.write_str(format!("set {} {} {} {}\r\n", key, flags, exptime, value.len()).as_slice()) };
+        try!{ self.stream.write(format!("set {} {} {} {}\r\n", key, flags, exptime, value.len()).as_bytes()) };
         try!{ self.stream.write(value) };
-        try!{ self.stream.write_str("\r\n") };
+        try!{ self.stream.write("\r\n".as_bytes()) };
         try!{ self.stream.flush() };
-        let result = try!{ self.stream.read_line() };
-        if result.as_slice() == "STORED\r\n" {
+        let mut line : String = String::new();
+        try! { self.stream.read_line(&mut line) };
+        if line == "STORED\r\n" {
             return Ok(true);
-        } else if result.as_slice() == "NOT_STORED\r\n" {
+        } else if line == "NOT_STORED\r\n" {
             return Ok(false);
         }
         return Err(MemcacheError::ServerError);
     }
 
     pub fn incr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
-        try!{ self.stream.write_str(format!("incr {} {:b}\r\n", key, value).as_slice()) };
+        try!{ self.stream.write(format!("incr {} {:b}\r\n", key, value).as_bytes()) };
         try!{ self.stream.flush() };
-        let result = try!{ self.stream.read_line() };
-        if result.as_slice() == "NOT_FOUND\r\n" {
+        let mut line : String = String::new();
+        try! { self.stream.read_line(&mut line) };
+        if line == "NOT_FOUND\r\n" {
             return Ok(None);
         }
         let x: &[_] = &['\r', '\n'];
         // let trimed_result = result.trim_right_matches(x);
-        let value: isize = match result.trim_right_matches(x).parse() {
-            Some(value) => { value }
-            None => { return Err(MemcacheError::ServerError) }
+        let value: isize = match line.trim_right_matches(x).parse() {
+            Ok(value) => { value }
+            Err(err) => { return Err(MemcacheError::ServerError) }
         };
         return Ok(Some(value));
     }
 
     pub fn decr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
-        try!{ self.stream.write_str(format!("decr {} {:b}\r\n", key, value).as_slice()) };
+        try!{ self.stream.write(format!("decr {} {:b}\r\n", key, value).as_bytes()) };
         try!{ self.stream.flush() };
-        let result = try!{ self.stream.read_line() };
-        if result.as_slice() == "NOT_FOUND\r\n" {
+        let mut line : String = String::new();
+        try! { self.stream.read_line(&mut line) };
+        if line == "NOT_FOUND\r\n" {
             return Ok(None);
         }
         let x: &[_] = &['\r', '\n'];
         // let trimed_result = result.trim_right_matches(x);
-        let value: isize = match result.trim_right_matches(x).parse() {
-            Some(value) => { value }
-            None => { return Err(MemcacheError::ServerError) }
+        let value: isize = match line.trim_right_matches(x).parse() {
+            Ok(value) => { value }
+            Err(err) => { return Err(MemcacheError::ServerError) }
         };
         return Ok(Some(value));
     }
@@ -120,7 +127,7 @@ impl Connection {
         return Ok(Connection{
             host: host.to_string(),
             port: port,
-            stream: BufferedStream::new(stream)
+            stream: BufStream::new(stream)
         });
     }
 }
