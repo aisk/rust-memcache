@@ -62,14 +62,18 @@ impl Connection {
         }
         let flags: u16 = match header[2].trim().parse() {
             Ok(flags) => { flags }
-            Err(err) => { return Err(MemcacheError::ServerError); }
+            Err(_) => { return Err(MemcacheError::ServerError); }
         };
         let length: usize = match header[3].trim().parse() {
             Ok(length) => { length }
-            Err(err) => { return Err(MemcacheError::ServerError); }
+            Err(_) => { return Err(MemcacheError::ServerError); }
         };
         let mut buf : Vec<u8> = Vec::with_capacity(length);
-        self.stream.read(&mut buf);
+        //buf.resize(length, 0); Safe option to the code bellow
+        unsafe {
+            buf.set_len(length);
+        }
+        try!{self.stream.read(&mut buf)};
         return Ok(Some((buf, flags)));
     }
 
@@ -100,7 +104,7 @@ impl Connection {
         // let trimed_result = result.trim_right_matches(x);
         let value: isize = match line.trim_right_matches(x).parse() {
             Ok(value) => { value }
-            Err(err) => { return Err(MemcacheError::ServerError) }
+            Err(_) => { return Err(MemcacheError::ServerError) }
         };
         return Ok(Some(value));
     }
@@ -117,7 +121,7 @@ impl Connection {
         // let trimed_result = result.trim_right_matches(x);
         let value: isize = match line.trim_right_matches(x).parse() {
             Ok(value) => { value }
-            Err(err) => { return Err(MemcacheError::ServerError) }
+            Err(_) => { return Err(MemcacheError::ServerError) }
         };
         return Ok(Some(value));
     }
