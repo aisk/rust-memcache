@@ -4,8 +4,10 @@ Memcached client for rust. Supports **Text Protocol** and multiple servers using
 
 Provides two ways of accessing Memcached, via `Connection` for single servers or `Client` for multiple instances. Notice both offer the same API of Memcached commands.
 
-### Usage
+* travis-ci: [![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache)
+* crates.io: [memcache](https://crates.io/crates/memcache)
 
+## Usage
 ```rust
 // One can connect to a single server
 let mut conn = Connection::connect("localhost", 2333).unwrap();
@@ -28,3 +30,7 @@ assert!{ client.set("foo", b"bar", 0, 10).ok().unwrap() == true };
 let result = client.get("foo");
 
 ```
+
+# License
+
+MIT
