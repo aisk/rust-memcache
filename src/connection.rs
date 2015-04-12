@@ -290,7 +290,7 @@ fn test_client_delete() {
     let mut client = Client::new(nodes, 2).ok().unwrap();
 
     assert!{ client.flush().is_ok() };
-    assert!{ client.delete("foo").ok().unwrap() == false };
+    assert!{ client.delete("fooc").ok().unwrap() == false };
 }
 
 #[test]
@@ -301,12 +301,12 @@ fn test_client_incr() {
 
     let mut client = Client::new(nodes, 2).ok().unwrap();
     assert!{ client.flush().is_ok() };
-    let mut result = client.incr("lie", 42);
+    let mut result = client.incr("liec", 42);
     assert!{ result.ok().unwrap() == None };
 
     assert!{ client.flush().is_ok() };
-    client.set("truth", b"42", 0, 0).ok().unwrap();
-    result = client.incr("truth", 1);
+    client.set("truthc", b"42", 0, 0).ok().unwrap();
+    result = client.incr("truthc", 1);
     assert!{ result.ok().unwrap().unwrap() == 43 };
 }
 
