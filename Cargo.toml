@@ -8,5 +8,9 @@ license = "MIT"
 description = "memcached client for rust"
 keywords = ["memcache", "memcached", "client", "driver"]
 
+[dependencies]
+hash_ring = "*"
+
+
 [lib]
 name = "memcache"
