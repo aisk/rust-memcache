@@ -355,7 +355,7 @@ fn test_get() {
     assert!{ conn.flush().is_ok() };
     assert!{ conn.get("foo").ok().unwrap() == None };
 
-    assert!{ conn.set("foo", b"bar", 0, 10).ok().unwrap() == true };
+    assert!{ conn.set("foo", b"bar", 10, 10).ok().unwrap() == true };
     let result = conn.get("foo");
     let result_tuple = result.ok().unwrap().unwrap();
     assert!{ result_tuple.0 == b"bar" };
@@ -377,7 +377,7 @@ fn test_incr() {
     assert!{ result.ok().unwrap() == None };
 
     assert!{ conn.flush().is_ok() };
-    conn.set("truth", b"42", 0, 0).ok().unwrap();
+    conn.set("truth", b"42", 10, 0).ok().unwrap();
     result = conn.incr("truth", 1);
     assert!{ result.ok().unwrap().unwrap() == 43 };
 }
@@ -390,7 +390,7 @@ fn test_decr() {
     assert!{ result.ok().unwrap() == None };
 
     assert!{ conn.flush().is_ok() };
-    conn.set("truth", b"42", 0, 0).ok().unwrap();
+    conn.set("truth", b"42", 10, 0).ok().unwrap();
     result = conn.decr("truth", 1);
     assert!{ result.ok().unwrap().unwrap() == 41 };
 }
