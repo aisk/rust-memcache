@@ -259,7 +259,7 @@ fn test_client_set() {
 
     let mut client = Client::new(nodes, 2).ok().unwrap();
     assert!{ client.flush().is_ok() };
-    assert!{ client.set("foo", b"bar", 10, 0).ok().unwrap() == true };
+    assert!{ client.set("fooc", b"bar", 10, 0).ok().unwrap() == true };
 }
 
 #[test]
@@ -271,10 +271,10 @@ fn test_client_get() {
     let mut client = Client::new(nodes, 2).ok().unwrap();
 
     assert!{ client.flush().is_ok() };
-    assert!{ client.get("foo").ok().unwrap() == None };
+    assert!{ client.get("fooc").ok().unwrap() == None };
 
-    assert!{ client.set("foo", b"bar", 0, 10).ok().unwrap() == true };
-    let result = client.get("foo");
+    assert!{ client.set("fooc", b"bar", 0, 10).ok().unwrap() == true };
+    let result = client.get("fooc");
     let result_tuple = result.ok().unwrap().unwrap();
     assert!{ result_tuple.0 == b"bar" };
     assert!{ result_tuple.1 == 10 };
@@ -323,8 +323,8 @@ fn test_client_decr() {
     assert!{ result.ok().unwrap() == None };
 
     assert!{ client.flush().is_ok() };
-    client.set("truth", b"42", 0, 0).ok().unwrap();
-    result = client.decr("truth", 1);
+    client.set("truthc", b"42", 0, 0).ok().unwrap();
+    result = client.decr("truthc", 1);
     assert!{ result.ok().unwrap().unwrap() == 41 };
 }
 
