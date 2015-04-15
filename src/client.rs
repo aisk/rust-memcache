@@ -79,100 +79,98 @@ impl Commands for Client {
 
 }
 
-#[test]
-fn test_client() {
-    let mut nodes: Vec<NodeInfo> = Vec::new();
-    nodes.push(NodeInfo{host: "localhost", port: 2333});
-    nodes.push(NodeInfo{host: "localhost", port: 2334});
+#[cfg(test)]
+mod test {
+    use hash_ring::NodeInfo;
+    use Commands;
+    use client::Client;
 
-    let client = Client::new(nodes, 2);
-    assert! { client.is_ok() };
-}
+    #[test]
+    fn test_client() {
+        // test client
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        nodes.push(NodeInfo{host: "localhost", port: 2333});
+        nodes.push(NodeInfo{host: "localhost", port: 2334});
 
-
-#[test]
-fn test_flush() {
-    let mut nodes: Vec<NodeInfo> = Vec::new();
-    nodes.push(NodeInfo{host: "localhost", port: 2333});
-    nodes.push(NodeInfo{host: "localhost", port: 2334});
-
-    let mut client = Client::new(nodes, 2).ok().unwrap();
-    assert!{ client.flush().is_ok() };
-}
-
-#[test]
-fn test_set() {
-    let mut nodes: Vec<NodeInfo> = Vec::new();
-    nodes.push(NodeInfo{host: "localhost", port: 2333});
-    nodes.push(NodeInfo{host: "localhost", port: 2334});
-
-    let mut client = Client::new(nodes, 2).ok().unwrap();
-    assert!{ client.flush().is_ok() };
-    assert!{ client.set("fooc", b"bar", 10, 0).ok().unwrap() == true };
-}
-
-#[test]
-fn test_get() {
-    let mut nodes: Vec<NodeInfo> = Vec::new();
-    nodes.push(NodeInfo{host: "localhost", port: 2333});
-    nodes.push(NodeInfo{host: "localhost", port: 2334});
-
-    let mut client = Client::new(nodes, 2).ok().unwrap();
-
-    assert!{ client.flush().is_ok() };
-    assert!{ client.get("fooc").ok().unwrap() == None };
-
-    assert!{ client.set("fooc", b"bar", 0, 10).ok().unwrap() == true };
-    let result = client.get("fooc");
-    let result_tuple = result.ok().unwrap().unwrap();
-    assert!{ result_tuple.0 == b"bar" };
-    assert!{ result_tuple.1 == 10 };
-}
+        let client = Client::new(nodes, 2);
+        assert! { client.is_ok() };
 
 
-#[test]
-fn test_delete() {
-    let mut nodes: Vec<NodeInfo> = Vec::new();
-    nodes.push(NodeInfo{host: "localhost", port: 2333});
-    nodes.push(NodeInfo{host: "localhost", port: 2334});
+        // test_flush
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        nodes.push(NodeInfo{host: "localhost", port: 2333});
+        nodes.push(NodeInfo{host: "localhost", port: 2334});
+    
+        let mut client = Client::new(nodes, 2).ok().unwrap();
+        assert!{ client.flush().is_ok() };
+ 
 
-    let mut client = Client::new(nodes, 2).ok().unwrap();
+        // test_set
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        nodes.push(NodeInfo{host: "localhost", port: 2333});
+        nodes.push(NodeInfo{host: "localhost", port: 2334});
+    
+        let mut client = Client::new(nodes, 2).ok().unwrap();
+        assert!{ client.flush().is_ok() };
+        assert!{ client.set("fooc", b"bar", 10, 0).ok().unwrap() == true };
+    
 
-    assert!{ client.flush().is_ok() };
-    assert!{ client.delete("fooc").ok().unwrap() == false };
-}
-
-#[test]
-fn test_incr() {
-    let mut nodes: Vec<NodeInfo> = Vec::new();
-    nodes.push(NodeInfo{host: "localhost", port: 2333});
-    nodes.push(NodeInfo{host: "localhost", port: 2334});
-
-    let mut client = Client::new(nodes, 2).ok().unwrap();
-    assert!{ client.flush().is_ok() };
-    let mut result = client.incr("liec", 42);
-    assert!{ result.ok().unwrap() == None };
-
-    assert!{ client.flush().is_ok() };
-    client.set("truthc", b"42", 0, 0).ok().unwrap();
-    result = client.incr("truthc", 1);
-    assert!{ result.ok().unwrap().unwrap() == 43 };
-}
-
-
-#[test]
-fn test_decr() {
-    let mut nodes: Vec<NodeInfo> = Vec::new();
-    nodes.push(NodeInfo{host: "localhost", port: 2333});
-    nodes.push(NodeInfo{host: "localhost", port: 2334});
-    let mut client = Client::new(nodes, 2).ok().unwrap();
-    assert!{ client.flush().is_ok() };
-
-    let mut result = client.decr("lie", 42);
-    assert!{ result.ok().unwrap() == None };
-
-    assert!{ client.flush().is_ok() };
-    client.set("truthc", b"42", 0, 0).ok().unwrap();
-    result = client.decr("truthc", 1);
-    assert!{ result.ok().unwrap().unwrap() == 41 };
+        // test_get
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        nodes.push(NodeInfo{host: "localhost", port: 2333});
+        nodes.push(NodeInfo{host: "localhost", port: 2334});
+    
+        let mut client = Client::new(nodes, 2).ok().unwrap();
+    
+        assert!{ client.flush().is_ok() };
+        assert!{ client.get("fooc").ok().unwrap() == None };
+    
+        assert!{ client.set("fooc", b"bar", 0, 10).ok().unwrap() == true };
+        let result = client.get("fooc");
+        let result_tuple = result.ok().unwrap().unwrap();
+        assert!{ result_tuple.0 == b"bar" };
+        assert!{ result_tuple.1 == 10 };
+    
+    
+        // test_delete
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        nodes.push(NodeInfo{host: "localhost", port: 2333});
+        nodes.push(NodeInfo{host: "localhost", port: 2334});
+    
+        let mut client = Client::new(nodes, 2).ok().unwrap();
+    
+        assert!{ client.flush().is_ok() };
+        assert!{ client.delete("fooc").ok().unwrap() == false };
+    
+        // test_incr
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        nodes.push(NodeInfo{host: "localhost", port: 2333});
+        nodes.push(NodeInfo{host: "localhost", port: 2334});
+    
+        let mut client = Client::new(nodes, 2).ok().unwrap();
+        assert!{ client.flush().is_ok() };
+        let mut result = client.incr("liec", 42);
+        assert!{ result.ok().unwrap() == None };
+    
+        assert!{ client.flush().is_ok() };
+        client.set("truthc", b"42", 0, 0).ok().unwrap();
+        result = client.incr("truthc", 1);
+        assert!{ result.ok().unwrap().unwrap() == 43 };
+    
+    
+        // test_decr
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        nodes.push(NodeInfo{host: "localhost", port: 2333});
+        nodes.push(NodeInfo{host: "localhost", port: 2334});
+        let mut client = Client::new(nodes, 2).ok().unwrap();
+        assert!{ client.flush().is_ok() };
+    
+        let mut result = client.decr("lie", 42);
+        assert!{ result.ok().unwrap() == None };
+    
+        assert!{ client.flush().is_ok() };
+        client.set("truthc", b"42", 0, 0).ok().unwrap();
+        result = client.decr("truthc", 1);
+        assert!{ result.ok().unwrap().unwrap() == 41 };
+    }
 }

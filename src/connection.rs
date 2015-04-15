@@ -134,67 +134,61 @@ impl Connection {
 
 
 // Testing single connected servers
+#[cfg(test)]
+mod test{
+    use connection::Connection;
+    use Commands;
 
-#[test]
-fn test_connect() {
-    assert!{ Connection::connect("localhost", 2333).is_ok() };
-}
-
-#[test]
-fn test_flush() {
-    let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
-    assert!{ conn.flush().is_ok() };
-}
-
-#[test]
-fn test_set() {
-    let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
-    assert!{ conn.flush().is_ok() };
-    assert!{ conn.set("foo", b"bar", 10, 0).ok().unwrap() == true };
-}
-
-#[test]
-fn test_get() {
-    let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
-    assert!{ conn.flush().is_ok() };
-    assert!{ conn.get("foo").ok().unwrap() == None };
-
-    assert!{ conn.set("foo", b"bar", 10, 10).ok().unwrap() == true };
-    let result = conn.get("foo");
-    let result_tuple = result.ok().unwrap().unwrap();
-    assert!{ result_tuple.0 == b"bar" };
-    assert!{ result_tuple.1 == 10 };
-}
-
-#[test]
-fn test_delete() {
-    let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
-    assert!{ conn.flush().is_ok() };
-    assert!{ conn.delete("foo").ok().unwrap() == false };
-}
-
-#[test]
-fn test_incr() {
-    let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
-    assert!{ conn.flush().is_ok() };
-    let mut result = conn.incr("lie", 42);
-    assert!{ result.ok().unwrap() == None };
-
-    assert!{ conn.flush().is_ok() };
-    conn.set("truth", b"42", 10, 0).ok().unwrap();
-    result = conn.incr("truth", 1);
-    assert!{ result.ok().unwrap().unwrap() == 43 };
-}
-
-#[test]
-fn test_decr() {
-    let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
-    assert!{ conn.flush().is_ok() };
-    let mut result = conn.decr("lie", 42);
-    assert!{ result.ok().unwrap() == None };
-
-    assert!{ conn.flush().is_ok() };
-    conn.set("truth", b"42", 10, 0).ok().unwrap();
-    result = conn.decr("truth", 1);
-    assert!{ result.ok().unwrap().unwrap() == 41 };
+    #[test]
+    fn test_connection(){
+        // test_connect
+        assert!{ Connection::connect("localhost", 2333).is_ok() };
+    
+        // test_flush
+        let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
+        assert!{ conn.flush().is_ok() };
+    
+        // test_set
+        let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
+        assert!{ conn.flush().is_ok() };
+        assert!{ conn.set("foo", b"bar", 10, 0).ok().unwrap() == true };
+    
+        // test_get
+        let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
+        assert!{ conn.flush().is_ok() };
+        assert!{ conn.get("foo").ok().unwrap() == None };
+    
+        assert!{ conn.set("foo", b"bar", 10, 10).ok().unwrap() == true };
+        let result = conn.get("foo");
+        let result_tuple = result.ok().unwrap().unwrap();
+        assert!{ result_tuple.0 == b"bar" };
+        assert!{ result_tuple.1 == 10 };
+    
+        // test_delete
+        let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
+        assert!{ conn.flush().is_ok() };
+        assert!{ conn.delete("foo").ok().unwrap() == false };
+    
+        // test_incr
+        let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
+        assert!{ conn.flush().is_ok() };
+        let mut result = conn.incr("lie", 42);
+        assert!{ result.ok().unwrap() == None };
+    
+        assert!{ conn.flush().is_ok() };
+        conn.set("truth", b"42", 10, 0).ok().unwrap();
+        result = conn.incr("truth", 1);
+        assert!{ result.ok().unwrap().unwrap() == 43 };
+    
+        // test_decr
+        let mut conn = Connection::connect("localhost", 2333).ok().unwrap();
+        assert!{ conn.flush().is_ok() };
+        let mut result = conn.decr("lie", 42);
+        assert!{ result.ok().unwrap() == None };
+    
+        assert!{ conn.flush().is_ok() };
+        conn.set("truth", b"42", 10, 0).ok().unwrap();
+        result = conn.decr("truth", 1);
+        assert!{ result.ok().unwrap().unwrap() == 41 };
+    }
 }
