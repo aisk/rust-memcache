@@ -30,17 +30,25 @@ impl Client {
     }
 }
 
+impl Client {
+
+    fn get_connection_by_key(&mut self, key :&str) -> &mut Connection {
+        let node = self.ring.get_node(key.to_string());
+        let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
+        return conn;
+    }
+
+}
+
 impl Commands for Client {
     
     fn set(&mut self, key: &str, value: &[u8], exptime: isize, flags: u16) -> MemcacheResult<bool> {
-        let node = self.ring.get_node(key.to_string());
-        let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
+        let conn = self.get_connection_by_key(key);
         conn.set(key, value, exptime, flags)
     }
 
     fn get(&mut self, key: &str) -> MemcacheResult<Option<(Vec<u8>, u16)>> {
-        let node = self.ring.get_node(key.to_string());
-        let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
+        let conn = self.get_connection_by_key(key);
         conn.get(key)
     }
     
@@ -55,20 +63,17 @@ impl Commands for Client {
     }
 
     fn delete(&mut self, key: &str) -> MemcacheResult<bool> {
-        let node = self.ring.get_node(key.to_string());
-        let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
+        let conn = self.get_connection_by_key(key);
         conn.delete(key)
     }
 
     fn incr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
-        let node = self.ring.get_node(key.to_string());
-        let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
+        let conn = self.get_connection_by_key(key);
         conn.incr(key, value)
     }
 
     fn decr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
-        let node = self.ring.get_node(key.to_string());
-        let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
+        let conn = self.get_connection_by_key(key);
         conn.decr(key, value)        
     }
 
