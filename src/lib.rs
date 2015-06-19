@@ -33,5 +33,5 @@ trait Commands {
     fn decr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>>;
 }
 
-mod connection;
-mod client;
+pub mod connection;
+pub mod client;
