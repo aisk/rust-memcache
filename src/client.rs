@@ -13,7 +13,7 @@ pub struct Client {
 
 impl Client {
     // `replicas` are copies of nodes that point to real servers.
-    fn new(nodes: Vec<NodeInfo>, replicas: isize) -> MemcacheResult<Client> {
+    pub fn new(nodes: Vec<NodeInfo>, replicas: isize) -> MemcacheResult<Client> {
         let mut new_client = Client {
            ring : HashRing::new(nodes.clone(), replicas),
            connections : HashMap::with_capacity(nodes.len())
@@ -32,7 +32,7 @@ impl Client {
 
 impl Client {
 
-    fn get_connection_by_key(&mut self, key :&str) -> &mut Connection {
+    pub fn get_connection_by_key(&mut self, key :&str) -> &mut Connection {
         let node = self.ring.get_node(key.to_string());
         let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
         return conn;
