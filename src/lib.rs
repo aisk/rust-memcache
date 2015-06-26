@@ -1,3 +1,5 @@
+#![feature(buf_stream)]
+
 #![crate_name = "memcache"]
 #![crate_type = "rlib"]
 
@@ -22,7 +24,7 @@ pub type MemcacheResult<T> = Result<T, MemcacheError>;
 
 // Trait defining Memcache protocol both for multi server connection using `Client` as
 // well as single connection using `Connection`.
-trait Commands {
+pub trait Commands {
     fn flush(&mut self) -> MemcacheResult<()>;
     fn delete(&mut self, key: &str) -> MemcacheResult<bool>;
     fn get(&mut self, key: &str) -> MemcacheResult<Option<(Vec<u8>, u16)>>;
@@ -31,5 +33,5 @@ trait Commands {
     fn decr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>>;
 }
 
-mod connection;
-mod client;
+pub mod connection;
+pub mod client;

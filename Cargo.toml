@@ -11,6 +11,5 @@ keywords = ["memcache", "memcached", "client", "driver"]
 [dependencies]
 hash_ring = "*"
 
-
 [lib]
 name = "memcache"
