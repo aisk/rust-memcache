@@ -9,7 +9,7 @@ description = "memcached client for rust"
 keywords = ["memcache", "memcached", "client", "driver"]
 
 [dependencies]
-hash_ring = "*"
+libc = "*"
 
 [lib]
 name = "memcache"
