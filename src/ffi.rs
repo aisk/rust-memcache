@@ -1,6 +1,7 @@
 extern crate libc;
 use std::str;
 use std::ffi;
+use std::ptr;
 use self::libc::{size_t, c_char, time_t, uint32_t};
 
 #[repr(C)]
@@ -68,6 +69,7 @@ extern {
     fn memcached_last_error_message(client: *const memcached_st) -> *const c_char;
     fn memcached_strerror(client: *const memcached_st, rc: memcached_return_t) -> *const c_char;
     fn memcached_set(client: *const memcached_st, key: *const c_char, key_length: size_t, value: *const c_char, value_length: size_t, expiration: time_t, flag: uint32_t) -> memcached_return_t;
+    fn memcached_get(client: *const memcached_st, key: *const c_char, key_length: size_t, value_length: *mut size_t, flags: *mut uint32_t, error: *mut memcached_return_t) -> *const c_char;
     fn memcached_flush(client: *const memcached_st, expiration: time_t) -> memcached_return_t;
 
 }
@@ -113,6 +115,30 @@ fn test_memcached_set() {
             memcached_return_t::MEMCACHED_SUCCESS => {}
             _ => assert!(false)
         }
+    }
+}
+
+#[test]
+fn test_memcached_get() {
+    unsafe{
+        let s = "--SERVER=localhost";
+        let string = ffi::CString::new(s).unwrap();
+        let client = memcached(string.as_ptr(), 18);
+        assert!(!client.is_null());
+
+        let key = ffi::CString::new("foo").unwrap().as_ptr();
+        let key_length = 3;
+        let value_length: *mut size_t = ptr::null_mut();
+        let flags: *mut uint32_t = ptr::null_mut();
+        let error: *mut memcached_return_t = ptr::null_mut();
+
+        let r = memcached_get(client, key, key_length, value_length, flags, error);
+
+        println!("xxxx {:?}", r);
+        // match error {
+        //     memcached_return_t::MEMCACHED_SUCCESS => {}
+        //     _ => assert!(false)
+        // }
     }
 }
 
