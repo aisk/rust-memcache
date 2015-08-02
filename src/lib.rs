@@ -5,6 +5,11 @@ pub mod ffi;
 mod error;
 mod client;
 
-pub use client::connect;
+pub use client::Client;
 pub use error::MemcacheError;
 pub use error::MemcacheResult;
+
+#[inline]
+pub fn connect(host: &str, port: u16) -> MemcacheResult<Client> {
+    return Client::connect(host, port);
+}
