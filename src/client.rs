@@ -1,176 +1,104 @@
-use std::collections::HashMap;
-use hash_ring::{NodeInfo, HashRing};
+extern crate libc;
 
-use super::{MemcacheResult, Commands, };
-use super::connection::Connection;
+use std::ffi::CString;
+use std::mem;
+use std::ptr;
+use std::slice;
+use ffi::{
+    memcached,
+    memcached_flush,
+    memcached_get,
+    memcached_last_error,
+    memcached_return_t,
+    memcached_set,
+    memcached_st,
+};
+use error::{
+    MemcacheError,
+    MemcacheResult,
+};
 
-// Actual memcached client. Holds all connections and perform appropriate job using
-// Consistent Hash Ring to balanced between servers and virtual replicas.
+#[derive(Debug)]
 pub struct Client {
-    ring : HashRing<NodeInfo>,
-    connections : HashMap<String, Connection>
+    c_client: *const memcached_st,
 }
 
 impl Client {
-    // `replicas` are copies of nodes that point to real servers.
-    pub fn new(nodes: Vec<NodeInfo>, replicas: isize) -> MemcacheResult<Client> {
-        let mut new_client = Client {
-           ring : HashRing::new(nodes.clone(), replicas),
-           connections : HashMap::with_capacity(nodes.len())
-        };
-        
-        // since BufStream can't be clonned. The connections reside in Client. So node lookups are then mapped
-        // and commands executed using the right connection regardles if a read or virtual node.
-        for n in nodes {
-            let conn = try!{Connection::connect(n.host, n.port)};
-            new_client.connections.insert(n.to_string(), conn);
+    pub fn connect(host: &str, port: u16) -> MemcacheResult<Client> {
+        let mut s = "--SERVER=".to_string();
+        s.push_str(host);
+        s.push(':');
+        s.push_str(&port.to_string());
+        let cstring = CString::new(s).unwrap();
+        let s_len = cstring.to_bytes().len();
+        unsafe {
+            let c_client = memcached(cstring.as_ptr(), s_len as u64);
+            if c_client.is_null() {
+                let error_code = memcached_last_error(c_client);
+                return Err(MemcacheError::new(error_code));
+            }
+            return Ok(Client{ c_client: c_client });
         }
-
-        Ok(new_client)
-    }
-}
-
-impl Client {
-
-    pub fn get_connection_by_key(&mut self, key :&str) -> &mut Connection {
-        let node = self.ring.get_node(key.to_string());
-        let conn = self.connections.get_mut(&node.to_string()).expect("Inexistent Connection");
-        return conn;
     }
 
-}
-
-impl Commands for Client {
-    
-    fn set(&mut self, key: &str, value: &[u8], exptime: isize, flags: u16) -> MemcacheResult<bool> {
-        let conn = self.get_connection_by_key(key);
-        conn.set(key, value, exptime, flags)
-    }
-
-    fn get(&mut self, key: &str) -> MemcacheResult<Option<(Vec<u8>, u16)>> {
-        let conn = self.get_connection_by_key(key);
-        conn.get(key)
-    }
-    
-    fn flush(&mut self) -> MemcacheResult<()> {
-        for (_, conn) in self.connections.iter_mut() {
-            match conn.flush() {
-                Ok(_) => continue,
-                e => return e
+    pub fn flush(&self, expiration: libc::time_t) -> MemcacheResult<()> {
+        let r = unsafe{ memcached_flush(self.c_client, expiration) };
+        match r {
+            memcached_return_t::MEMCACHED_SUCCESS => {
+                return Ok(());
+            }
+            _ => {
+                return Err(MemcacheError::new(r));
             }
         }
-        Ok(())
     }
 
-    fn delete(&mut self, key: &str) -> MemcacheResult<bool> {
-        let conn = self.get_connection_by_key(key);
-        conn.delete(key)
+    pub fn set_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
+        // TODO: raise if key containes NULL
+        let key = CString::new(key).unwrap();
+        let key_length = key.as_bytes().len();
+        let value_length = value.len();
+        let value = unsafe { CString::from_vec_unchecked(value.to_vec()) };
+        let r = unsafe {
+            memcached_set(self.c_client, key.as_ptr(), key_length as u64, value.as_ptr(), value_length as u64, expiration, flags)
+        };
+        match r {
+            memcached_return_t::MEMCACHED_SUCCESS => {
+                return Ok(());
+            }
+            _ => {
+                return Err(MemcacheError::new(r));
+            }
+        }
     }
 
-    fn incr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
-        let conn = self.get_connection_by_key(key);
-        conn.incr(key, value)
-    }
+    pub fn get_raw(&self, key: &str) -> MemcacheResult<(&[i8], u32)> {
+        // TODO: raise if key containes NULL
+        let key = CString::new(key).unwrap();
+        let key_length = key.as_bytes().len();
 
-    fn decr(&mut self, key: &str, value: u64) -> MemcacheResult<Option<(isize)>> {
-        let conn = self.get_connection_by_key(key);
-        conn.decr(key, value)        
-    }
+        let mut value_length: libc::size_t = 0;
+        let value_length_ptr: *mut libc::size_t = &mut value_length;
 
-}
+        let mut flags: libc::uint32_t = 0;
+        let flags_ptr: *mut libc::uint32_t = &mut flags;
 
-#[cfg(test)]
-mod test {
-    use hash_ring::NodeInfo;
-    use Commands;
-    use client::Client;
+        let mut error: memcached_return_t = memcached_return_t::MEMCACHED_FAILURE;
+        let error_ptr: *mut memcached_return_t = &mut error;
 
-    #[test]
-    fn test_client() {
-        // test client
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        nodes.push(NodeInfo{host: "localhost", port: 2333});
-        nodes.push(NodeInfo{host: "localhost", port: 2334});
+        let value_ptr = unsafe {
+            memcached_get(self.c_client, key.as_ptr(), key_length as u64, value_length_ptr, flags_ptr, error_ptr)
+        };
 
-        let client = Client::new(nodes, 2);
-        assert! { client.is_ok() };
-
-
-        // test_flush
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        nodes.push(NodeInfo{host: "localhost", port: 2333});
-        nodes.push(NodeInfo{host: "localhost", port: 2334});
-    
-        let mut client = Client::new(nodes, 2).ok().unwrap();
-        assert!{ client.flush().is_ok() };
- 
-
-        // test_set
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        nodes.push(NodeInfo{host: "localhost", port: 2333});
-        nodes.push(NodeInfo{host: "localhost", port: 2334});
-    
-        let mut client = Client::new(nodes, 2).ok().unwrap();
-        assert!{ client.flush().is_ok() };
-        assert!{ client.set("fooc", b"bar", 10, 0).ok().unwrap() == true };
-    
-
-        // test_get
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        nodes.push(NodeInfo{host: "localhost", port: 2333});
-        nodes.push(NodeInfo{host: "localhost", port: 2334});
-    
-        let mut client = Client::new(nodes, 2).ok().unwrap();
-    
-        assert!{ client.flush().is_ok() };
-        assert!{ client.get("fooc").ok().unwrap() == None };
-    
-        assert!{ client.set("fooc", b"bar", 0, 10).ok().unwrap() == true };
-        let result = client.get("fooc");
-        let result_tuple = result.ok().unwrap().unwrap();
-        assert!{ result_tuple.0 == b"bar" };
-        assert!{ result_tuple.1 == 10 };
-    
-    
-        // test_delete
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        nodes.push(NodeInfo{host: "localhost", port: 2333});
-        nodes.push(NodeInfo{host: "localhost", port: 2334});
-    
-        let mut client = Client::new(nodes, 2).ok().unwrap();
-    
-        assert!{ client.flush().is_ok() };
-        assert!{ client.delete("fooc").ok().unwrap() == false };
-    
-        // test_incr
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        nodes.push(NodeInfo{host: "localhost", port: 2333});
-        nodes.push(NodeInfo{host: "localhost", port: 2334});
-    
-        let mut client = Client::new(nodes, 2).ok().unwrap();
-        assert!{ client.flush().is_ok() };
-        let mut result = client.incr("liec", 42);
-        assert!{ result.ok().unwrap() == None };
-    
-        assert!{ client.flush().is_ok() };
-        client.set("truthc", b"42", 0, 0).ok().unwrap();
-        result = client.incr("truthc", 1);
-        assert!{ result.ok().unwrap().unwrap() == 43 };
-    
-    
-        // test_decr
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        nodes.push(NodeInfo{host: "localhost", port: 2333});
-        nodes.push(NodeInfo{host: "localhost", port: 2334});
-        let mut client = Client::new(nodes, 2).ok().unwrap();
-        assert!{ client.flush().is_ok() };
-    
-        let mut result = client.decr("lie", 42);
-        assert!{ result.ok().unwrap() == None };
-    
-        assert!{ client.flush().is_ok() };
-        client.set("truthc", b"42", 0, 0).ok().unwrap();
-        result = client.decr("truthc", 1);
-        assert!{ result.ok().unwrap().unwrap() == 41 };
+        // println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
+        match error {
+            memcached_return_t::MEMCACHED_SUCCESS => {
+                let value = unsafe {
+                    mem::transmute(slice::from_raw_parts(value_ptr, value_length as usize))
+                };
+                return Ok((value, flags));
+            }
+            _ => Err(MemcacheError::new(error))
+        }
     }
 }

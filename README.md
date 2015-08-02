@@ -1,35 +1,33 @@
 # rust-memcache
 
-Memcached client for rust. Supports **Text Protocol** and multiple servers using Consistent Hash Ring.
-
-Provides two ways of accessing Memcached, via `Connection` for single servers or `Client` for multiple instances. Notice both offer the same API of Memcached commands.
+Memcached client for rust, using [libmemcached](http://libmemcached.org/) and rust FFI;
 
 * travis-ci: [![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache)
 * crates.io: [memcache](https://crates.io/crates/memcache)
 
+## Dependences
+
+- brew install libmemcached
+
 ## Usage
 ```rust
-// One can connect to a single server
-let mut conn = Connection::connect("localhost", 2333).unwrap();
+let client = memcache::connect("localhost", 2333).unwrap();
+client.set_raw("foo", &[0x1u8, 0x2u8, 0x3u8], 0, 42).unwrap();
 
-conn.set("foo", b"bar", 0).unwrap();
-assert!{ conn.get("foo").unwrap().unwrap().as_slice() == b"bar" };
-
-
-// Or many at time
-let mut nodes: Vec<NodeInfo> = Vec::new();
-nodes.push(NodeInfo{host: "localhost", port: 2333});
-nodes.push(NodeInfo{host: "localhost", port: 2334});
-
-let mut client = Client::new(nodes, 2).ok().unwrap();
-
-assert!{ client.flush().is_ok() };
-assert!{ client.get("foo").ok().unwrap() == None };
-
-assert!{ client.set("foo", b"bar", 0, 10).ok().unwrap() == true };
-let result = client.get("foo");
-
+let (value, flags) = client.get_raw("foo").unwrap();
+println!("values: {:?}", value);
+assert!(value == &[0x1i8, 0x2i8, 0x3i8]);
+assert!(flags == 42);
 ```
+
+## TODO
+
+- [ ] build on linux
+- [ ] more command
+- [ ] multi server support
+- [ ] typed interface
+- [ ] memory leak check
+- [ ] document
 
 # License
 

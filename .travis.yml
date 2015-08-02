@@ -1,10 +1,12 @@
 language: rust
-rust: nightly
+rust:
+  - stable
 
 services: memcache
 env: MEMCACHED__HOST=localhost
 
 before_script:
+  - sudo apt-get install libmemcached-dev -y
   - memcached -p 2333 -d
   - memcached -p 2334 -d
 
