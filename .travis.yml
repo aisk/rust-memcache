@@ -5,6 +5,7 @@ services: memcache
 env: MEMCACHED__HOST=localhost
 
 before_script:
+  - sudo apt-get install libmemcached -y
   - memcached -p 2333 -d
   - memcached -p 2334 -d
 
