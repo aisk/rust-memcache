@@ -5,6 +5,10 @@ Memcached client for rust, using [libmemcached](http://libmemcached.org/) and ru
 * travis-ci: [![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache)
 * crates.io: [memcache](https://crates.io/crates/memcache)
 
+## Dependences
+
+- brew install libmemcached
+
 ## Usage
 ```rust
 let client = memcache::connect("localhost", 2333).unwrap();
@@ -18,6 +22,7 @@ assert!(flags == 42);
 
 ## TODO
 
+- [ ] build on linux
 - [ ] more command
 - [ ] multi server support
 - [ ] typed interface
