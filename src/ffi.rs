@@ -66,11 +66,12 @@ pub enum memcached_return_t {
 #[link(name = "memcached")]
 extern {
     pub fn memcached(string: *const c_char, string_length: size_t) -> *const memcached_st;
-    pub fn memcached_last_error_message(client: *const memcached_st) -> *const c_char;
-    pub fn memcached_strerror(client: *const memcached_st, rc: memcached_return_t) -> *const c_char;
-    pub fn memcached_set(client: *const memcached_st, key: *const c_char, key_length: size_t, value: *const c_char, value_length: size_t, expiration: time_t, flag: uint32_t) -> memcached_return_t;
-    pub fn memcached_get(client: *const memcached_st, key: *const c_char, key_length: size_t, value_length: *mut size_t, flags: *mut uint32_t, error: *mut memcached_return_t) -> *const c_char;
     pub fn memcached_flush(client: *const memcached_st, expiration: time_t) -> memcached_return_t;
+    pub fn memcached_get(client: *const memcached_st, key: *const c_char, key_length: size_t, value_length: *mut size_t, flags: *mut uint32_t, error: *mut memcached_return_t) -> *const c_char;
+    pub fn memcached_last_error(client: *const memcached_st) -> memcached_return_t;
+    pub fn memcached_last_error_message(client: *const memcached_st) -> *const c_char;
+    pub fn memcached_set(client: *const memcached_st, key: *const c_char, key_length: size_t, value: *const c_char, value_length: size_t, expiration: time_t, flag: uint32_t) -> memcached_return_t;
+    pub fn memcached_strerror(client: *const memcached_st, rc: memcached_return_t) -> *const c_char;
 }
 
 #[test]
