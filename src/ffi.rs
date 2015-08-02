@@ -98,62 +98,52 @@ fn test_memcached_last_error_message() {
 }
 
 #[test]
-fn test_memcached_set() {
+fn test_memcached_operations() {
     unsafe{
+        // client
         let s = "--SERVER=localhost";
         let string = ffi::CString::new(s).unwrap();
         let client = memcached(string.as_ptr(), 18);
         assert!(!client.is_null());
 
-        let key = ffi::CString::new("foo").unwrap().as_ptr();
-        let key_length = 3;
-        let value = ffi::CString::new("bar").unwrap().as_ptr();
-        let value_length = 3;
-        let r = memcached_set(client, key, key_length, value, value_length, 0, 0);
-
-        match r {
-            memcached_return_t::MEMCACHED_SUCCESS => {}
-            _ => assert!(false)
-        }
-    }
-}
-
-#[test]
-fn test_memcached_get() {
-    unsafe{
-        let s = "--SERVER=localhost";
-        let string = ffi::CString::new(s).unwrap();
-        let client = memcached(string.as_ptr(), 18);
-        assert!(!client.is_null());
-
-        let key = ffi::CString::new("foo").unwrap().as_ptr();
-        let key_length = 3;
-        let value_length: *mut size_t = ptr::null_mut();
-        let flags: *mut uint32_t = ptr::null_mut();
-        let error: *mut memcached_return_t = ptr::null_mut();
-
-        let r = memcached_get(client, key, key_length, value_length, flags, error);
-
-        println!("xxxx {:?}", r);
-        // match error {
-        //     memcached_return_t::MEMCACHED_SUCCESS => {}
-        //     _ => assert!(false)
-        // }
-    }
-}
-
-#[test]
-fn test_memcached_flush() {
-    unsafe{
-        let s = "--SERVER=localhost";
-        let string = ffi::CString::new(s).unwrap();
-        let client = memcached(string.as_ptr(), 18);
-        assert!(!client.is_null());
-
+        // flush
         let r = memcached_flush(client, 0);
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {}
             _ => assert!(false)
         }
+
+        // set foo bar
+        let key = ffi::CString::new("foo").unwrap();
+        let key_length = 3;
+        let value = ffi::CString::new("bar").unwrap();
+        let value_length = 3;
+        let r = memcached_set(client, key.as_ptr(), key_length, value.as_ptr(), value_length, 0, 0);
+
+        match r {
+            memcached_return_t::MEMCACHED_SUCCESS => {}
+            _ => assert!(false)
+        }
+
+        // get foo == bar
+        let mut value_length: size_t = 0;
+        let value_length_ptr: *mut size_t = &mut value_length;
+
+        let mut flags: uint32_t = 0;
+        let flags_ptr: *mut uint32_t = &mut flags;
+
+        let mut error: memcached_return_t = memcached_return_t::MEMCACHED_FAILURE;
+        let error_ptr: *mut memcached_return_t = &mut error;
+
+        let r = memcached_get(client, key.as_ptr(), key_length, value_length_ptr, flags_ptr, error_ptr);
+
+        println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
+        assert!(value_length == 3);
+        match error {
+            memcached_return_t::MEMCACHED_SUCCESS => {}
+            _ => assert!(false)
+        }
+        let slice = ffi::CStr::from_ptr(r);
+        assert!(str::from_utf8(slice.to_bytes()).unwrap() == "bar");
     }
 }
