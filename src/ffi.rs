@@ -5,11 +5,11 @@ use std::ptr;
 use self::libc::{size_t, c_char, time_t, uint32_t};
 
 #[repr(C)]
-struct memcached_st;
+pub struct memcached_st;
 
 #[repr(C)]
 #[derive(Debug)]
-enum memcached_return_t {
+pub enum memcached_return_t {
     MEMCACHED_SUCCESS,
     MEMCACHED_FAILURE,
     MEMCACHED_HOST_LOOKUP_FAILURE, // getaddrinfo() and getnameinfo() only
@@ -63,15 +63,17 @@ enum memcached_return_t {
     // MEMCACHED_CONNECTION_SOCKET_CREATE_FAILURE= MEMCACHED_ERROR
 }
 
+#[must_use]
+pub type MemcacheErrorCode = memcached_return_t;
+
 #[link(name = "memcached")]
 extern {
-    fn memcached(string: *const c_char, string_length: size_t) -> *const memcached_st;
-    fn memcached_last_error_message(client: *const memcached_st) -> *const c_char;
-    fn memcached_strerror(client: *const memcached_st, rc: memcached_return_t) -> *const c_char;
-    fn memcached_set(client: *const memcached_st, key: *const c_char, key_length: size_t, value: *const c_char, value_length: size_t, expiration: time_t, flag: uint32_t) -> memcached_return_t;
-    fn memcached_get(client: *const memcached_st, key: *const c_char, key_length: size_t, value_length: *mut size_t, flags: *mut uint32_t, error: *mut memcached_return_t) -> *const c_char;
-    fn memcached_flush(client: *const memcached_st, expiration: time_t) -> memcached_return_t;
-
+    pub fn memcached(string: *const c_char, string_length: size_t) -> *const memcached_st;
+    pub fn memcached_last_error_message(client: *const memcached_st) -> *const c_char;
+    pub fn memcached_strerror(client: *const memcached_st, rc: memcached_return_t) -> *const c_char;
+    pub fn memcached_set(client: *const memcached_st, key: *const c_char, key_length: size_t, value: *const c_char, value_length: size_t, expiration: time_t, flag: uint32_t) -> memcached_return_t;
+    pub fn memcached_get(client: *const memcached_st, key: *const c_char, key_length: size_t, value_length: *mut size_t, flags: *mut uint32_t, error: *mut memcached_return_t) -> *const c_char;
+    pub fn memcached_flush(client: *const memcached_st, expiration: time_t) -> memcached_return_t;
 }
 
 #[test]
@@ -80,7 +82,6 @@ fn test_memcaced() {
         let s = "--SERVER=localhost";
         let string = ffi::CString::new(s).unwrap();
         let client = memcached(string.as_ptr(), 18);
-        println!("{:?}", client);
         assert!(!client.is_null());
     }
 }
@@ -110,7 +111,7 @@ fn test_memcached_operations() {
         let r = memcached_flush(client, 0);
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {}
-            _ => assert!(false)
+            _ => panic!()
         }
 
         // set foo bar
@@ -122,7 +123,7 @@ fn test_memcached_operations() {
 
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {}
-            _ => assert!(false)
+            _ => panic!()
         }
 
         // get foo == bar
@@ -141,7 +142,7 @@ fn test_memcached_operations() {
         assert!(value_length == 3);
         match error {
             memcached_return_t::MEMCACHED_SUCCESS => {}
-            _ => assert!(false)
+            _ => panic!()
         }
         let slice = ffi::CStr::from_ptr(r);
         assert!(str::from_utf8(slice.to_bytes()).unwrap() == "bar");
