@@ -79,9 +79,9 @@ extern {
 #[test]
 fn test_memcaced() {
     unsafe {
-        let s = "--SERVER=localhost";
+        let s = "--SERVER=localhost:2333";
         let string = ffi::CString::new(s).unwrap();
-        let client = memcached(string.as_ptr(), 18);
+        let client = memcached(string.as_ptr(), 23);
         assert!(!client.is_null());
     }
 }
@@ -93,7 +93,7 @@ fn test_memcached_last_error_message() {
         let client = memcached(string.as_ptr(), 3);
         let error = memcached_last_error_message(client);
         let slice = ffi::CStr::from_ptr(error);
-        println!("string returned: {}", str::from_utf8(slice.to_bytes()).unwrap());
+        // println!("string returned: {}", str::from_utf8(slice.to_bytes()).unwrap());
         assert!(!error.is_null());
     }
 }
@@ -102,13 +102,15 @@ fn test_memcached_last_error_message() {
 fn test_memcached_operations() {
     unsafe{
         // client
-        let s = "--SERVER=localhost";
+        let s = "--SERVER=localhost:2333";
         let string = ffi::CString::new(s).unwrap();
-        let client = memcached(string.as_ptr(), 18);
+        let client = memcached(string.as_ptr(), 23);
         assert!(!client.is_null());
 
         // flush
         let r = memcached_flush(client, 0);
+        let error = memcached_last_error_message(client);
+        let slice = ffi::CStr::from_ptr(error);
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {}
             _ => panic!()
@@ -138,7 +140,7 @@ fn test_memcached_operations() {
 
         let r = memcached_get(client, key.as_ptr(), key_length, value_length_ptr, flags_ptr, error_ptr);
 
-        println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
+        // println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
         assert!(value_length == 3);
         match error {
             memcached_return_t::MEMCACHED_SUCCESS => {}
