@@ -18,11 +18,11 @@ assert!(flags == 42);
 
 ## TODO
 
-[ ] more command
-[ ] multi server support
-[ ] typed interface
-[ ] memory leak check
-[ ] document
+- [ ] more command
+- [ ] multi server support
+- [ ] typed interface
+- [ ] memory leak check
+- [ ] document
 
 # License
 
