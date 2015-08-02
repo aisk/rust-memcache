@@ -63,9 +63,6 @@ pub enum memcached_return_t {
     // MEMCACHED_CONNECTION_SOCKET_CREATE_FAILURE= MEMCACHED_ERROR
 }
 
-#[must_use]
-pub type MemcacheErrorCode = memcached_return_t;
-
 #[link(name = "memcached")]
 extern {
     pub fn memcached(string: *const c_char, string_length: size_t) -> *const memcached_st;

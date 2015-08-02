@@ -1,6 +1,9 @@
+extern crate libc;
+
 use std::ptr;
 use std::ffi::CString;
 use ffi::{
+    memcached_return_t,
     memcached_st,
     memcached_flush,
     memcached,
@@ -29,9 +32,17 @@ impl Client {
             return Ok(Client{ c_client: c_client });
         }
     }
-    pub fn flush(&self) {
+    pub fn flush(&self, expire: libc::time_t) -> MemcacheResult<()> {
         unsafe {
-            memcached_flush(self.c_client, 0);
+            let r = memcached_flush(self.c_client, expire);
+            match r {
+                memcached_return_t::MEMCACHED_SUCCESS => {
+                    return Ok(());
+                }
+                _ => {
+                    return Err(MemcacheError::new(r));
+                }
+            }
         }
     }
 }
