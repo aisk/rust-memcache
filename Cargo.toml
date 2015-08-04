@@ -5,7 +5,7 @@ authors = ["asaka"]
 repository = "https://github.com/aisk/rust-memcache"
 readme = "README.md"
 license = "MIT"
-description = "memcached client for rust"
+description = "memcached client for rust, use FFI and libmemcached"
 keywords = ["memcache", "memcached", "client", "driver"]
 
 [dependencies]
