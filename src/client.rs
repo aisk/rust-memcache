@@ -6,6 +6,7 @@ use std::ptr;
 use std::slice;
 use ffi::{
     memcached,
+    memcached_free,
     memcached_flush,
     memcached_get,
     memcached_last_error,
@@ -21,6 +22,14 @@ use error::{
 #[derive(Debug)]
 pub struct Client {
     c_client: *const memcached_st,
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        unsafe {
+            memcached_free(self.c_client);
+        }
+    }
 }
 
 impl Client {
