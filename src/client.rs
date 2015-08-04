@@ -9,6 +9,7 @@ use std::ptr;
 use std::slice;
 use ffi::{
     memcached,
+    memcached_exist,
     memcached_free,
     memcached_flush,
     memcached_get,
@@ -62,6 +63,19 @@ impl Client {
             _ => {
                 return Err(MemcacheError::new(r));
             }
+        }
+    }
+
+    pub fn exist(&self, key: &str) -> MemcacheResult<bool> {
+        let key = CString::new(key).unwrap();
+        let key_length = key.as_bytes().len();
+        let ret = unsafe{
+            memcached_exist(self.c_client, key.as_ptr(), key_length as u64)
+        };
+        match ret {
+            memcached_return_t::MEMCACHED_SUCCESS => Ok(true),
+            memcached_return_t::MEMCACHED_NOTFOUND => Ok(false),
+            _ => Err(MemcacheError::new(ret)),
         }
     }
 
