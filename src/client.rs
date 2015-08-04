@@ -1,6 +1,9 @@
 extern crate libc;
 
-use std::ffi::CString;
+use std::ffi::{
+    CStr,
+    CString,
+};
 use std::mem;
 use std::ptr;
 use std::slice;
@@ -81,7 +84,7 @@ impl Client {
         }
     }
 
-    pub fn get_raw(&self, key: &str) -> MemcacheResult<(&[i8], u32)> {
+    pub fn get_raw(&self, key: &str) -> MemcacheResult<(Vec<u8>, u32)> {
         // TODO: raise if key containes NULL
         let key = CString::new(key).unwrap();
         let key_length = key.as_bytes().len();
@@ -92,22 +95,24 @@ impl Client {
         let mut flags: libc::uint32_t = 0;
         let flags_ptr: *mut libc::uint32_t = &mut flags;
 
-        let mut error: memcached_return_t = memcached_return_t::MEMCACHED_FAILURE;
-        let error_ptr: *mut memcached_return_t = &mut error;
+        let mut ret: memcached_return_t = memcached_return_t::MEMCACHED_FAILURE;
+        let ret_ptr: *mut memcached_return_t = &mut ret;
 
-        let value_ptr = unsafe {
-            memcached_get(self.c_client, key.as_ptr(), key_length as u64, value_length_ptr, flags_ptr, error_ptr)
+        let raw_value: *const libc::c_char = unsafe {
+            memcached_get(self.c_client, key.as_ptr(), key_length as u64, value_length_ptr, flags_ptr, ret_ptr)
         };
 
         // println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
-        match error {
+        match ret {
             memcached_return_t::MEMCACHED_SUCCESS => {
-                let value = unsafe {
-                    mem::transmute(slice::from_raw_parts(value_ptr, value_length as usize))
-                };
-                return Ok((value, flags));
+                unsafe {
+                    let value_c_str = CStr::from_ptr(raw_value);
+                    let value = value_c_str.to_bytes().to_vec(); // TODO: here have a memory copy
+                    libc::free(raw_value as *mut libc::c_void);
+                    return Ok((value, flags));
+                }
             }
-            _ => Err(MemcacheError::new(error))
+            _ => Err(MemcacheError::new(ret))
         }
     }
 }
