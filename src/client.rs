@@ -21,6 +21,7 @@ use error::{
     MemcacheError,
     MemcacheResult,
 };
+use connectable::Connectable;
 
 enum StoreCommand {
     ADD,
@@ -42,11 +43,8 @@ impl Drop for Client {
 }
 
 impl Client {
-    pub fn connect(host: &str, port: u16) -> MemcacheResult<Client> {
-        let mut s = "--SERVER=".to_string();
-        s.push_str(host);
-        s.push(':');
-        s.push_str(&port.to_string());
+    pub fn connect(connectable: &Connectable) -> MemcacheResult<Client> {
+        let s = connectable.get_connection_str();
         let cstring = CString::new(s).unwrap();
         let s_len = cstring.to_bytes().len();
         unsafe {

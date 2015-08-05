@@ -11,6 +11,6 @@ pub use error::MemcacheError;
 pub use error::MemcacheResult;
 
 #[inline]
-pub fn connect(host: &str, port: u16) -> MemcacheResult<Client> {
-    return Client::connect(host, port);
+pub fn connect(p: &connectable::Connectable) -> MemcacheResult<Client> {
+    return Client::connect(p);
 }

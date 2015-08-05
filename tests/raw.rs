@@ -2,7 +2,7 @@ extern crate memcache;
 
 #[test]
 fn test_raw() {
-    let client = memcache::connect("localhost", 2333).unwrap();
+    let client = memcache::connect(&("localhost", 2333)).unwrap();
     client.flush(0).unwrap();
 
     // set
