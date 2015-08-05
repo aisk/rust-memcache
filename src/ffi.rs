@@ -1,7 +1,4 @@
 extern crate libc;
-use std::str;
-use std::ffi;
-use std::ptr;
 use self::libc::{size_t, c_char, time_t, uint32_t};
 
 #[repr(C)]
@@ -78,6 +75,7 @@ extern {
 
 #[test]
 fn test_memcaced() {
+    use std::ffi;
     unsafe {
         let s = "--SERVER=localhost:2333";
         let string = ffi::CString::new(s).unwrap();
@@ -88,11 +86,12 @@ fn test_memcaced() {
 
 #[test]
 fn test_memcached_last_error_message() {
+    use std::ffi;
     unsafe {
         let string = ffi::CString::new("foo").unwrap();
         let client = memcached(string.as_ptr(), 3);
         let error = memcached_last_error_message(client);
-        let slice = ffi::CStr::from_ptr(error);
+        // let slice = ffi::CStr::from_ptr(error);
         // println!("string returned: {}", str::from_utf8(slice.to_bytes()).unwrap());
         assert!(!error.is_null());
     }
@@ -100,6 +99,8 @@ fn test_memcached_last_error_message() {
 
 #[test]
 fn test_memcached_operations() {
+    use std::ffi;
+    use std::str;
     unsafe{
         // client
         let s = "--SERVER=localhost:2333";
@@ -109,8 +110,6 @@ fn test_memcached_operations() {
 
         // flush
         let r = memcached_flush(client, 0);
-        let error = memcached_last_error_message(client);
-        let slice = ffi::CStr::from_ptr(error);
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {}
             _ => panic!()

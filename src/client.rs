@@ -4,9 +4,6 @@ use std::ffi::{
     CStr,
     CString,
 };
-use std::mem;
-use std::ptr;
-use std::slice;
 use ffi::{
     memcached,
     memcached_exist,

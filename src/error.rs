@@ -27,4 +27,5 @@ impl MemcacheError {
     }
 }
 
+#[must_use]
 pub type MemcacheResult<T> = Result<T, MemcacheError>;
