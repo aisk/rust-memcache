@@ -23,12 +23,12 @@ assert!(flags == 42);
 
 ## TODO
 
-- [ ] build on linux
-- [ ] more command
-- [ ] multi server support
-- [ ] typed interface
-- [ ] memory leak check
-- [ ] document
+- [ ] Build on Linux
+- [ ] More commands
+- [ ] Multi server support
+- [ ] Typed interface
+- [ ] Memory leak check
+- [ ] Documents
 
 # License
 
