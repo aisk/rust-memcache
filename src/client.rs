@@ -6,11 +6,13 @@ use std::ffi::{
 };
 use ffi::{
     memcached,
+    memcached_add,
     memcached_exist,
-    memcached_free,
     memcached_flush,
+    memcached_free,
     memcached_get,
     memcached_last_error,
+    memcached_replace,
     memcached_return_t,
     memcached_set,
     memcached_st,
@@ -20,7 +22,13 @@ use error::{
     MemcacheResult,
 };
 
-#[derive(Debug)]
+enum StoreCommand {
+    ADD,
+    REPLACE,
+    SET,
+}
+
+//#[derive(Debug)]
 pub struct Client {
     c_client: *const memcached_st,
 }
@@ -76,14 +84,21 @@ impl Client {
         }
     }
 
-    pub fn set_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
+    fn store_raw(&self, command: StoreCommand, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
         // TODO: raise if key containes NULL
         let key = CString::new(key).unwrap();
         let key_length = key.as_bytes().len();
         let value_length = value.len();
         let value = unsafe { CString::from_vec_unchecked(value.to_vec()) };
+
+        let store_func = match command {
+            StoreCommand::SET => memcached_set,
+            StoreCommand::ADD => memcached_add,
+            StoreCommand::REPLACE => memcached_replace,
+        };
+
         let r = unsafe {
-            memcached_set(self.c_client, key.as_ptr(), key_length as u64, value.as_ptr(), value_length as u64, expiration, flags)
+            store_func(self.c_client, key.as_ptr(), key_length as u64, value.as_ptr(), value_length as u64, expiration, flags)
         };
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {
@@ -93,6 +108,18 @@ impl Client {
                 return Err(MemcacheError::new(r));
             }
         }
+    }
+
+    pub fn set_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
+        return self.store_raw(StoreCommand::SET, key, value, expiration, flags);
+    }
+
+    pub fn add_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
+        return self.store_raw(StoreCommand::ADD, key, value, expiration, flags);
+    }
+
+    pub fn replace_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
+        return self.store_raw(StoreCommand::REPLACE, key, value, expiration, flags);
     }
 
     pub fn get_raw(&self, key: &str) -> MemcacheResult<(Vec<u8>, u32)> {
