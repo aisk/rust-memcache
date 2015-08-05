@@ -30,13 +30,13 @@ enum StoreCommand {
 
 //#[derive(Debug)]
 pub struct Client {
-    c_client: *const memcached_st,
+    c_st: *const memcached_st,
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
         unsafe {
-            memcached_free(self.c_client);
+            memcached_free(self.c_st);
         }
     }
 }
@@ -50,17 +50,17 @@ impl Client {
         let cstring = CString::new(s).unwrap();
         let s_len = cstring.to_bytes().len();
         unsafe {
-            let c_client = memcached(cstring.as_ptr(), s_len as u64);
-            if c_client.is_null() {
-                let error_code = memcached_last_error(c_client);
+            let c_st = memcached(cstring.as_ptr(), s_len as u64);
+            if c_st.is_null() {
+                let error_code = memcached_last_error(c_st);
                 return Err(MemcacheError::new(error_code));
             }
-            return Ok(Client{ c_client: c_client });
+            return Ok(Client{ c_st: c_st });
         }
     }
 
     pub fn flush(&self, expiration: libc::time_t) -> MemcacheResult<()> {
-        let r = unsafe{ memcached_flush(self.c_client, expiration) };
+        let r = unsafe{ memcached_flush(self.c_st, expiration) };
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {
                 return Ok(());
@@ -75,7 +75,7 @@ impl Client {
         let key = CString::new(key).unwrap();
         let key_length = key.as_bytes().len();
         let ret = unsafe{
-            memcached_exist(self.c_client, key.as_ptr(), key_length as u64)
+            memcached_exist(self.c_st, key.as_ptr(), key_length as u64)
         };
         match ret {
             memcached_return_t::MEMCACHED_SUCCESS => Ok(true),
@@ -98,7 +98,7 @@ impl Client {
         };
 
         let r = unsafe {
-            store_func(self.c_client, key.as_ptr(), key_length as u64, value.as_ptr(), value_length as u64, expiration, flags)
+            store_func(self.c_st, key.as_ptr(), key_length as u64, value.as_ptr(), value_length as u64, expiration, flags)
         };
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {
@@ -137,7 +137,7 @@ impl Client {
         let ret_ptr: *mut memcached_return_t = &mut ret;
 
         let raw_value: *const libc::c_char = unsafe {
-            memcached_get(self.c_client, key.as_ptr(), key_length as u64, value_length_ptr, flags_ptr, ret_ptr)
+            memcached_get(self.c_st, key.as_ptr(), key_length as u64, value_length_ptr, flags_ptr, ret_ptr)
         };
 
         // println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
