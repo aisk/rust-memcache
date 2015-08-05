@@ -4,6 +4,7 @@
 pub mod ffi;
 mod error;
 mod client;
+mod connectable;
 
 pub use client::Client;
 pub use error::MemcacheError;
