@@ -60,6 +60,13 @@ impl Memcache {
     /// Flush all the data on memcached after `expiration`.
     ///
     /// If `expiration` is 0, flush data immediatly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mc = memcache::connect(&("localhost", 2333)).unwrap();
+    /// mc.flush(0);
+    /// ```
     pub fn flush(&self, expiration: libc::time_t) -> MemcacheResult<()> {
         let r = unsafe{ memcached_flush(self.c_st, expiration) };
         match r {
