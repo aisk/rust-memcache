@@ -11,5 +11,8 @@ keywords = ["memcache", "memcached", "client", "driver"]
 [dependencies]
 libc = "*"
 
+[dependencies.url]
+git = "https://github.com/servo/rust-url"
+
 [lib]
 name = "memcache"

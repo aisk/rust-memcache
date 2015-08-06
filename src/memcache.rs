@@ -30,11 +30,11 @@ enum StoreCommand {
 }
 
 //#[derive(Debug)]
-pub struct Client {
+pub struct Memcache {
     c_st: *const memcached_st,
 }
 
-impl Drop for Client {
+impl Drop for Memcache {
     fn drop(&mut self) {
         unsafe {
             memcached_free(self.c_st);
@@ -42,8 +42,8 @@ impl Drop for Client {
     }
 }
 
-impl Client {
-    pub fn connect(connectable: &Connectable) -> MemcacheResult<Client> {
+impl Memcache {
+    pub fn connect(connectable: &Connectable) -> MemcacheResult<Memcache> {
         let s = connectable.get_connection_str();
         let cstring = CString::new(s).unwrap();
         let s_len = cstring.to_bytes().len();
@@ -53,10 +53,13 @@ impl Client {
                 let error_code = memcached_last_error(c_st);
                 return Err(MemcacheError::new(error_code));
             }
-            return Ok(Client{ c_st: c_st });
+            return Ok(Memcache{ c_st: c_st });
         }
     }
 
+    /// Flush all the data on memcached after `expiration`.
+    ///
+    /// If `expiration` is 0, flush data immediatly.
     pub fn flush(&self, expiration: libc::time_t) -> MemcacheResult<()> {
         let r = unsafe{ memcached_flush(self.c_st, expiration) };
         match r {
@@ -69,6 +72,7 @@ impl Client {
         }
     }
 
+    /// Determin weather a key is exist on memcached.
     pub fn exist(&self, key: &str) -> MemcacheResult<bool> {
         let key = CString::new(key).unwrap();
         let key_length = key.as_bytes().len();
@@ -108,18 +112,22 @@ impl Client {
         }
     }
 
+    /// Set bytes data to memcached.
     pub fn set_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
         return self.store_raw(StoreCommand::SET, key, value, expiration, flags);
     }
 
+    /// Set bytes data to memcached only if the key is **not** existed.
     pub fn add_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
         return self.store_raw(StoreCommand::ADD, key, value, expiration, flags);
     }
 
+    /// Set bytes data to memcached only if the key is existed.
     pub fn replace_raw(&self, key: &str, value: &[u8], expiration: libc::time_t, flags: u32) -> MemcacheResult<()> {
         return self.store_raw(StoreCommand::REPLACE, key, value, expiration, flags);
     }
 
+    /// Get bytes data from memcached.
     pub fn get_raw(&self, key: &str) -> MemcacheResult<(Vec<u8>, u32)> {
         // TODO: raise if key containes NULL
         let key = CString::new(key).unwrap();
