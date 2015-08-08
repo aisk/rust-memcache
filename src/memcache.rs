@@ -1,5 +1,6 @@
 extern crate libc;
 
+use std::convert::From;
 use std::ffi::{
     CStr,
     CString,
@@ -11,6 +12,7 @@ use ffi::{
     memcached_flush,
     memcached_free,
     memcached_get,
+    memcached_increment,
     memcached_last_error,
     memcached_replace,
     memcached_return_t,
@@ -18,7 +20,7 @@ use ffi::{
     memcached_st,
 };
 use error::{
-    MemcacheError,
+    LibMemcachedError,
     MemcacheResult,
 };
 use connectable::Connectable;
@@ -51,7 +53,7 @@ impl Memcache {
             let c_st = memcached(cstring.as_ptr(), s_len as u64);
             if c_st.is_null() {
                 let error_code = memcached_last_error(c_st);
-                return Err(MemcacheError::new(error_code));
+                return Err(From::from(LibMemcachedError::new(error_code)));
             }
             return Ok(Memcache{ c_st: c_st });
         }
@@ -74,7 +76,7 @@ impl Memcache {
                 return Ok(());
             }
             _ => {
-                return Err(MemcacheError::new(r));
+                return Err(From::from(LibMemcachedError::new(r)));
             }
         }
     }
@@ -89,7 +91,7 @@ impl Memcache {
         match ret {
             memcached_return_t::MEMCACHED_SUCCESS => Ok(true),
             memcached_return_t::MEMCACHED_NOTFOUND => Ok(false),
-            _ => Err(MemcacheError::new(ret)),
+            _ => Err(From::from(LibMemcachedError::new(ret))),
         }
     }
 
@@ -114,7 +116,7 @@ impl Memcache {
                 return Ok(());
             }
             _ => {
-                return Err(MemcacheError::new(r));
+                return Err(From::from(LibMemcachedError::new(r)));
             }
         }
     }
@@ -163,7 +165,26 @@ impl Memcache {
                     return Ok((value, flags));
                 }
             }
-            _ => Err(MemcacheError::new(ret))
+            _ => Err(From::from(LibMemcachedError::new(ret)))
+        }
+    }
+
+    pub fn increment(&self, key: &str, offset: u32) -> MemcacheResult<u64> {
+        let key = CString::new(key).unwrap();
+        let key_length = key.as_bytes().len();
+
+        let mut value: libc::uint64_t = 0;
+        let value_ptr: *mut libc::uint64_t = &mut value;
+
+        let ret = unsafe {
+            memcached_increment(self.c_st, key.as_ptr(), key_length as u64, offset, value_ptr)
+        };
+
+        match ret {
+            memcached_return_t::MEMCACHED_SUCCESS => {
+                return Ok((value));
+            }
+            _ => Err(From::from(LibMemcachedError::new(ret)))
         }
     }
 }

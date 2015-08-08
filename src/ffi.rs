@@ -1,5 +1,5 @@
 extern crate libc;
-use self::libc::{size_t, c_char, time_t, uint32_t};
+use self::libc::{size_t, c_char, time_t, uint32_t, uint64_t};
 
 #[repr(C)]
 pub struct memcached_st;
@@ -125,6 +125,24 @@ extern {
         value_length: size_t,
         expiration: time_t,
         flags: uint32_t
+    ) -> memcached_return_t;
+
+    pub fn memcached_increment(
+        client: *const memcached_st,
+        key: *const c_char,
+        key_length: size_t,
+        offset: uint32_t,
+        value: *const uint64_t
+    ) -> memcached_return_t;
+
+    pub fn memcached_increment_with_initial(
+        client: *const memcached_st,
+        key: *const c_char,
+        key_length: size_t,
+        offset: uint64_t,
+        initial: uint64_t,
+        expiration: time_t,
+        value: *const uint64_t
     ) -> memcached_return_t;
 
     pub fn memcached_strerror(
