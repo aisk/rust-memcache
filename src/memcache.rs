@@ -13,6 +13,7 @@ use ffi::{
     memcached_free,
     memcached_get,
     memcached_increment,
+    // memcached_increment_with_initial,
     memcached_last_error,
     memcached_replace,
     memcached_return_t,
@@ -187,4 +188,24 @@ impl Memcache {
             _ => Err(From::from(LibMemcachedError::new(ret)))
         }
     }
+
+    // pub fn increment_with_initial(&self, key: &str, offset: u64, initial: u64, expiration: libc::time_t) -> MemcacheResult<u64> {
+    //     let key = CString::new(key).unwrap();
+    //     let key_length = key.as_bytes().len();
+
+    //     let mut value: libc::uint64_t = 0;
+    //     let value_ptr: *mut libc::uint64_t = &mut value;
+
+    //     let ret = unsafe {
+    //         memcached_increment_with_initial(self.c_st, key.as_ptr(), key_length as u64, offset, initial, expiration, value_ptr)
+    //     };
+
+    //     match ret {
+    //         memcached_return_t::MEMCACHED_SUCCESS => {
+    //             return Ok((value));
+    //         }
+    //         _ => Err(From::from(LibMemcachedError::new(ret)))
+    //     }
+
+    // }
 }

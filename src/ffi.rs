@@ -135,15 +135,15 @@ extern {
         value: *const uint64_t
     ) -> memcached_return_t;
 
-    pub fn memcached_increment_with_initial(
-        client: *const memcached_st,
-        key: *const c_char,
-        key_length: size_t,
-        offset: uint64_t,
-        initial: uint64_t,
-        expiration: time_t,
-        value: *const uint64_t
-    ) -> memcached_return_t;
+    // pub fn memcached_increment_with_initial(
+    //     client: *const memcached_st,
+    //     key: *const c_char,
+    //     key_length: size_t,
+    //     offset: uint64_t,
+    //     initial: uint64_t,
+    //     expiration: time_t,
+    //     value: *const uint64_t
+    // ) -> memcached_return_t;
 
     pub fn memcached_strerror(
         client: *const memcached_st,
