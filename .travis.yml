@@ -6,7 +6,7 @@ services: memcache
 env: MEMCACHED__HOST=localhost
 
 before_script:
-  - sudo apt-get install libmemcache-dev -y
+  - sudo apt-get install libmemcache-dev libmemcached-dev -y
   - memcached -p 2333 -d
   - memcached -p 2334 -d
 
