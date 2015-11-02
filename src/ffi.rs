@@ -60,7 +60,7 @@ pub enum memcached_return_t {
     // MEMCACHED_CONNECTION_SOCKET_CREATE_FAILURE= MEMCACHED_ERROR
 }
 
-#[link(name = "memcached")]
+#[link(name = "memcached", kind="static")]
 extern {
     pub fn memcached(
         string: *const c_char,

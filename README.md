@@ -25,7 +25,7 @@ assert!(flags == 42);
 
 - [ ] Build on Linux
 - [ ] More commands
-- [ ] Multi server support
+- [x] Multi server support
 - [ ] Typed interface
 - [ ] Memory leak check
 - [ ] Documents
