@@ -22,10 +22,9 @@ let mc = memcache::connect(&vec![("localhost", 2333), ("localhost", 2334)]).unwr
 ```
 */
 
-// #![crate_name = "memcache"]
-// #![crate_type = "rlib"]
+extern crate libc;
+extern crate memcached_sys;
 
-pub mod ffi;
 mod error;
 mod memcache;
 mod connectable;

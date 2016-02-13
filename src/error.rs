@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 use std::convert::From;
-use ffi::memcached_return_t;
+use memcached_sys::memcached_return_t;
 
 #[derive(Debug)]
 pub struct LibMemcachedError {

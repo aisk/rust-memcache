@@ -9,10 +9,8 @@ description = "memcached client for rust, use FFI and libmemcached"
 keywords = ["memcache", "memcached", "client", "driver"]
 
 [dependencies]
-libc = "*"
+libc = "0.2.*"
+memcached-sys = { git = "https://github.com/aisk/memcached-sys" }
 
 [dependencies.url]
 git = "https://github.com/servo/rust-url"
-
-[lib]
-name = "memcache"

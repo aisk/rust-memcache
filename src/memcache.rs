@@ -2,10 +2,10 @@ extern crate libc;
 
 use std::convert::From;
 use std::ffi::{
-    CStr,
     CString,
+    CStr,
 };
-use ffi::{
+use memcached_sys::{
     memcached,
     memcached_add,
     memcached_exist,
@@ -16,7 +16,7 @@ use ffi::{
     // memcached_increment_with_initial,
     memcached_last_error,
     memcached_replace,
-    memcached_return_t,
+    Enum_memcached_return_t,
     memcached_set,
     memcached_st,
 };
@@ -34,7 +34,7 @@ enum StoreCommand {
 
 //#[derive(Debug)]
 pub struct Memcache {
-    c_st: *const memcached_st,
+    c_st: *mut memcached_st,
 }
 
 impl Drop for Memcache {
@@ -73,7 +73,7 @@ impl Memcache {
     pub fn flush(&self, expiration: libc::time_t) -> MemcacheResult<()> {
         let r = unsafe{ memcached_flush(self.c_st, expiration) };
         match r {
-            memcached_return_t::MEMCACHED_SUCCESS => {
+            Enum_memcached_return_t::MEMCACHED_SUCCESS => {
                 return Ok(());
             }
             _ => {
@@ -90,8 +90,8 @@ impl Memcache {
             memcached_exist(self.c_st, key.as_ptr(), key_length)
         };
         match ret {
-            memcached_return_t::MEMCACHED_SUCCESS => Ok(true),
-            memcached_return_t::MEMCACHED_NOTFOUND => Ok(false),
+            Enum_memcached_return_t::MEMCACHED_SUCCESS => Ok(true),
+            Enum_memcached_return_t::MEMCACHED_NOTFOUND => Ok(false),
             _ => Err(From::from(LibMemcachedError::new(ret))),
         }
     }
@@ -113,7 +113,7 @@ impl Memcache {
             store_func(self.c_st, key.as_ptr(), key_length, value.as_ptr(), value_length, expiration, flags)
         };
         match r {
-            memcached_return_t::MEMCACHED_SUCCESS => {
+            Enum_memcached_return_t::MEMCACHED_SUCCESS => {
                 return Ok(());
             }
             _ => {
@@ -149,8 +149,8 @@ impl Memcache {
         let mut flags: libc::uint32_t = 0;
         let flags_ptr: *mut libc::uint32_t = &mut flags;
 
-        let mut ret: memcached_return_t = memcached_return_t::MEMCACHED_FAILURE;
-        let ret_ptr: *mut memcached_return_t = &mut ret;
+        let mut ret: Enum_memcached_return_t = Enum_memcached_return_t::MEMCACHED_FAILURE;
+        let ret_ptr: *mut Enum_memcached_return_t = &mut ret;
 
         let raw_value: *const libc::c_char = unsafe {
             memcached_get(self.c_st, key.as_ptr(), key_length, value_length_ptr, flags_ptr, ret_ptr)
@@ -158,7 +158,7 @@ impl Memcache {
 
         // println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
         match ret {
-            memcached_return_t::MEMCACHED_SUCCESS => {
+            Enum_memcached_return_t::MEMCACHED_SUCCESS => {
                 unsafe {
                     let value_c_str = CStr::from_ptr(raw_value);
                     let value = value_c_str.to_bytes().to_vec(); // TODO: here have a memory copy
@@ -182,7 +182,7 @@ impl Memcache {
         };
 
         match ret {
-            memcached_return_t::MEMCACHED_SUCCESS => {
+            Enum_memcached_return_t::MEMCACHED_SUCCESS => {
                 return Ok((value));
             }
             _ => Err(From::from(LibMemcachedError::new(ret)))
@@ -201,7 +201,7 @@ impl Memcache {
     //     };
 
     //     match ret {
-    //         memcached_return_t::MEMCACHED_SUCCESS => {
+    //         Enum_memcached_return_t::MEMCACHED_SUCCESS => {
     //             return Ok((value));
     //         }
     //         _ => Err(From::from(LibMemcachedError::new(ret)))
