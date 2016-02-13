@@ -51,7 +51,7 @@ impl Memcache {
         let cstring = CString::new(s).unwrap();
         let s_len = cstring.to_bytes().len();
         unsafe {
-            let c_st = memcached(cstring.as_ptr(), s_len as u64);
+            let c_st = memcached(cstring.as_ptr(), s_len);
             if c_st.is_null() {
                 let error_code = memcached_last_error(c_st);
                 return Err(From::from(LibMemcachedError::new(error_code)));
@@ -87,7 +87,7 @@ impl Memcache {
         let key = CString::new(key).unwrap();
         let key_length = key.as_bytes().len();
         let ret = unsafe{
-            memcached_exist(self.c_st, key.as_ptr(), key_length as u64)
+            memcached_exist(self.c_st, key.as_ptr(), key_length)
         };
         match ret {
             memcached_return_t::MEMCACHED_SUCCESS => Ok(true),
@@ -110,7 +110,7 @@ impl Memcache {
         };
 
         let r = unsafe {
-            store_func(self.c_st, key.as_ptr(), key_length as u64, value.as_ptr(), value_length as u64, expiration, flags)
+            store_func(self.c_st, key.as_ptr(), key_length, value.as_ptr(), value_length, expiration, flags)
         };
         match r {
             memcached_return_t::MEMCACHED_SUCCESS => {
@@ -153,7 +153,7 @@ impl Memcache {
         let ret_ptr: *mut memcached_return_t = &mut ret;
 
         let raw_value: *const libc::c_char = unsafe {
-            memcached_get(self.c_st, key.as_ptr(), key_length as u64, value_length_ptr, flags_ptr, ret_ptr)
+            memcached_get(self.c_st, key.as_ptr(), key_length, value_length_ptr, flags_ptr, ret_ptr)
         };
 
         // println!("value: {:?}, error: {:?}, value_length: {:?}", r, error_ptr, value_length_ptr);
@@ -178,7 +178,7 @@ impl Memcache {
         let value_ptr: *mut libc::uint64_t = &mut value;
 
         let ret = unsafe {
-            memcached_increment(self.c_st, key.as_ptr(), key_length as u64, offset, value_ptr)
+            memcached_increment(self.c_st, key.as_ptr(), key_length, offset, value_ptr)
         };
 
         match ret {
@@ -197,7 +197,7 @@ impl Memcache {
     //     let value_ptr: *mut libc::uint64_t = &mut value;
 
     //     let ret = unsafe {
-    //         memcached_increment_with_initial(self.c_st, key.as_ptr(), key_length as u64, offset, initial, expiration, value_ptr)
+    //         memcached_increment_with_initial(self.c_st, key.as_ptr(), key_length, offset, initial, expiration, value_ptr)
     //     };
 
     //     match ret {
