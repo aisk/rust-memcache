@@ -1,9 +1,7 @@
 # rust-memcache
+[![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache) [![Crates.io](https://img.shields.io/crates/v/memcache.svg)](https://crates.io/crates/memcache)
 
 Memcached client for rust.
-
-* travis-ci: [![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache)
-* crates.io: [memcache](https://crates.io/crates/memcache)
 
 ## Usage
 ```rust
@@ -19,11 +17,10 @@ assert!(flags == 42);
 
 ## TODO
 
-- [ ] Build on Linux
-- [ ] More commands
-- [x] Multi server support
+- [ ] Ascii protocal
+- [ ] Binary protocal
+- [ ] Multi server support
 - [ ] Typed interface
-- [ ] Memory leak check
 - [ ] Documents
 
 # License
