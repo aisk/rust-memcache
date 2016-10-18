@@ -1,13 +1,9 @@
 # rust-memcache
 
-Memcached client for rust, using [libmemcached](http://libmemcached.org/) and rust FFI;
+Memcached client for rust.
 
 * travis-ci: [![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache)
 * crates.io: [memcache](https://crates.io/crates/memcache)
-
-## Dependences
-
-- brew install libmemcached
 
 ## Usage
 ```rust

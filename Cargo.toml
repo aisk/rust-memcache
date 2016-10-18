@@ -1,16 +1,12 @@
 [package]
 name = "memcache"
-version = "0.0.9"
+version = "0.0.10"
 authors = ["asaka"]
 repository = "https://github.com/aisk/rust-memcache"
 readme = "README.md"
 license = "MIT"
-description = "memcached client for rust, use FFI and libmemcached"
+description = "memcached client for rust"
 keywords = ["memcache", "memcached", "client", "driver"]
-
-[dependencies]
-libc = "0.2.*"
-memcached-sys = { git = "https://github.com/aisk/memcached-sys" }
 
 [dependencies.url]
 git = "https://github.com/servo/rust-url"
