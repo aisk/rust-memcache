@@ -7,7 +7,6 @@ env: MEMCACHED__HOST=localhost
 
 before_script:
   - memcached -p 2333 -d
-  - memcached -p 2334 -d
 
 script:
   - cargo build --verbose

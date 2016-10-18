@@ -1,6 +1,12 @@
 extern crate memcache;
 
 #[test]
-fn it_works() {
+fn connect() {
     memcache::connection::connect().unwrap();
+}
+
+#[test]
+fn flush() {
+    let mut conn = memcache::connection::connect().unwrap();
+    conn.flush().unwrap();
 }
