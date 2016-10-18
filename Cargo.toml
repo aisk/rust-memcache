@@ -8,5 +8,5 @@ license = "MIT"
 description = "memcached client for rust"
 keywords = ["memcache", "memcached", "client", "driver"]
 
-[dependencies.url]
-git = "https://github.com/servo/rust-url"
+[dependencies]
+url = "^1.2.1"
