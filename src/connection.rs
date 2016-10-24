@@ -3,6 +3,8 @@ use std::io;
 use std::io::Write;
 use std::io::BufRead;
 
+use types::MemcacheError;
+
 pub struct Connection {
     reader: io::BufReader<net::TcpStream>
 }
@@ -21,9 +23,9 @@ impl Connection {
     }
 }
 
-pub fn connect()-> Result<Connection, io::Error>{
+pub fn connect()-> Result<Connection, MemcacheError>{
     match net::TcpStream::connect("127.0.0.1:11211") {
         Ok(stream) => return Ok(Connection{reader: io::BufReader::new(stream)}),
-        Err(err) => return Err(err),
+        Err(err) => return Err(MemcacheError::from(err)),
     }
 }
