@@ -2,17 +2,24 @@ extern crate memcache;
 
 #[test]
 fn connect() {
-    // memcache::connection::connect().unwrap();
+    memcache::connection::connect().unwrap();
 }
 
 #[test]
 fn flush() {
-    // let mut conn = memcache::connection::connect().unwrap();
-    // conn.flush().unwrap();
+    let mut conn = memcache::connection::connect().unwrap();
+    conn.flush().unwrap();
 }
 
 #[test]
 fn version() {
     let mut conn = memcache::connection::connect().unwrap();
     conn.version().unwrap();
+}
+
+#[test]
+fn store() {
+    let mut conn = memcache::connection::connect().unwrap();
+    conn.set("foo", b"bar", 1, 42).unwrap();
+    conn.replace("foo", b"bar", 1, 42).unwrap();
 }
