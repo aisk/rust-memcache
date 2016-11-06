@@ -10,16 +10,48 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn flush(&mut self) -> io::Result<()> {
+    pub fn flush(&mut self) -> Result<(), MemcacheError> {
         match self.reader.get_ref().write(b"flush_all\r\n") {
             Ok(_) => {},
-            Err(err) => return Err(err),
+            Err(err) => return Err(MemcacheError::from(err)),
         }
         try!(self.reader.get_ref().flush());
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        s == "OK\r\n";  // TODO: assert it
+        if s == "ERROR\r\n" {
+            return Err(MemcacheError::Error);
+        } else if s.starts_with("CLIENT_ERROR") {
+            return Err(MemcacheError::ClientError(s));
+        } else if s.starts_with("SERVER_ERROR") {
+            return Err(MemcacheError::ServerError(s));
+        } else if s != "OK\r\n" {
+            return Err(MemcacheError::Error)
+        }
         return Ok(());
+    }
+
+    pub fn version(&mut self) -> Result<String, MemcacheError> {
+        match self.reader.get_ref().write(b"version\r\n") {
+            Ok(_) => {},
+            Err(err) => return Err(MemcacheError::from(err)),
+        }
+
+        try!(self.reader.get_ref().flush());
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if s == "ERROR\r\n" {
+            return Err(MemcacheError::Error);
+        } else if s.starts_with("CLIENT_ERROR") {
+            return Err(MemcacheError::ClientError(s));
+        } else if s.starts_with("SERVER_ERROR") {
+            return Err(MemcacheError::ServerError(s));
+        } else if ! s.starts_with("VERSION") {
+            return Err(MemcacheError::Error);
+        }
+        let s = s.trim_left_matches("VERSION ");
+        let s = s.trim_right_matches("\r\n");
+
+        return Ok(s.to_string());
     }
 }
 
