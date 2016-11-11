@@ -34,16 +34,16 @@ impl Connection {
              flags: u16,
              exptime: u32)
              -> Result<bool, MemcacheError> {
-        try!(write!(self.reader.get_ref(),
-                    "{} {} {} {} {}\r\n",
-                    command,
-                    key,
-                    flags,
-                    exptime,
-                    value.len()));
-        try!(self.reader.get_ref().write(value));
-        try!(self.reader.get_ref().write(b"\r\n"));
-        try!(self.reader.get_ref().flush());
+        write!(self.reader.get_ref(),
+               "{} {} {} {} {}\r\n",
+               command,
+               key,
+               flags,
+               exptime,
+               value.len())?;
+        self.reader.get_ref().write(value)?;
+        self.reader.get_ref().write(b"\r\n")?;
+        self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if s == "ERROR\r\n" {
@@ -66,7 +66,7 @@ impl Connection {
             Ok(_) => {}
             Err(err) => return Err(MemcacheError::from(err)),
         }
-        try!(self.reader.get_ref().flush());
+        self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if s == "ERROR\r\n" {
@@ -100,12 +100,9 @@ impl Connection {
     }
 
     pub fn version(&mut self) -> Result<String, MemcacheError> {
-        match self.reader.get_ref().write(b"version\r\n") {
-            Ok(_) => {}
-            Err(err) => return Err(MemcacheError::from(err)),
-        }
+        self.reader.get_ref().write(b"version\r\n")?;
 
-        try!(self.reader.get_ref().flush());
+        self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if s == "ERROR\r\n" {
@@ -125,8 +122,6 @@ impl Connection {
 }
 
 pub fn connect() -> Result<Connection, MemcacheError> {
-    match net::TcpStream::connect("127.0.0.1:11211") {
-        Ok(stream) => return Ok(Connection { reader: io::BufReader::new(stream) }),
-        Err(err) => return Err(MemcacheError::from(err)),
-    }
+    let stream = net::TcpStream::connect("127.0.0.1:11211")?;
+    return Ok(Connection { reader: io::BufReader::new(stream) });
 }
