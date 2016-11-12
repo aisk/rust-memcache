@@ -37,3 +37,17 @@ fn delete() {
     let mut conn = memcache::connection::connect().unwrap();
     conn.delete("foo").unwrap();
 }
+
+#[test]
+fn incr() {
+    let mut conn = memcache::connection::connect().unwrap();
+    conn.set("foo", b"100", 0, 0).unwrap();
+    assert!(conn.incr("foo", 1).unwrap() == Some(101));
+}
+
+#[test]
+fn decr() {
+    let mut conn = memcache::connection::connect().unwrap();
+    conn.set("foo", b"100", 0, 0).unwrap();
+    assert!(conn.decr("foo", 1).unwrap() == Some(99));
+}

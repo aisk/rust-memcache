@@ -1,13 +1,15 @@
 language: rust
+
 rust:
   - stable
 
 services: memcache
-env: MEMCACHED__HOST=localhost
+
+env:
+  - MEMCACHED__HOST=localhost RUST_TEST_THREADS=1 RUST_BACKTRACE=1
 
 before_script:
   - memcached -p 2333 -d
 
 script:
-  - cargo build --verbose
-  - cargo test --verbose -j1
+  - cargo test

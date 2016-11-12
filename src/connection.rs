@@ -100,8 +100,8 @@ impl Connection {
         return self.store(StoreCommand::Replace, key, value, flags, exptime);
     }
 
-    pub fn get(&mut self, keys: &[&str]) -> Result<Vec<(u16, Vec<u8>)>, MemcacheError> {
-        let mut result: Vec<(u16, Vec<u8>)> = vec![];
+    pub fn get(&mut self, keys: &[&str]) -> Result<Vec<(String, u16, Vec<u8>)>, MemcacheError> {
+        let mut result: Vec<(String, u16, Vec<u8>)> = vec![];
 
         write!(self.reader.get_ref(), "get {}\r\n", keys.join(" "))?;
 
@@ -121,7 +121,6 @@ impl Connection {
                 return Err(MemcacheError::Error);
             }
             let header: Vec<_> = s.trim_right_matches("\r\n").split(" ").collect();
-            print!("header: {}", s);
             if header.len() != 4 {
                 return Err(MemcacheError::Error);
             }
@@ -130,15 +129,15 @@ impl Connection {
             let length: usize;
             match header[2].parse() {
                 Ok(n) => flags = n,
-                Err(e) => return Err(MemcacheError::Error),
+                Err(_) => return Err(MemcacheError::Error),
             };
             match header[3].parse() {
                 Ok(n) => length = n,
-                Err(e) => return Err(MemcacheError::Error),
+                Err(_) => return Err(MemcacheError::Error),
             };
             let mut buffer = vec![0; length];
             self.reader.read_exact(buffer.as_mut_slice())?;
-            let mut t = (flags, buffer);
+            let t = (key.to_string(), flags, buffer);
             result.push(t);
 
             // read the rest \r\n
@@ -168,6 +167,46 @@ impl Connection {
             return Ok(false);
         } else {
             return Err(MemcacheError::Error);
+        }
+    }
+
+    pub fn incr(&mut self, key: &str, value: u32) -> Result<Option<u32>, MemcacheError> {
+        write!(self.reader.get_ref(), "incr {} {}\r\n", key, value)?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if s == "ERROR\r\n" {
+            return Err(MemcacheError::Error);
+        } else if s.starts_with("CLIENT_ERROR") {
+            return Err(MemcacheError::ClientError(s));
+        } else if s.starts_with("SERVER_ERROR") {
+            return Err(MemcacheError::ServerError(s));
+        } else if s == "NOT_FOUND\r\n" {
+            return Ok(None);
+        } else {
+            match s.trim_right_matches("\r\n").parse::<u32>() {
+                Ok(n) => return Ok(Some(n)),
+                Err(_) => return Err(MemcacheError::Error)
+            }
+        }
+    }
+
+    pub fn decr(&mut self, key: &str, value: u32) -> Result<Option<u32>, MemcacheError> {
+        write!(self.reader.get_ref(), "decr {} {}\r\n", key, value)?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if s == "ERROR\r\n" {
+            return Err(MemcacheError::Error);
+        } else if s.starts_with("CLIENT_ERROR") {
+            return Err(MemcacheError::ClientError(s));
+        } else if s.starts_with("SERVER_ERROR") {
+            return Err(MemcacheError::ServerError(s));
+        } else if s == "NOT_FOUND\r\n" {
+            return Ok(None);
+        } else {
+            match s.trim_right_matches("\r\n").parse::<u32>() {
+                Ok(n) => return Ok(Some(n)),
+                Err(_) => return Err(MemcacheError::Error)
+            }
         }
     }
 
