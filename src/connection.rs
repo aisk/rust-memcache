@@ -151,9 +151,28 @@ impl Connection {
         return Ok(result);
     }
 
+    pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
+        write!(self.reader.get_ref(), "delete {}\r\n", key)?;
+        self.reader.get_ref().flush()?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if s == "ERROR\r\n" {
+            return Err(MemcacheError::Error);
+        } else if s.starts_with("CLIENT_ERROR") {
+            return Err(MemcacheError::ClientError(s));
+        } else if s.starts_with("SERVER_ERROR") {
+            return Err(MemcacheError::ServerError(s));
+        } else if s == "DELETED\r\n" {
+            return Ok(true);
+        } else if s == "NOT_FOUND\r\n" {
+            return Ok(false);
+        } else {
+            return Err(MemcacheError::Error);
+        }
+    }
+
     pub fn version(&mut self) -> Result<String, MemcacheError> {
         self.reader.get_ref().write(b"version\r\n")?;
-
         self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);

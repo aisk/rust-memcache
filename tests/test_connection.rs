@@ -31,3 +31,9 @@ fn get() {
     conn.set("foo", b"bar", 1, 42).unwrap();
     conn.get(&["foo", "bar", "baz"]).unwrap();
 }
+
+#[test]
+fn delete() {
+    let mut conn = memcache::connection::connect().unwrap();
+    conn.delete("foo").unwrap();
+}
