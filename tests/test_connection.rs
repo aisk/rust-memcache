@@ -23,3 +23,11 @@ fn store() {
     conn.set("foo", b"bar", 1, 42).unwrap();
     conn.replace("foo", b"bar", 1, 42).unwrap();
 }
+
+#[test]
+fn get() {
+    let mut conn = memcache::connection::connect().unwrap();
+    conn.flush().unwrap();
+    conn.set("foo", b"bar", 1, 42).unwrap();
+    conn.get(&["foo", "bar", "baz"]).unwrap();
+}

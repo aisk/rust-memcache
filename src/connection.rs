@@ -1,6 +1,7 @@
 use std::fmt;
 use std::io::BufRead;
 use std::io::Write;
+use std::io::Read;
 use std::io;
 use std::net;
 
@@ -97,6 +98,57 @@ impl Connection {
                    exptime: u32)
                    -> Result<bool, MemcacheError> {
         return self.store(StoreCommand::Replace, key, value, flags, exptime);
+    }
+
+    pub fn get(&mut self, keys: &[&str]) -> Result<Vec<(u16, Vec<u8>)>, MemcacheError> {
+        let mut result: Vec<(u16, Vec<u8>)> = vec![];
+
+        write!(self.reader.get_ref(), "get {}\r\n", keys.join(" "))?;
+
+        while true {
+            let mut s = String::new();
+            let _ = self.reader.read_line(&mut s)?;
+            if s == "END\r\n" {
+                break;
+            }
+            if s == "ERROR\r\n" {
+                return Err(MemcacheError::Error);
+            } else if s.starts_with("CLIENT_ERROR") {
+                return Err(MemcacheError::ClientError(s));
+            } else if s.starts_with("SERVER_ERROR") {
+                return Err(MemcacheError::ServerError(s));
+            } else if !s.starts_with("VALUE") {
+                return Err(MemcacheError::Error);
+            }
+            let header: Vec<_> = s.trim_right_matches("\r\n").split(" ").collect();
+            print!("header: {}", s);
+            if header.len() != 4 {
+                return Err(MemcacheError::Error);
+            }
+            let key = header[1];
+            let flags: u16;
+            let length: usize;
+            match header[2].parse() {
+                Ok(n) => flags = n,
+                Err(e) => return Err(MemcacheError::Error),
+            };
+            match header[3].parse() {
+                Ok(n) => length = n,
+                Err(e) => return Err(MemcacheError::Error),
+            };
+            let mut buffer = vec![0; length];
+            self.reader.read_exact(buffer.as_mut_slice())?;
+            let mut t = (flags, buffer);
+            result.push(t);
+
+            // read the rest \r\n
+            let mut s = String::new();
+            let _ = self.reader.read_line(&mut s)?;
+            if s != "\r\n" {
+                return Err(MemcacheError::Error);
+            }
+        }
+        return Ok(result);
     }
 
     pub fn version(&mut self) -> Result<String, MemcacheError> {
