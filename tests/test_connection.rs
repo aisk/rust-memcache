@@ -20,15 +20,17 @@ fn version() {
 #[test]
 fn store() {
     let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
-    conn.set("foo", b"bar", 1, 42).unwrap();
-    conn.replace("foo", b"bar", 1, 42).unwrap();
+    let value = &memcache::value::Value{bytes: b"bar", flags: 0};
+    conn.set("foo", value, 42).unwrap();
+    conn.replace("foo", value, 42).unwrap();
 }
 
 #[test]
 fn get() {
     let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
     conn.flush().unwrap();
-    conn.set("foo", b"bar", 1, 42).unwrap();
+    let value = &memcache::value::Value{bytes: b"bar", flags: 0};
+    conn.set("foo", value, 42).unwrap();
     conn.get(&["foo", "bar", "baz"]).unwrap();
 }
 
@@ -41,13 +43,15 @@ fn delete() {
 #[test]
 fn incr() {
     let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
-    conn.set("foo", b"100", 0, 0).unwrap();
+    let value = &memcache::value::Value{bytes: b"100", flags: 0};
+    conn.set("foo", value, 0).unwrap();
     assert!(conn.incr("foo", 1).unwrap() == Some(101));
 }
 
 #[test]
 fn decr() {
     let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
-    conn.set("foo", b"100", 0, 0).unwrap();
+    let value = &memcache::value::Value{bytes: b"100", flags: 0};
+    conn.set("foo", value, 0).unwrap();
     assert!(conn.decr("foo", 1).unwrap() == Some(99));
 }

@@ -5,6 +5,7 @@ use std::io::Read;
 use std::io;
 use std::net;
 
+use value::ToMemcacheValue;
 use error::MemcacheError;
 
 pub struct Connection {
@@ -28,21 +29,23 @@ impl fmt::Display for StoreCommand {
 }
 
 impl Connection {
-    fn store(&mut self,
-             command: StoreCommand,
-             key: &str,
-             value: &[u8],
-             flags: u16,
-             exptime: u32)
-             -> Result<bool, MemcacheError> {
+    fn store<V>(&mut self,
+                command: StoreCommand,
+                key: &str,
+                value: V,
+                exptime: u32)
+                -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        let bytes = value.get_bytes();
         write!(self.reader.get_ref(),
                "{} {} {} {} {}\r\n",
                command,
                key,
-               flags,
+               value.get_flags(),
                exptime,
-               value.len())?;
-        self.reader.get_ref().write(value)?;
+               bytes.len())?;
+        self.reader.get_ref().write(bytes)?;
         self.reader.get_ref().write(b"\r\n")?;
         self.reader.get_ref().flush()?;
         let mut s = String::new();
@@ -82,22 +85,16 @@ impl Connection {
         return Ok(());
     }
 
-    pub fn set(&mut self,
-               key: &str,
-               value: &[u8],
-               flags: u16,
-               exptime: u32)
-               -> Result<bool, MemcacheError> {
-        return self.store(StoreCommand::Set, key, value, flags, exptime);
+    pub fn set<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Set, key, value, exptime);
     }
 
-    pub fn replace(&mut self,
-                   key: &str,
-                   value: &[u8],
-                   flags: u16,
-                   exptime: u32)
-                   -> Result<bool, MemcacheError> {
-        return self.store(StoreCommand::Replace, key, value, flags, exptime);
+    pub fn replace<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Replace, key, value, exptime);
     }
 
     pub fn get(&mut self, keys: &[&str]) -> Result<Vec<(String, u16, Vec<u8>)>, MemcacheError> {
@@ -185,7 +182,7 @@ impl Connection {
         } else {
             match s.trim_right_matches("\r\n").parse::<u32>() {
                 Ok(n) => return Ok(Some(n)),
-                Err(_) => return Err(MemcacheError::Error)
+                Err(_) => return Err(MemcacheError::Error),
             }
         }
     }
@@ -205,7 +202,7 @@ impl Connection {
         } else {
             match s.trim_right_matches("\r\n").parse::<u32>() {
                 Ok(n) => return Ok(Some(n)),
-                Err(_) => return Err(MemcacheError::Error)
+                Err(_) => return Err(MemcacheError::Error),
             }
         }
     }
