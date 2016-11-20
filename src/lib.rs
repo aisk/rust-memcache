@@ -1,4 +1,4 @@
 pub mod connection;
-pub mod types;
+pub mod error;
 
-pub use types::MemcacheError;
+pub use error::MemcacheError;

@@ -5,7 +5,7 @@ use std::io::Read;
 use std::io;
 use std::net;
 
-use types::MemcacheError;
+use error::MemcacheError;
 
 pub struct Connection {
     reader: io::BufReader<net::TcpStream>,
