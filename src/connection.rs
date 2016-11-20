@@ -231,7 +231,7 @@ impl Connection {
     }
 }
 
-pub fn connect() -> Result<Connection, MemcacheError> {
-    let stream = net::TcpStream::connect("127.0.0.1:11211")?;
+pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Connection, MemcacheError> {
+    let stream = net::TcpStream::connect(addr)?;
     return Ok(Connection { reader: io::BufReader::new(stream) });
 }

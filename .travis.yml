@@ -6,10 +6,10 @@ rust:
 services: memcache
 
 env:
-  - MEMCACHED__HOST=localhost RUST_TEST_THREADS=1 RUST_BACKTRACE=1
+  - MEMCACHED__HOST=localhost
 
 before_script:
   - memcached -p 2333 -d
 
 script:
-  - cargo test
+  - RUST_TEST_THREADS=1 RUST_BACKTRACE=1 cargo test

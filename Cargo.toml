@@ -9,4 +9,3 @@ description = "memcached client for rust"
 keywords = ["memcache", "memcached", "client", "driver"]
 
 [dependencies]
-url = "^1.2.1"
