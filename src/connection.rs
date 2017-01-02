@@ -7,7 +7,6 @@ use std::net;
 
 use value::{
     ToMemcacheValue,
-    Raw,
 };
 use error::{
     MemcacheError,
@@ -116,54 +115,54 @@ impl Connection {
     {
         return self.store(StoreCommand::Prepend, key, value, exptime);
     }
+    pub fn get(&mut self, key: &str) -> Result<(Vec<u8>, u16), MemcacheError> {
+        write!(self.reader.get_ref(), "get {}\r\n", key)?;
 
-    pub fn get_raw(&mut self, keys: &[&str]) -> Result<Vec<(String, Raw)>, MemcacheError> {
-        let mut result: Vec<(String, Raw)> = vec![];
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s)?;
 
-        write!(self.reader.get_ref(), "get {}\r\n", keys.join(" "))?;
-
-        let mut loop_count = 0;
-        while loop_count < 1000000 { // prevent infinity loop
-            loop_count += 1;
-            let mut s = String::new();
-            let _ = self.reader.read_line(&mut s)?;
-            if s == "END\r\n" {
-                break;
-            }
-            if is_memcache_error(s.as_str()) {
-                return Err(MemcacheError::from(s));
-            } else if !s.starts_with("VALUE") {
-                return Err(MemcacheError::Error);
-            }
-            let header: Vec<_> = s.trim_right_matches("\r\n").split(" ").collect();
-            if header.len() != 4 {
-                return Err(MemcacheError::Error);
-            }
-            let key = header[1];
-            let flags: u16;
-            let length: usize;
-            match header[2].parse() {
-                Ok(n) => flags = n,
-                Err(_) => return Err(MemcacheError::Error),
-            };
-            match header[3].parse() {
-                Ok(n) => length = n,
-                Err(_) => return Err(MemcacheError::Error),
-            };
-            let mut buffer = vec![0; length];
-            self.reader.read_exact(buffer.as_mut_slice())?;
-            let raw = Raw{bytes: b"aaa", flags: flags};
-            let t = (key.to_string(), raw);
-            result.push(t);
-
-            // read the rest \r\n
-            let mut s = String::new();
-            let _ = self.reader.read_line(&mut s)?;
-            if s != "\r\n" {
-                return Err(MemcacheError::Error);
-            }
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
+        } else if !s.starts_with("VALUE") {
+            return Err(MemcacheError::Error);
         }
-        return Ok(result);
+
+        let header: Vec<_> = s.trim_right_matches("\r\n").split(" ").collect();
+        if header.len() != 4 {
+            return Err(MemcacheError::Error);
+        }
+
+        let key = header[1];
+        if key != key {
+            return Err(MemcacheError::Error);
+        }
+        let flags: u16;
+        let length: usize;
+        match header[2].parse() {
+            Ok(n) => flags = n,
+            Err(_) => return Err(MemcacheError::Error),
+        };
+        match header[3].parse() {
+            Ok(n) => length = n,
+            Err(_) => return Err(MemcacheError::Error),
+        };
+
+        let mut buffer = vec![0; length];
+        self.reader.read_exact(buffer.as_mut_slice())?;
+
+        // read the rest \r\n and END\r\n
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s)?;
+        if s != "\r\n" {
+            return Err(MemcacheError::Error);
+        }
+        s = String::new();
+        let _ = self.reader.read_line(&mut s)?;
+        if s != "END\r\n" {
+            return Err(MemcacheError::Error);
+        }
+
+        return Ok((buffer, flags));
     }
 
     pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {

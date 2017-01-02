@@ -34,7 +34,9 @@ fn get() {
     conn.flush().unwrap();
     let value = &memcache::value::Raw{bytes: b"bar", flags: 0};
     conn.set("foo", value, 42).unwrap();
-    conn.get_raw(&["foo", "bar", "baz"]).unwrap();
+    let result = conn.get("foo").unwrap();
+    assert!(result.1 == 0);
+    assert!(result.0 == b"bar");
 }
 
 #[test]

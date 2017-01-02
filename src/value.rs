@@ -13,6 +13,16 @@ pub struct Raw<'a> {
     pub flags: u16,
 }
 
+impl<'a> ToMemcacheValue for (&'a [u8], u16) {
+    fn get_flags(&self) -> u16 {
+        return self.1;
+    }
+
+    fn get_bytes(&self) -> &[u8] {
+        return self.0;
+    }
+}
+
 impl<'a> ToMemcacheValue for &'a Raw<'a> {
     fn get_flags(&self) -> u16 {
         return self.flags;
