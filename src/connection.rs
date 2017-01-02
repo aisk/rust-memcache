@@ -7,6 +7,7 @@ use std::net;
 
 use value::ToMemcacheValue;
 use error::MemcacheError;
+use error::is_memcache_error;
 
 pub struct Connection {
     reader: io::BufReader<net::TcpStream>,
@@ -54,12 +55,8 @@ impl Connection {
         self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        if s == "ERROR\r\n" {
-            return Err(MemcacheError::Error);
-        } else if s.starts_with("CLIENT_ERROR") {
-            return Err(MemcacheError::ClientError(s));
-        } else if s.starts_with("SERVER_ERROR") {
-            return Err(MemcacheError::ServerError(s));
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
         } else if s == "STORED\r\n" {
             return Ok(true);
         } else if s == "NOT_STORED\r\n" {
@@ -77,12 +74,8 @@ impl Connection {
         self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        if s == "ERROR\r\n" {
-            return Err(MemcacheError::Error);
-        } else if s.starts_with("CLIENT_ERROR") {
-            return Err(MemcacheError::ClientError(s));
-        } else if s.starts_with("SERVER_ERROR") {
-            return Err(MemcacheError::ServerError(s));
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
         } else if s != "OK\r\n" {
             return Err(MemcacheError::Error);
         }
@@ -132,12 +125,8 @@ impl Connection {
             if s == "END\r\n" {
                 break;
             }
-            if s == "ERROR\r\n" {
-                return Err(MemcacheError::Error);
-            } else if s.starts_with("CLIENT_ERROR") {
-                return Err(MemcacheError::ClientError(s));
-            } else if s.starts_with("SERVER_ERROR") {
-                return Err(MemcacheError::ServerError(s));
+            if is_memcache_error(s.as_str()) {
+                return Err(MemcacheError::from(s));
             } else if !s.starts_with("VALUE") {
                 return Err(MemcacheError::Error);
             }
@@ -176,12 +165,8 @@ impl Connection {
         self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        if s == "ERROR\r\n" {
-            return Err(MemcacheError::Error);
-        } else if s.starts_with("CLIENT_ERROR") {
-            return Err(MemcacheError::ClientError(s));
-        } else if s.starts_with("SERVER_ERROR") {
-            return Err(MemcacheError::ServerError(s));
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
         } else if s == "DELETED\r\n" {
             return Ok(true);
         } else if s == "NOT_FOUND\r\n" {
@@ -195,12 +180,8 @@ impl Connection {
         write!(self.reader.get_ref(), "incr {} {}\r\n", key, value)?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        if s == "ERROR\r\n" {
-            return Err(MemcacheError::Error);
-        } else if s.starts_with("CLIENT_ERROR") {
-            return Err(MemcacheError::ClientError(s));
-        } else if s.starts_with("SERVER_ERROR") {
-            return Err(MemcacheError::ServerError(s));
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
         } else if s == "NOT_FOUND\r\n" {
             return Ok(None);
         } else {
@@ -215,12 +196,8 @@ impl Connection {
         write!(self.reader.get_ref(), "decr {} {}\r\n", key, value)?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        if s == "ERROR\r\n" {
-            return Err(MemcacheError::Error);
-        } else if s.starts_with("CLIENT_ERROR") {
-            return Err(MemcacheError::ClientError(s));
-        } else if s.starts_with("SERVER_ERROR") {
-            return Err(MemcacheError::ServerError(s));
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
         } else if s == "NOT_FOUND\r\n" {
             return Ok(None);
         } else {
@@ -236,12 +213,8 @@ impl Connection {
         self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        if s == "ERROR\r\n" {
-            return Err(MemcacheError::Error);
-        } else if s.starts_with("CLIENT_ERROR") {
-            return Err(MemcacheError::ClientError(s));
-        } else if s.starts_with("SERVER_ERROR") {
-            return Err(MemcacheError::ServerError(s));
+        if is_memcache_error(s.as_str())  {
+            return Err(MemcacheError::from(s));
         } else if !s.starts_with("VERSION") {
             return Err(MemcacheError::Error);
         }

@@ -46,3 +46,21 @@ impl From<io::Error> for MemcacheError {
         MemcacheError::Io(err)
     }
 }
+
+impl From<String> for MemcacheError {
+    fn from(s: String) -> MemcacheError {
+        if s == "ERROR\r\n" {
+            return MemcacheError::Error;
+        }  else if s.starts_with("CLIENT_ERROR") {
+            return MemcacheError::ClientError(s);
+        } else if s.starts_with("SERVER_ERROR") {
+            return MemcacheError::ServerError(s);
+        } else {
+            panic!("{} if not a memcached error!", s);
+        }
+    }
+}
+
+pub fn is_memcache_error(s: &str) -> bool {
+    return s == "ERROR\r\n" || s.starts_with("CIENT_ERROR") || s.starts_with("SERVER_ERROR");
+}
