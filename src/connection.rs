@@ -5,9 +5,14 @@ use std::io::Read;
 use std::io;
 use std::net;
 
-use value::ToMemcacheValue;
-use error::MemcacheError;
-use error::is_memcache_error;
+use value::{
+    ToMemcacheValue,
+    Raw,
+};
+use error::{
+    MemcacheError,
+    is_memcache_error,
+};
 
 pub struct Connection {
     reader: io::BufReader<net::TcpStream>,
@@ -112,8 +117,8 @@ impl Connection {
         return self.store(StoreCommand::Prepend, key, value, exptime);
     }
 
-    pub fn get(&mut self, keys: &[&str]) -> Result<Vec<(String, u16, Vec<u8>)>, MemcacheError> {
-        let mut result: Vec<(String, u16, Vec<u8>)> = vec![];
+    pub fn get_raw(&mut self, keys: &[&str]) -> Result<Vec<(String, Raw)>, MemcacheError> {
+        let mut result: Vec<(String, Raw)> = vec![];
 
         write!(self.reader.get_ref(), "get {}\r\n", keys.join(" "))?;
 
@@ -147,7 +152,8 @@ impl Connection {
             };
             let mut buffer = vec![0; length];
             self.reader.read_exact(buffer.as_mut_slice())?;
-            let t = (key.to_string(), flags, buffer);
+            let raw = Raw{bytes: b"aaa", flags: flags};
+            let t = (key.to_string(), raw);
             result.push(t);
 
             // read the rest \r\n
