@@ -16,6 +16,8 @@ enum StoreCommand {
     Set,
     Add,
     Replace,
+    Append,
+    Prepend,
 }
 
 impl fmt::Display for StoreCommand {
@@ -24,6 +26,8 @@ impl fmt::Display for StoreCommand {
             StoreCommand::Set => write!(f, "set"),
             StoreCommand::Add => write!(f, "add"),
             StoreCommand::Replace => write!(f, "replace"),
+            StoreCommand::Append => write!(f, "append"),
+            StoreCommand::Prepend => write!(f, "prepend")
         }
     }
 }
@@ -91,10 +95,28 @@ impl Connection {
         return self.store(StoreCommand::Set, key, value, exptime);
     }
 
+    pub fn add<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Add, key, value, exptime);
+    }
+
     pub fn replace<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
         return self.store(StoreCommand::Replace, key, value, exptime);
+    }
+
+    pub fn append<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Append, key, value, exptime);
+    }
+
+    pub fn prepend<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Prepend, key, value, exptime);
     }
 
     pub fn get(&mut self, keys: &[&str]) -> Result<Vec<(String, u16, Vec<u8>)>, MemcacheError> {
@@ -102,7 +124,9 @@ impl Connection {
 
         write!(self.reader.get_ref(), "get {}\r\n", keys.join(" "))?;
 
-        while true {
+        let mut loop_count = 0;
+        while loop_count < 1000000 { // prevent infinity loop
+            loop_count += 1;
             let mut s = String::new();
             let _ = self.reader.read_line(&mut s)?;
             if s == "END\r\n" {

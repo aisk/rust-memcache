@@ -23,6 +23,9 @@ fn store() {
     let value = &memcache::value::Value{bytes: b"bar", flags: 0};
     conn.set("foo", value, 42).unwrap();
     conn.replace("foo", value, 42).unwrap();
+    conn.add("foo", value, 42).unwrap();
+    conn.append("foo", value, 42).unwrap();
+    conn.prepend("foo", value, 42).unwrap();
 }
 
 #[test]
