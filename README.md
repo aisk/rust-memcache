@@ -5,14 +5,11 @@ Memcached client for rust.
 
 ## Usage
 ```rust
-let client = memcache::connect("localhost", 2333).unwrap();
-client.flush(0).unwrap();
-
-client.set_raw("foo", &[0x1u8, 0x2u8, 0x3u8], 0, 42).unwrap();
-
-let (value, flags) = client.get_raw("foo").unwrap();
-assert!(value == &[0x1u8, 0x2u8, 0x3u8]);
-assert!(flags == 42);
+let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+conn.flush().unwrap();
+let value = &memcache::value::Value{bytes: b"bar", flags: 0};
+conn.set("foo", value, 42).unwrap();
+conn.get(&["foo", "bar", "baz"]).unwrap();
 ```
 
 ## TODO
