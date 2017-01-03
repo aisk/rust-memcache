@@ -1,3 +1,5 @@
+use error::MemcacheError;
+
 pub enum Flags {
     Bytes = 0,
     JSON = 1,
@@ -61,4 +63,10 @@ impl<'a> ToMemcacheValue for &'a str {
     fn get_bytes(&self) -> &[u8] {
         return self.as_bytes();
     }
+}
+
+type MemcacheValue<T> = Result<T, MemcacheError>;
+
+pub trait FromMemcacheValue: Sized {
+    fn from_memcache_value(Vec<u8>) -> MemcacheValue<Self>;
 }

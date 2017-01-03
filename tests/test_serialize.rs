@@ -12,3 +12,9 @@ fn set_bytes() {
     let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
     conn.set("this_is_a_bytes", "some bytes".as_bytes(), 0).unwrap();
 }
+
+#[test]
+fn set_number() {
+    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    conn.set("this_is_a_number", 1.to_string(), 0).unwrap();
+}
