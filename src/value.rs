@@ -1,6 +1,6 @@
 pub enum Flags {
     Bytes = 0,
-    String = 1,
+    JSON = 1,
 }
 
 pub trait ToMemcacheValue {
@@ -45,7 +45,7 @@ impl<'a> ToMemcacheValue for &'a [u8] {
 
 impl ToMemcacheValue for String {
     fn get_flags(&self) -> u16 {
-        return Flags::String as u16;
+        return Flags::Bytes as u16;
     }
 
     fn get_bytes(&self) -> &[u8] {
@@ -55,7 +55,7 @@ impl ToMemcacheValue for String {
 
 impl<'a> ToMemcacheValue for &'a str {
     fn get_flags(&self) -> u16 {
-        return Flags::String as u16;
+        return Flags::Bytes as u16;
     }
 
     fn get_bytes(&self) -> &[u8] {
