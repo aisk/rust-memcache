@@ -71,6 +71,12 @@ pub trait FromMemcacheValue: Sized {
     fn from_memcache_value(Vec<u8>, u16) -> MemcacheValue<Self>;
 }
 
+impl FromMemcacheValue for (Vec<u8>, u16) {
+    fn from_memcache_value(value: Vec<u8>, flags: u16) -> MemcacheValue<Self> {
+        return Ok((value, flags));
+    }
+}
+
 impl FromMemcacheValue for Vec<u8> {
     fn from_memcache_value(value: Vec<u8>, _: u16) -> MemcacheValue<Self> {
         return Ok(value);
