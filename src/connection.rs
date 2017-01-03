@@ -7,6 +7,7 @@ use std::net;
 
 use value::{
     ToMemcacheValue,
+    FromMemcacheValue,
 };
 use error::{
     MemcacheError,
@@ -115,7 +116,10 @@ impl Connection {
     {
         return self.store(StoreCommand::Prepend, key, value, exptime);
     }
-    pub fn get(&mut self, key: &str) -> Result<(Vec<u8>, u16), MemcacheError> {
+
+    pub fn get<V>(&mut self, key: &str) -> Result<V, MemcacheError>
+        where V: FromMemcacheValue
+    {
         write!(self.reader.get_ref(), "get {}\r\n", key)?;
 
         let mut s = String::new();
@@ -162,7 +166,7 @@ impl Connection {
             return Err(MemcacheError::Error);
         }
 
-        return Ok((buffer, flags));
+        return Ok(FromMemcacheValue::from_memcache_value(buffer, flags)?);
     }
 
     pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {

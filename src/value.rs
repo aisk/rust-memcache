@@ -68,5 +68,11 @@ impl<'a> ToMemcacheValue for &'a str {
 type MemcacheValue<T> = Result<T, MemcacheError>;
 
 pub trait FromMemcacheValue: Sized {
-    fn from_memcache_value(Vec<u8>) -> MemcacheValue<Self>;
+    fn from_memcache_value(Vec<u8>, u16) -> MemcacheValue<Self>;
+}
+
+impl FromMemcacheValue for Vec<u8> {
+    fn from_memcache_value(value: Vec<u8>, _: u16) -> MemcacheValue<Self> {
+        return Ok(value);
+    }
 }
