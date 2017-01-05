@@ -5,11 +5,23 @@ Memcached client for rust.
 
 ## Usage
 ```rust
+// create connection
 let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+
+// flush the database
 conn.flush().unwrap();
-let value = &memcache::value::Value{bytes: b"bar", flags: 0};
-conn.set("foo", value, 42).unwrap();
-conn.get(&["foo", "bar", "baz"]).unwrap();
+
+// set a string value with expire time
+conn.set("foo", "bar", 42).unwrap();
+// retrie from memcached
+let value: String = conn.get("foo").unwrap();
+assert!(value == "bar");
+
+// set a int value with immortal expire
+conn.set("number", 42.to_string(), 0).unwrap();
+// retire it as i32
+let value: i32 = conn.get("number").unwrap();
+assert!(value == 42);
 ```
 
 ## TODO
