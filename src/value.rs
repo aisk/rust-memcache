@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use error::MemcacheError;
 
 pub enum Flags {
@@ -92,3 +93,28 @@ impl FromMemcacheValue for String {
         }
     }
 }
+
+macro_rules! impl_from_memcache_value_for_number{
+    ($ty:ident) => {
+        impl FromMemcacheValue for $ty {
+            fn from_memcache_value(value: Vec<u8>, _: u16) -> MemcacheValue<Self> {
+                let s: String = String::from_memcache_value(value, 0)?;
+                match Self::from_str(s.as_str()) {
+                    Ok(v) => return Ok(v),
+                    Err(_) => Err(MemcacheError::Error),
+                }
+            }
+        }
+    }
+}
+
+impl_from_memcache_value_for_number!(u8);
+impl_from_memcache_value_for_number!(u16);
+impl_from_memcache_value_for_number!(u32);
+impl_from_memcache_value_for_number!(u64);
+impl_from_memcache_value_for_number!(i8);
+impl_from_memcache_value_for_number!(i16);
+impl_from_memcache_value_for_number!(i32);
+impl_from_memcache_value_for_number!(i64);
+impl_from_memcache_value_for_number!(f32);
+impl_from_memcache_value_for_number!(f64);
