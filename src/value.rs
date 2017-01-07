@@ -11,6 +11,7 @@ pub enum Flags {
 
 pub trait ToMemcacheValue {
     fn get_flags(&self) -> u16;
+    fn get_exptime(&self) -> u32;
     fn get_length(&self) -> usize;
     fn write_to(&self, stream: &net::TcpStream) -> io::Result<()>;
 }
@@ -23,6 +24,10 @@ pub struct Raw<'a> {
 impl<'a> ToMemcacheValue for (&'a [u8], u16) {
     fn get_flags(&self) -> u16 {
         return self.1;
+    }
+
+    fn get_exptime(&self) -> u32 {
+        return 0;
     }
 
     fn get_length(&self) -> usize {
@@ -42,6 +47,10 @@ impl<'a> ToMemcacheValue for &'a Raw<'a> {
         return self.flags;
     }
 
+    fn get_exptime(&self) -> u32 {
+        return 0;
+    }
+
     fn get_length(&self) -> usize {
         return self.bytes.len();
     }
@@ -57,6 +66,10 @@ impl<'a> ToMemcacheValue for &'a Raw<'a> {
 impl<'a> ToMemcacheValue for &'a [u8] {
     fn get_flags(&self) -> u16 {
         return Flags::Bytes as u16;
+    }
+
+    fn get_exptime(&self) -> u32 {
+        return 0;
     }
 
     fn get_length(&self) -> usize {
@@ -76,6 +89,10 @@ impl ToMemcacheValue for String {
         return Flags::Bytes as u16;
     }
 
+    fn get_exptime(&self) -> u32 {
+        return 0;
+    }
+
     fn get_length(&self) -> usize {
         return self.as_bytes().len();
     }
@@ -91,6 +108,10 @@ impl ToMemcacheValue for String {
 impl<'a> ToMemcacheValue for &'a str {
     fn get_flags(&self) -> u16 {
         return Flags::Bytes as u16;
+    }
+
+    fn get_exptime(&self) -> u32 {
+        return 0;
     }
 
     fn get_length(&self) -> usize {
@@ -111,6 +132,10 @@ macro_rules! impl_to_memcache_value_for_number{
             fn get_flags(&self) -> u16 {
                 return Flags::Bytes as u16;
             }
+
+    fn get_exptime(&self) -> u32 {
+        return 0;
+    }
 
             fn get_length(&self) -> usize {
                 return self.to_string().as_bytes().len();

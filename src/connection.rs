@@ -36,8 +36,7 @@ impl Connection {
     fn store<V>(&mut self,
                 command: StoreCommand,
                 key: &str,
-                value: V,
-                exptime: u32)
+                value: V)
                 -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
@@ -46,7 +45,7 @@ impl Connection {
                command,
                key,
                value.get_flags(),
-               exptime,
+               0,
                value.get_length())?;
         // self.reader.get_ref().write(bytes)?;
         value.write_to(self.reader.get_ref())?;
@@ -81,34 +80,34 @@ impl Connection {
         return Ok(());
     }
 
-    pub fn set<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+    pub fn set<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Set, key, value, exptime);
+        return self.store(StoreCommand::Set, key, value);
     }
 
-    pub fn add<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+    pub fn add<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Add, key, value, exptime);
+        return self.store(StoreCommand::Add, key, value);
     }
 
-    pub fn replace<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+    pub fn replace<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Replace, key, value, exptime);
+        return self.store(StoreCommand::Replace, key, value);
     }
 
-    pub fn append<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+    pub fn append<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Append, key, value, exptime);
+        return self.store(StoreCommand::Append, key, value);
     }
 
-    pub fn prepend<V>(&mut self, key: &str, value: V, exptime: u32) -> Result<bool, MemcacheError>
+    pub fn prepend<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Prepend, key, value, exptime);
+        return self.store(StoreCommand::Prepend, key, value);
     }
 
     pub fn get<V>(&mut self, key: &str) -> Result<V, MemcacheError>

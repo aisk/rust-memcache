@@ -24,11 +24,11 @@ fn store() {
         bytes: b"bar",
         flags: 0,
     };
-    conn.set("foo", value, 42).unwrap();
-    conn.replace("foo", value, 42).unwrap();
-    conn.add("foo", value, 42).unwrap();
-    conn.append("foo", value, 42).unwrap();
-    conn.prepend("foo", value, 42).unwrap();
+    conn.set("foo", value).unwrap();
+    conn.replace("foo", value).unwrap();
+    conn.add("foo", value).unwrap();
+    conn.append("foo", value).unwrap();
+    conn.prepend("foo", value).unwrap();
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn get() {
         bytes: b"bar",
         flags: 0,
     };
-    conn.set("foo", value, 42).unwrap();
+    conn.set("foo", value).unwrap();
     let result: (Vec<u8>, u16) = conn.get("foo").unwrap();
     assert!(result.0 == b"bar");
     assert!(result.1 == 0);
@@ -58,7 +58,7 @@ fn incr() {
         bytes: b"100",
         flags: 0,
     };
-    conn.set("foo", value, 0).unwrap();
+    conn.set("foo", value).unwrap();
     assert!(conn.incr("foo", 1).unwrap() == Some(101));
 }
 
@@ -69,6 +69,6 @@ fn decr() {
         bytes: b"100",
         flags: 0,
     };
-    conn.set("foo", value, 0).unwrap();
+    conn.set("foo", value).unwrap();
     assert!(conn.decr("foo", 1).unwrap() == Some(99));
 }
