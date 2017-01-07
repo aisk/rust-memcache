@@ -108,6 +108,7 @@ macro_rules! impl_from_memcache_value_for_number{
     }
 }
 
+impl_from_memcache_value_for_number!(bool);
 impl_from_memcache_value_for_number!(u8);
 impl_from_memcache_value_for_number!(u16);
 impl_from_memcache_value_for_number!(u32);

@@ -38,3 +38,13 @@ fn number() {
     let f: f64 = conn.get("this_is_a_f64").unwrap();
     assert!(f == 233.333);
 }
+
+#[test]
+fn bool() {
+    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+
+    conn.set("this_is_a_bool", true.to_string(), 0).unwrap();
+    let b: bool = conn.get("this_is_a_bool").unwrap();
+    assert!(b == true);
+
+}
