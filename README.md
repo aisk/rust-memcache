@@ -28,10 +28,10 @@ assert!(value == 43);
 
 ## TODO
 
-- [ ] Ascii protocal
+- [x] Ascii protocal
 - [ ] Binary protocal
 - [ ] Multi server support
-- [ ] Typed interface
+- [x] Typed interface
 - [ ] Documents
 
 # License
