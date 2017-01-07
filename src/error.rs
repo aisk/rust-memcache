@@ -51,7 +51,7 @@ impl From<String> for MemcacheError {
     fn from(s: String) -> MemcacheError {
         if s == "ERROR\r\n" {
             return MemcacheError::Error;
-        }  else if s.starts_with("CLIENT_ERROR") {
+        } else if s.starts_with("CLIENT_ERROR") {
             return MemcacheError::ClientError(s);
         } else if s.starts_with("SERVER_ERROR") {
             return MemcacheError::ServerError(s);

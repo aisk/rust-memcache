@@ -18,10 +18,12 @@ let value: String = conn.get("foo").unwrap();
 assert!(value == "bar");
 
 // set a int value with immortal expire
-conn.set("number", 42.to_string(), 0).unwrap();
+conn.set("number", 42, 0).unwrap();
+// increment it atomic
+conn.incr("number", 1);
 // retire it as i32
 let value: i32 = conn.get("number").unwrap();
-assert!(value == 42);
+assert!(value == 43);
 ```
 
 ## TODO

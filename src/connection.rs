@@ -5,14 +5,8 @@ use std::io::Read;
 use std::io;
 use std::net;
 
-use value::{
-    ToMemcacheValue,
-    FromMemcacheValue,
-};
-use error::{
-    MemcacheError,
-    is_memcache_error,
-};
+use value::{ToMemcacheValue, FromMemcacheValue};
+use error::{MemcacheError, is_memcache_error};
 
 pub struct Connection {
     reader: io::BufReader<net::TcpStream>,
@@ -33,7 +27,7 @@ impl fmt::Display for StoreCommand {
             StoreCommand::Add => write!(f, "add"),
             StoreCommand::Replace => write!(f, "replace"),
             StoreCommand::Append => write!(f, "append"),
-            StoreCommand::Prepend => write!(f, "prepend")
+            StoreCommand::Prepend => write!(f, "prepend"),
         }
     }
 }
@@ -47,15 +41,15 @@ impl Connection {
                 -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        let bytes = value.get_bytes();
         write!(self.reader.get_ref(),
                "{} {} {} {} {}\r\n",
                command,
                key,
                value.get_flags(),
                exptime,
-               bytes.len())?;
-        self.reader.get_ref().write(bytes)?;
+               value.get_length())?;
+        // self.reader.get_ref().write(bytes)?;
+        value.write_to(self.reader.get_ref())?;
         self.reader.get_ref().write(b"\r\n")?;
         self.reader.get_ref().flush()?;
         let mut s = String::new();
@@ -222,7 +216,7 @@ impl Connection {
         self.reader.get_ref().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
-        if is_memcache_error(s.as_str())  {
+        if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if !s.starts_with("VERSION") {
             return Err(MemcacheError::Error);
