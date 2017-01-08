@@ -185,11 +185,7 @@ impl FromMemcacheValue for Vec<u8> {
 
 impl FromMemcacheValue for String {
     fn from_memcache_value(value: Vec<u8>, _: u16) -> MemcacheValue<Self> {
-        // TODO
-        match String::from_utf8(value) {
-            Ok(v) => Ok(v),
-            Err(_) => Err(MemcacheError::Error),
-        }
+        return Ok(String::from_utf8(value)?);
     }
 }
 

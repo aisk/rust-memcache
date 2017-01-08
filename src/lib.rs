@@ -14,7 +14,7 @@ version = "*"
 
 - <input type="checkbox"  disabled checked /> ASCII protocal
 - <input type="checkbox"  disabled /> Binary protocal
-- <input type="checkbox"  disabled /> TCP connection
+- <input type="checkbox"  disabled checked /> TCP connection
 - <input type="checkbox"  disabled /> UDP connection
 - <input type="checkbox"  disabled /> UNIX Domain socket connection
 - <input type="checkbox"  disabled /> Automatically compress

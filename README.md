@@ -19,7 +19,7 @@ version = "*"
 
 - [x] ASCII protocal
 - [ ] Binary protocal
-- [ ] TCP connection
+- [x] TCP connection
 - [ ] UDP connection
 - [ ] UNIX Domain socket connection
 - [ ] Automatically compress
