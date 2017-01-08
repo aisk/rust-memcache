@@ -1,5 +1,8 @@
 # rust-memcache
-[![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache) [![Crates.io](https://img.shields.io/crates/v/memcache.svg)](https://crates.io/crates/memcache)
+[![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache)
+[![Crates.io](https://img.shields.io/crates/v/memcache.svg)](https://crates.io/crates/memcache)
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Docs](https://docs.rs/memcache/badge.svg)](https://docs.rs/memcache/)
 
 rust-memcache is a [Memcached](https://memcached.org/) client written in pure rust.
 
@@ -14,15 +17,15 @@ version = "*"
 
 ## Features:
 
-- <input type="checkbox"  disabled checked /> ASCII protocal
-- <input type="checkbox"  disabled /> Binary protocal
-- <input type="checkbox"  disabled /> TCP connection
-- <input type="checkbox"  disabled /> UDP connection
-- <input type="checkbox"  disabled /> UNIX Domain socket connection
-- <input type="checkbox"  disabled /> Automatically compress
-- <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
-- <input type="checkbox"  disabled checked /> Typed interface
-- <input type="checkbox"  disabled /> Mutiple server support with custom key hash algorithm
+- [x] ASCII protocal
+- [ ] Binary protocal
+- [ ] TCP connection
+- [ ] UDP connection
+- [ ] UNIX Domain socket connection
+- [ ] Automatically compress
+- [ ] Automatically serialize to JSON / msgpack etc.
+- [x] Typed interface
+- [ ] Mutiple server support with custom key hash algorithm
 
 ## Basic usage:
 
