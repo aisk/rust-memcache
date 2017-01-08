@@ -1,12 +1,34 @@
 # rust-memcache
 [![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache) [![Crates.io](https://img.shields.io/crates/v/memcache.svg)](https://crates.io/crates/memcache)
 
-Memcached client for rust.
+rust-memcache is a [Memcached](https://memcached.org/) client written in pure rust.
 
-## Usage
+## Install:
+
+The crate is called `memcache` and you can depend on it via cargo:
+
+```ini
+[dependencies.redis]
+version = "*"
+```
+
+## Features:
+
+- <input type="checkbox"  disabled checked /> ASCII protocal
+- <input type="checkbox"  disabled /> Binary protocal
+- <input type="checkbox"  disabled /> TCP connection
+- <input type="checkbox"  disabled /> UDP connection
+- <input type="checkbox"  disabled /> UNIX Domain socket connection
+- <input type="checkbox"  disabled /> Automatically compress
+- <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
+- <input type="checkbox"  disabled checked /> Typed interface
+- <input type="checkbox"  disabled /> Mutiple server support with custom key hash algorithm
+
+## Basic usage:
+
 ```rust
 // create connection
-let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
 
 // flush the database
 conn.flush().unwrap();
@@ -26,14 +48,6 @@ let value: i32 = conn.get("number").unwrap();
 assert!(value == 43);
 ```
 
-## TODO
-
-- [x] Ascii protocal
-- [ ] Binary protocal
-- [ ] Multi server support
-- [x] Typed interface
-- [ ] Documents
-
-# License
+## License
 
 MIT

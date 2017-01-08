@@ -8,6 +8,8 @@ use std::net;
 use value::{ToMemcacheValue, FromMemcacheValue};
 use error::{MemcacheError, is_memcache_error};
 
+/// The connection acts as a TCP connection to the memcached server
+#[derive(Debug)]
 pub struct Connection {
     reader: io::BufReader<net::TcpStream>,
 }
@@ -33,6 +35,18 @@ impl fmt::Display for StoreCommand {
 }
 
 impl Connection {
+    /// connect to the memcached server.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let con = memcache::Connection::connect("localhost:12345").unwrap();
+    /// ```
+    pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Connection, MemcacheError> {
+        let stream = net::TcpStream::connect(addr)?;
+        return Ok(Connection { reader: io::BufReader::new(stream) });
+    }
+
     fn store<V>(&mut self,
                 command: StoreCommand,
                 key: &str,
@@ -194,6 +208,9 @@ impl Connection {
         }
     }
 
+    /// decrement the value of memcached
+    ///
+    /// see: [memcached decr](https://github.com/memcached/memcached/wiki/Commands#incrdecr)
     pub fn decr(&mut self, key: &str, value: u32) -> Result<Option<u32>, MemcacheError> {
         write!(self.reader.get_ref(), "decr {} {}\r\n", key, value)?;
         let mut s = String::new();
@@ -210,6 +227,7 @@ impl Connection {
         }
     }
 
+    /// get the memcached server version
     pub fn version(&mut self) -> Result<String, MemcacheError> {
         self.reader.get_ref().write(b"version\r\n")?;
         self.reader.get_ref().flush()?;
@@ -225,9 +243,4 @@ impl Connection {
 
         return Ok(s.to_string());
     }
-}
-
-pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Connection, MemcacheError> {
-    let stream = net::TcpStream::connect(addr)?;
-    return Ok(Connection { reader: io::BufReader::new(stream) });
 }

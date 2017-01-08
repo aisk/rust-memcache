@@ -2,7 +2,7 @@ extern crate memcache;
 
 #[test]
 fn string() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
 
     conn.set("this_is_a_string", String::from("a string")).unwrap();
     let s: String = conn.get("this_is_a_string").unwrap();
@@ -15,7 +15,7 @@ fn string() {
 
 #[test]
 fn bytes() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
 
     conn.set("this_is_a_bytes", "some bytes".as_bytes()).unwrap();
     let b: Vec<u8> = conn.get("this_is_a_bytes").unwrap();
@@ -24,7 +24,7 @@ fn bytes() {
 
 #[test]
 fn number() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
 
     conn.set("this_is_a_u32", 233).unwrap();
     conn.incr("this_is_a_u32", 1).unwrap();
@@ -42,10 +42,9 @@ fn number() {
 
 #[test]
 fn bool() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
 
     conn.set("this_is_a_bool", true).unwrap();
     let b: bool = conn.get("this_is_a_bool").unwrap();
     assert!(b == true);
-
 }

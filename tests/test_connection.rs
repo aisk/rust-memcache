@@ -2,25 +2,25 @@ extern crate memcache;
 
 #[test]
 fn connect() {
-    memcache::connection::connect("127.0.0.1:12345").unwrap();
+    memcache::Connection::connect("127.0.0.1:12345").unwrap();
 }
 
 #[test]
 fn flush() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
     conn.flush().unwrap();
 }
 
 #[test]
 fn version() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
     conn.version().unwrap();
 }
 
 #[test]
 fn store() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
-    let value = &memcache::value::Raw {
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
+    let value = &memcache::Raw {
         bytes: b"bar",
         flags: 0,
     };
@@ -33,9 +33,9 @@ fn store() {
 
 #[test]
 fn get() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
     conn.flush().unwrap();
-    let value = &memcache::value::Raw {
+    let value = &memcache::Raw {
         bytes: b"bar",
         flags: 0,
     };
@@ -47,14 +47,14 @@ fn get() {
 
 #[test]
 fn delete() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
     conn.delete("foo").unwrap();
 }
 
 #[test]
 fn incr() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
-    let value = &memcache::value::Raw {
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
+    let value = &memcache::Raw {
         bytes: b"100",
         flags: 0,
     };
@@ -64,8 +64,8 @@ fn incr() {
 
 #[test]
 fn decr() {
-    let mut conn = memcache::connection::connect("127.0.0.1:12345").unwrap();
-    let value = &memcache::value::Raw {
+    let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
+    let value = &memcache::Raw {
         bytes: b"100",
         flags: 0,
     };

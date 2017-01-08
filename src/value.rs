@@ -6,9 +6,9 @@ use error::MemcacheError;
 
 pub enum Flags {
     Bytes = 0,
-    JSON = 1,
 }
 
+/// determine how the value is serialize to memcache
 pub trait ToMemcacheValue {
     fn get_flags(&self) -> u16;
     fn get_exptime(&self) -> u32;
@@ -16,6 +16,7 @@ pub trait ToMemcacheValue {
     fn write_to(&self, stream: &net::TcpStream) -> io::Result<()>;
 }
 
+#[doc(hidden)]
 pub struct Raw<'a> {
     pub bytes: &'a [u8],
     pub flags: u16,
@@ -165,6 +166,7 @@ impl_to_memcache_value_for_number!(f64);
 
 type MemcacheValue<T> = Result<T, MemcacheError>;
 
+/// determine how the value is unserialize to memcache
 pub trait FromMemcacheValue: Sized {
     fn from_memcache_value(Vec<u8>, u16) -> MemcacheValue<Self>;
 }
