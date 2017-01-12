@@ -1,6 +1,6 @@
 [package]
 name = "memcache"
-version = "0.0.13"
+version = "0.0.14"
 authors = ["asaka"]
 repository = "https://github.com/aisk/rust-memcache"
 readme = "README.md"
