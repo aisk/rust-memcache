@@ -40,7 +40,7 @@ assert!(value == "bar");
 // set a int value
 conn.set("number", 42).unwrap();
 // increment it atomic
-conn.incr("number", 1);
+conn.incr("number", 1).unwrap();
 // retrieve it as i32
 let value: i32 = conn.get("number").unwrap();
 assert!(value == 43);
@@ -49,6 +49,7 @@ assert!(value == 43);
 
 pub use connection::Connection;
 pub use error::MemcacheError;
+pub use options::Options;
 pub use value::{
     Raw,
     ToMemcacheValue,
@@ -58,3 +59,4 @@ pub use value::{
 mod connection;
 mod error;
 mod value;
+mod options;

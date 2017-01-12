@@ -5,6 +5,7 @@ use std::io::Read;
 use std::io;
 use std::net;
 
+use options::Options;
 use value::{ToMemcacheValue, FromMemcacheValue};
 use error::{MemcacheError, is_memcache_error};
 
@@ -40,7 +41,7 @@ impl Connection {
     /// Example:
     ///
     /// ```rust
-    /// let con = memcache::Connection::connect("localhost:12345").unwrap();
+    /// let _ = memcache::Connection::connect("localhost:12345").unwrap();
     /// ```
     pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Connection, MemcacheError> {
         let stream = net::TcpStream::connect(addr)?;
@@ -50,7 +51,9 @@ impl Connection {
     fn store<V>(&mut self,
                 command: StoreCommand,
                 key: &str,
-                value: V)
+                value: V,
+                options: &Options,
+                )
                 -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
@@ -59,7 +62,7 @@ impl Connection {
                command,
                key,
                value.get_flags(),
-               0,
+               options.exptime,
                value.get_length())?;
         // self.reader.get_ref().write(bytes)?;
         value.write_to(self.reader.get_ref())?;
@@ -97,31 +100,62 @@ impl Connection {
     pub fn set<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Set, key, value);
+        return self.set_with_options(key, value, &Default::default());
     }
+
+    pub fn set_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Set, key, value, options);
+    }
+
 
     pub fn add<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Add, key, value);
+        return self.add_with_options(key, value, &Default::default());
+    }
+
+    pub fn add_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Add, key, value, options);
     }
 
     pub fn replace<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Replace, key, value);
+        return self.replace_with_options(key, value, &Default::default());
+    }
+
+    pub fn replace_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Replace, key, value, options);
     }
 
     pub fn append<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Append, key, value);
+        return self.append_with_options(key, value, &Default::default());
+    }
+
+    pub fn append_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Append, key, value, options);
     }
 
     pub fn prepend<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        return self.store(StoreCommand::Prepend, key, value);
+        return self.prepend_with_options(key, value, &Default::default());
+    }
+
+    pub fn prepend_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+        where V: ToMemcacheValue
+    {
+        return self.store(StoreCommand::Prepend, key, value, options);
     }
 
     pub fn get<V>(&mut self, key: &str) -> Result<V, MemcacheError>
