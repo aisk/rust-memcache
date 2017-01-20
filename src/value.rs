@@ -16,27 +16,6 @@ pub trait ToMemcacheValue {
     fn write_to(&self, stream: &net::TcpStream) -> io::Result<()>;
 }
 
-impl<'a> ToMemcacheValue for (&'a [u8], u16) {
-    fn get_flags(&self) -> u16 {
-        return self.1;
-    }
-
-    fn get_exptime(&self) -> u32 {
-        return 0;
-    }
-
-    fn get_length(&self) -> usize {
-        return self.0.len();
-    }
-
-    fn write_to(&self, mut stream: &net::TcpStream) -> io::Result<()> {
-        match stream.write(self.0) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        }
-    }
-}
-
 impl<'a> ToMemcacheValue for &'a [u8] {
     fn get_flags(&self) -> u16 {
         return Flags::Bytes as u16;
