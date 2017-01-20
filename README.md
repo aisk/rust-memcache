@@ -12,7 +12,7 @@ The crate is called `memcache` and you can depend on it via cargo:
 
 ```ini
 [dependencies]
-memcache = "~0.1"
+memcache = ""
 ```
 
 ## Features:
