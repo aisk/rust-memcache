@@ -50,10 +50,7 @@ assert!(value == 43);
 pub use connection::Connection;
 pub use error::MemcacheError;
 pub use options::Options;
-pub use value::{
-    ToMemcacheValue,
-    FromMemcacheValue,
-};
+pub use value::{ToMemcacheValue, FromMemcacheValue};
 
 mod connection;
 mod error;

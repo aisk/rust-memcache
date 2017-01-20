@@ -52,22 +52,29 @@ impl Connection {
                 command: StoreCommand,
                 key: &str,
                 value: V,
-                options: &Options,
-                )
+                options: &Options)
                 -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
-        write!(self.reader.get_ref(),
-               "{} {} {} {} {}\r\n",
-               command,
-               key,
-               value.get_flags(),
-               options.exptime,
-               value.get_length())?;
-        // self.reader.get_ref().write(bytes)?;
+        let mut header = format!("{} {} {} {} {}",
+                                 command,
+                                 key,
+                                 value.get_flags(),
+                                 options.exptime,
+                                 value.get_length());
+        if options.noreply {
+            header += " noreply";
+        }
+        header += "\r\n";
+        self.reader.get_ref().write(header.as_bytes())?;
         value.write_to(self.reader.get_ref())?;
         self.reader.get_ref().write(b"\r\n")?;
         self.reader.get_ref().flush()?;
+
+        if options.noreply {
+            return Ok(true);
+        }
+
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if is_memcache_error(s.as_str()) {
@@ -103,7 +110,11 @@ impl Connection {
         return self.set_with_options(key, value, &Default::default());
     }
 
-    pub fn set_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+    pub fn set_with_options<V>(&mut self,
+                               key: &str,
+                               value: V,
+                               options: &Options)
+                               -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
         return self.store(StoreCommand::Set, key, value, options);
@@ -116,7 +127,11 @@ impl Connection {
         return self.add_with_options(key, value, &Default::default());
     }
 
-    pub fn add_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+    pub fn add_with_options<V>(&mut self,
+                               key: &str,
+                               value: V,
+                               options: &Options)
+                               -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
         return self.store(StoreCommand::Add, key, value, options);
@@ -128,7 +143,11 @@ impl Connection {
         return self.replace_with_options(key, value, &Default::default());
     }
 
-    pub fn replace_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+    pub fn replace_with_options<V>(&mut self,
+                                   key: &str,
+                                   value: V,
+                                   options: &Options)
+                                   -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
         return self.store(StoreCommand::Replace, key, value, options);
@@ -140,7 +159,11 @@ impl Connection {
         return self.append_with_options(key, value, &Default::default());
     }
 
-    pub fn append_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+    pub fn append_with_options<V>(&mut self,
+                                  key: &str,
+                                  value: V,
+                                  options: &Options)
+                                  -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
         return self.store(StoreCommand::Append, key, value, options);
@@ -152,7 +175,11 @@ impl Connection {
         return self.prepend_with_options(key, value, &Default::default());
     }
 
-    pub fn prepend_with_options<V>(&mut self, key: &str, value: V, options: &Options) -> Result<bool, MemcacheError>
+    pub fn prepend_with_options<V>(&mut self,
+                                   key: &str,
+                                   value: V,
+                                   options: &Options)
+                                   -> Result<bool, MemcacheError>
         where V: ToMemcacheValue
     {
         return self.store(StoreCommand::Prepend, key, value, options);
