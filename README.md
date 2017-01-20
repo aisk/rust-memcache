@@ -11,8 +11,8 @@ rust-memcache is a [Memcached](https://memcached.org/) client written in pure ru
 The crate is called `memcache` and you can depend on it via cargo:
 
 ```ini
-[dependencies.redis]
-version = "*"
+[dependencies]
+memcache = "~0.1"
 ```
 
 ## Features:
