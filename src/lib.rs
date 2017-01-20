@@ -51,7 +51,6 @@ pub use connection::Connection;
 pub use error::MemcacheError;
 pub use options::Options;
 pub use value::{
-    Raw,
     ToMemcacheValue,
     FromMemcacheValue,
 };

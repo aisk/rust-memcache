@@ -20,11 +20,8 @@ fn version() {
 #[test]
 fn store() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
-    let value = &memcache::Raw {
-        bytes: b"bar",
-        flags: 0,
-    };
-    conn.set("foo", value).unwrap();
+    let value: &str = "bar";
+    conn.set("foo", value.clone()).unwrap();
     conn.replace("foo", value).unwrap();
     conn.add("foo", value).unwrap();
     conn.append("foo", value).unwrap();
@@ -35,10 +32,7 @@ fn store() {
 fn get() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
     conn.flush().unwrap();
-    let value = &memcache::Raw {
-        bytes: b"bar",
-        flags: 0,
-    };
+    let value: &str = "bar";
     conn.set("foo", value).unwrap();
     let result: (Vec<u8>, u16) = conn.get("foo").unwrap();
     assert!(result.0 == b"bar");
@@ -54,10 +48,7 @@ fn delete() {
 #[test]
 fn incr() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
-    let value = &memcache::Raw {
-        bytes: b"100",
-        flags: 0,
-    };
+    let value: &str = "100";
     conn.set("foo", value).unwrap();
     assert!(conn.incr("foo", 1).unwrap() == Some(101));
 }
@@ -65,10 +56,7 @@ fn incr() {
 #[test]
 fn decr() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
-    let value = &memcache::Raw {
-        bytes: b"100",
-        flags: 0,
-    };
+    let value: &str = "100";
     conn.set("foo", value).unwrap();
     assert!(conn.decr("foo", 1).unwrap() == Some(99));
 }

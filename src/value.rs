@@ -16,12 +16,6 @@ pub trait ToMemcacheValue {
     fn write_to(&self, stream: &net::TcpStream) -> io::Result<()>;
 }
 
-#[doc(hidden)]
-pub struct Raw<'a> {
-    pub bytes: &'a [u8],
-    pub flags: u16,
-}
-
 impl<'a> ToMemcacheValue for (&'a [u8], u16) {
     fn get_flags(&self) -> u16 {
         return self.1;
@@ -37,27 +31,6 @@ impl<'a> ToMemcacheValue for (&'a [u8], u16) {
 
     fn write_to(&self, mut stream: &net::TcpStream) -> io::Result<()> {
         match stream.write(self.0) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        }
-    }
-}
-
-impl<'a> ToMemcacheValue for &'a Raw<'a> {
-    fn get_flags(&self) -> u16 {
-        return self.flags;
-    }
-
-    fn get_exptime(&self) -> u32 {
-        return 0;
-    }
-
-    fn get_length(&self) -> usize {
-        return self.bytes.len();
-    }
-
-    fn write_to(&self, mut stream: &net::TcpStream) -> io::Result<()> {
-        match stream.write(self.bytes) {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
         }
