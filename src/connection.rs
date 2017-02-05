@@ -4,15 +4,42 @@ use std::io::Write;
 use std::io::Read;
 use std::io;
 use std::net;
-
+#[cfg(unix)]
+use std::os;
+#[cfg(unix)]
+use std::convert::AsRef;
+#[cfg(unix)]
+use std::path::Path;
 use options::Options;
 use value::{ToMemcacheValue, FromMemcacheValue};
 use error::{MemcacheError, is_memcache_error};
 
 /// The connection acts as a TCP connection to the memcached server
 #[derive(Debug)]
-pub struct Connection {
-    reader: io::BufReader<net::TcpStream>,
+pub struct Connection<C: Read+Write+Sized> {
+    reader: io::BufReader<C>,
+}
+impl Connection<net::TcpStream> {
+    /// connect to the memcached server.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let _ = memcache::Connection::connect("localhost:12345").unwrap();
+    /// ```
+    pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Self,MemcacheError> {
+        let stream = net::TcpStream::connect(addr)?;
+        return Ok(Connection { reader: io::BufReader::new(stream) });
+    }
+}
+#[cfg(unix)]
+impl Connection<os::unix::net::UnixStream> {
+    
+    /// UnixStream
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self,MemcacheError> {
+        let stream = os::unix::net::UnixStream::connect(path)?;
+        return Ok(Connection { reader: io::BufReader::new(stream) } );
+    }
 }
 
 enum StoreCommand {
@@ -35,17 +62,11 @@ impl fmt::Display for StoreCommand {
     }
 }
 
-impl Connection {
-    /// connect to the memcached server.
-    ///
-    /// Example:
-    ///
-    /// ```rust
-    /// let _ = memcache::Connection::connect("localhost:12345").unwrap();
-    /// ```
-    pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Connection, MemcacheError> {
-        let stream = net::TcpStream::connect(addr)?;
-        return Ok(Connection { reader: io::BufReader::new(stream) });
+impl<C: Read+Write+Sized> Connection<C> {
+
+
+    pub fn from_io(io: C) -> Self {
+        Ok(Connection { reader: io::BufReader::new(io) } )
     }
 
     fn store<V>(&mut self,
@@ -54,7 +75,7 @@ impl Connection {
                 value: V,
                 options: &Options)
                 -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         let mut header = format!("{} {} {} {} {}",
                                  command,
@@ -66,10 +87,10 @@ impl Connection {
             header += " noreply";
         }
         header += "\r\n";
-        self.reader.get_ref().write(header.as_bytes())?;
-        value.write_to(self.reader.get_ref())?;
-        self.reader.get_ref().write(b"\r\n")?;
-        self.reader.get_ref().flush()?;
+        self.reader.get_mut().write(header.as_bytes())?;
+        value.write_to(self.reader.get_mut())?;
+        self.reader.get_mut().write(b"\r\n")?;
+        self.reader.get_mut().flush()?;
 
         if options.noreply {
             return Ok(true);
@@ -89,11 +110,11 @@ impl Connection {
     }
 
     pub fn flush(&mut self) -> Result<(), MemcacheError> {
-        match self.reader.get_ref().write(b"flush_all\r\n") {
+        match self.reader.get_mut().write(b"flush_all\r\n") {
             Ok(_) => {}
             Err(err) => return Err(MemcacheError::from(err)),
         }
-        self.reader.get_ref().flush()?;
+        self.reader.get_mut().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if is_memcache_error(s.as_str()) {
@@ -105,7 +126,7 @@ impl Connection {
     }
 
     pub fn set<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.set_with_options(key, value, &Default::default());
     }
@@ -115,14 +136,14 @@ impl Connection {
                                value: V,
                                options: &Options)
                                -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.store(StoreCommand::Set, key, value, options);
     }
 
 
     pub fn add<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.add_with_options(key, value, &Default::default());
     }
@@ -132,13 +153,13 @@ impl Connection {
                                value: V,
                                options: &Options)
                                -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.store(StoreCommand::Add, key, value, options);
     }
 
     pub fn replace<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.replace_with_options(key, value, &Default::default());
     }
@@ -148,13 +169,13 @@ impl Connection {
                                    value: V,
                                    options: &Options)
                                    -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.store(StoreCommand::Replace, key, value, options);
     }
 
     pub fn append<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.append_with_options(key, value, &Default::default());
     }
@@ -164,13 +185,13 @@ impl Connection {
                                   value: V,
                                   options: &Options)
                                   -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.store(StoreCommand::Append, key, value, options);
     }
 
     pub fn prepend<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.prepend_with_options(key, value, &Default::default());
     }
@@ -180,7 +201,7 @@ impl Connection {
                                    value: V,
                                    options: &Options)
                                    -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue
+        where V: ToMemcacheValue<C>
     {
         return self.store(StoreCommand::Prepend, key, value, options);
     }
@@ -188,7 +209,7 @@ impl Connection {
     pub fn get<V>(&mut self, key: &str) -> Result<V, MemcacheError>
         where V: FromMemcacheValue
     {
-        write!(self.reader.get_ref(), "get {}\r\n", key)?;
+        write!(self.reader.get_mut(), "get {}\r\n", key)?;
 
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s)?;
@@ -238,8 +259,8 @@ impl Connection {
     }
 
     pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        write!(self.reader.get_ref(), "delete {}\r\n", key)?;
-        self.reader.get_ref().flush()?;
+        write!(self.reader.get_mut(), "delete {}\r\n", key)?;
+        self.reader.get_mut().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if is_memcache_error(s.as_str()) {
@@ -254,7 +275,7 @@ impl Connection {
     }
 
     pub fn incr(&mut self, key: &str, value: u32) -> Result<Option<u32>, MemcacheError> {
-        write!(self.reader.get_ref(), "incr {} {}\r\n", key, value)?;
+        write!(self.reader.get_mut(), "incr {} {}\r\n", key, value)?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if is_memcache_error(s.as_str()) {
@@ -273,7 +294,7 @@ impl Connection {
     ///
     /// see: [memcached decr](https://github.com/memcached/memcached/wiki/Commands#incrdecr)
     pub fn decr(&mut self, key: &str, value: u32) -> Result<Option<u32>, MemcacheError> {
-        write!(self.reader.get_ref(), "decr {} {}\r\n", key, value)?;
+        write!(self.reader.get_mut(), "decr {} {}\r\n", key, value)?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if is_memcache_error(s.as_str()) {
@@ -290,8 +311,8 @@ impl Connection {
 
     /// get the memcached server version
     pub fn version(&mut self) -> Result<String, MemcacheError> {
-        self.reader.get_ref().write(b"version\r\n")?;
-        self.reader.get_ref().flush()?;
+        self.reader.get_mut().write(b"version\r\n")?;
+        self.reader.get_mut().flush()?;
         let mut s = String::new();
         let _ = self.reader.read_line(&mut s);
         if is_memcache_error(s.as_str()) {
