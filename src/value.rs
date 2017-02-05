@@ -1,7 +1,6 @@
 use std::str::FromStr;
 use std::io;
 use std::io::Write;
-use std::net;
 use error::MemcacheError;
 
 pub enum Flags {
@@ -9,14 +8,14 @@ pub enum Flags {
 }
 
 /// determine how the value is serialize to memcache
-pub trait ToMemcacheValue {
+pub trait ToMemcacheValue<W: Write> {
     fn get_flags(&self) -> u16;
     fn get_exptime(&self) -> u32;
     fn get_length(&self) -> usize;
-    fn write_to(&self, stream: &net::TcpStream) -> io::Result<()>;
+    fn write_to(&self, stream: &mut W) -> io::Result<()>;
 }
 
-impl<'a> ToMemcacheValue for &'a [u8] {
+impl<'a, W: Write> ToMemcacheValue<W> for &'a [u8] {
     fn get_flags(&self) -> u16 {
         return Flags::Bytes as u16;
     }
@@ -29,7 +28,7 @@ impl<'a> ToMemcacheValue for &'a [u8] {
         return self.len();
     }
 
-    fn write_to(&self, mut stream: &net::TcpStream) -> io::Result<()> {
+    fn write_to(&self, stream: &mut W) -> io::Result<()> {
         match stream.write(self) {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
@@ -37,7 +36,7 @@ impl<'a> ToMemcacheValue for &'a [u8] {
     }
 }
 
-impl ToMemcacheValue for String {
+impl<W: Write> ToMemcacheValue<W> for String {
     fn get_flags(&self) -> u16 {
         return Flags::Bytes as u16;
     }
@@ -50,7 +49,7 @@ impl ToMemcacheValue for String {
         return self.as_bytes().len();
     }
 
-    fn write_to(&self, mut stream: &net::TcpStream) -> io::Result<()> {
+    fn write_to(&self, stream: &mut W) -> io::Result<()> {
         match stream.write(self.as_bytes()) {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
@@ -58,7 +57,7 @@ impl ToMemcacheValue for String {
     }
 }
 
-impl<'a> ToMemcacheValue for &'a str {
+impl<'a, W: Write> ToMemcacheValue<W> for &'a str {
     fn get_flags(&self) -> u16 {
         return Flags::Bytes as u16;
     }
@@ -71,7 +70,7 @@ impl<'a> ToMemcacheValue for &'a str {
         return self.as_bytes().len();
     }
 
-    fn write_to(&self, mut stream: &net::TcpStream) -> io::Result<()> {
+    fn write_to(&self, stream: &mut W) -> io::Result<()> {
         match stream.write(self.as_bytes()) {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
@@ -81,20 +80,20 @@ impl<'a> ToMemcacheValue for &'a str {
 
 macro_rules! impl_to_memcache_value_for_number{
     ($ty:ident) => {
-        impl ToMemcacheValue for $ty {
+        impl<W: Write> ToMemcacheValue<W> for $ty {
             fn get_flags(&self) -> u16 {
                 return Flags::Bytes as u16;
             }
 
-    fn get_exptime(&self) -> u32 {
-        return 0;
-    }
+            fn get_exptime(&self) -> u32 {
+                return 0;
+            }
 
             fn get_length(&self) -> usize {
                 return self.to_string().as_bytes().len();
             }
 
-            fn write_to(&self, mut stream: &net::TcpStream) -> io::Result<()> {
+            fn write_to(&self, stream: &mut W) -> io::Result<()> {
                 match stream.write(self.to_string().as_bytes()) {
                     Ok(_) => Ok(()),
                     Err(e) => Err(e),
