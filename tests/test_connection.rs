@@ -6,6 +6,11 @@ fn connect() {
 }
 
 #[test]
+fn open() {
+    memcache::Connection::open("/tmp/memcached.sock").unwrap();
+}
+
+#[test]
 fn flush() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
     conn.flush().unwrap();

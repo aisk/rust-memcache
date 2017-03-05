@@ -16,29 +16,34 @@ use error::{MemcacheError, is_memcache_error};
 
 /// The connection acts as a TCP connection to the memcached server
 #[derive(Debug)]
-pub struct Connection<C: Read+Write+Sized> {
+pub struct Connection<C: Read + Write + Sized> {
     reader: io::BufReader<C>,
 }
 impl Connection<net::TcpStream> {
-    /// connect to the memcached server.
+    /// connect to the memcached server with TCP connection.
     ///
     /// Example:
     ///
     /// ```rust
     /// let _ = memcache::Connection::connect("localhost:12345").unwrap();
     /// ```
-    pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Self,MemcacheError> {
+    pub fn connect<A: net::ToSocketAddrs>(addr: A) -> Result<Self, MemcacheError> {
         let stream = net::TcpStream::connect(addr)?;
         return Ok(Connection { reader: io::BufReader::new(stream) });
     }
 }
 #[cfg(unix)]
 impl Connection<os::unix::net::UnixStream> {
-    
-    /// UnixStream
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self,MemcacheError> {
+    /// connect to the memcached server with UNIX domain sockt connection.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let _ = memcache::Connection::open("/tmp/memcached.sock").unwrap();
+    /// ```
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, MemcacheError> {
         let stream = os::unix::net::UnixStream::connect(path)?;
-        return Ok(Connection { reader: io::BufReader::new(stream) } );
+        return Ok(Connection { reader: io::BufReader::new(stream) });
     }
 }
 
@@ -62,11 +67,9 @@ impl fmt::Display for StoreCommand {
     }
 }
 
-impl<C: Read+Write+Sized> Connection<C> {
-
-
-    pub fn from_io(io: C) -> Self {
-        Ok(Connection { reader: io::BufReader::new(io) } )
+impl<C: Read + Write + Sized> Connection<C> {
+    pub fn from_io(io: C) -> Result<Self, MemcacheError> {
+        return Ok(Connection { reader: io::BufReader::new(io) });
     }
 
     fn store<V>(&mut self,
