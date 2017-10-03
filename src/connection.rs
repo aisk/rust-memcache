@@ -17,7 +17,7 @@ use error::{MemcacheError, is_memcache_error};
 /// The connection acts as a TCP connection to the memcached server
 #[derive(Debug)]
 pub struct Connection<C: Read + Write + Sized> {
-    reader: io::BufReader<C>,
+    pub reader: io::BufReader<C>,
 }
 impl Connection<net::TcpStream> {
     /// connect to the memcached server with TCP connection.
@@ -72,20 +72,24 @@ impl<C: Read + Write + Sized> Connection<C> {
         return Ok(Connection { reader: io::BufReader::new(io) });
     }
 
-    fn store<V>(&mut self,
-                command: StoreCommand,
-                key: &str,
-                value: V,
-                options: &Options)
-                -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    fn store<V>(
+        &mut self,
+        command: StoreCommand,
+        key: &str,
+        value: V,
+        options: &Options,
+    ) -> Result<bool, MemcacheError>
+    where
+        V: ToMemcacheValue<C>,
     {
-        let mut header = format!("{} {} {} {} {}",
-                                 command,
-                                 key,
-                                 value.get_flags(),
-                                 options.exptime,
-                                 value.get_length());
+        let mut header = format!(
+            "{} {} {} {} {}",
+            command,
+            key,
+            value.get_flags(),
+            options.exptime,
+            value.get_length()
+        );
         if options.noreply {
             header += " noreply";
         }
@@ -129,88 +133,104 @@ impl<C: Read + Write + Sized> Connection<C> {
     }
 
     pub fn set<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.set_with_options(key, value, &Default::default());
     }
 
-    pub fn set_with_options<V>(&mut self,
-                               key: &str,
-                               value: V,
-                               options: &Options)
-                               -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    pub fn set_with_options<V>(
+        &mut self,
+        key: &str,
+        value: V,
+        options: &Options,
+    ) -> Result<bool, MemcacheError>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.store(StoreCommand::Set, key, value, options);
     }
 
 
     pub fn add<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.add_with_options(key, value, &Default::default());
     }
 
-    pub fn add_with_options<V>(&mut self,
-                               key: &str,
-                               value: V,
-                               options: &Options)
-                               -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    pub fn add_with_options<V>(
+        &mut self,
+        key: &str,
+        value: V,
+        options: &Options,
+    ) -> Result<bool, MemcacheError>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.store(StoreCommand::Add, key, value, options);
     }
 
     pub fn replace<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.replace_with_options(key, value, &Default::default());
     }
 
-    pub fn replace_with_options<V>(&mut self,
-                                   key: &str,
-                                   value: V,
-                                   options: &Options)
-                                   -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    pub fn replace_with_options<V>(
+        &mut self,
+        key: &str,
+        value: V,
+        options: &Options,
+    ) -> Result<bool, MemcacheError>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.store(StoreCommand::Replace, key, value, options);
     }
 
     pub fn append<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.append_with_options(key, value, &Default::default());
     }
 
-    pub fn append_with_options<V>(&mut self,
-                                  key: &str,
-                                  value: V,
-                                  options: &Options)
-                                  -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    pub fn append_with_options<V>(
+        &mut self,
+        key: &str,
+        value: V,
+        options: &Options,
+    ) -> Result<bool, MemcacheError>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.store(StoreCommand::Append, key, value, options);
     }
 
     pub fn prepend<V>(&mut self, key: &str, value: V) -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.prepend_with_options(key, value, &Default::default());
     }
 
-    pub fn prepend_with_options<V>(&mut self,
-                                   key: &str,
-                                   value: V,
-                                   options: &Options)
-                                   -> Result<bool, MemcacheError>
-        where V: ToMemcacheValue<C>
+    pub fn prepend_with_options<V>(
+        &mut self,
+        key: &str,
+        value: V,
+        options: &Options,
+    ) -> Result<bool, MemcacheError>
+    where
+        V: ToMemcacheValue<C>,
     {
         return self.store(StoreCommand::Prepend, key, value, options);
     }
 
     pub fn get<V>(&mut self, key: &str) -> Result<V, MemcacheError>
-        where V: FromMemcacheValue
+    where
+        V: FromMemcacheValue,
     {
         write!(self.reader.get_mut(), "get {}\r\n", key)?;
 

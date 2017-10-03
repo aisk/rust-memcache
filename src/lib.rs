@@ -47,6 +47,8 @@ assert!(value == 43);
 ```
 !*/
 
+extern crate byteorder;
+
 pub use connection::Connection;
 pub use error::MemcacheError;
 pub use options::Options;
@@ -56,3 +58,5 @@ mod connection;
 mod error;
 mod value;
 mod options;
+mod packet;
+mod client;

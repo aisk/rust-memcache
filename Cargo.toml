@@ -9,3 +9,4 @@ description = "memcached client for rust"
 keywords = ["memcache", "memcached", "client", "driver"]
 
 [dependencies]
+byteorder = "1"
