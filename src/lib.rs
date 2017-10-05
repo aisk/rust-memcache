@@ -53,6 +53,7 @@ pub use connection::Connection;
 pub use error::MemcacheError;
 pub use options::Options;
 pub use value::{ToMemcacheValue, FromMemcacheValue};
+pub use client::Client;
 
 mod connection;
 mod error;

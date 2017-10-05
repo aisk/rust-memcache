@@ -7,12 +7,18 @@ pub enum Opcode {
     Set = 0x01,
     Add = 0x02,
     Repalce = 0x03,
+    Flush = 0x08,
     Version = 0x0b,
 }
 
 pub enum Magic {
     Request = 0x80,
     Response = 0x81,
+}
+
+pub enum ResponseStatus {
+    NoError = 0x00,
+    KeyNotFound = 0x01,
 }
 
 #[derive(Debug)]
