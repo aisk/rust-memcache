@@ -17,11 +17,14 @@ pub enum Magic {
 }
 
 pub enum ResponseStatus {
-    NoError = 0x00,
-    KeyNotFound = 0x01,
+    NoError = 0x0000,
+    KeyNotFound = 0x0001,
+    KeyExits = 0x0002,
+    ValueTooLarge = 0x003,
+    InvalidArguments = 0x004,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PacketHeader {
     pub magic: u8,
     pub opcode: u8,
@@ -62,54 +65,5 @@ impl PacketHeader {
             cas: reader.read_u64::<BigEndian>()?,
         };
         return Ok(header);
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
-    #[test]
-    pub fn test_fuck() {
-        let p = super::PacketHeader {
-            magic: 1,
-            opcode: 1,
-            key_length: 1,
-            extras_length: 1,
-            data_type: 1,
-            vbucket_id_or_status: 1,
-            total_body_length: 1,
-            opaque: 1,
-            cas: 1,
-        };
-        let buf: Vec<u8> = vec![];
-        let buf = p.write(buf);
-        assert!(
-            buf ==
-                vec![
-                    1,
-                    1,
-                    0,
-                    1,
-                    1,
-                    1,
-                    0,
-                    1,
-                    0,
-                    0,
-                    0,
-                    1,
-                    0,
-                    0,
-                    0,
-                    1,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    1,
-                ]
-        );
     }
 }

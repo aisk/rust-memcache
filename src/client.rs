@@ -1,7 +1,8 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use connection::Connection;
 use error::MemcacheError;
+use value::{ToMemcacheValue, FromMemcacheValue};
 use packet::{Opcode, PacketHeader, Magic, ResponseStatus};
 
 pub struct Client {
@@ -26,13 +27,7 @@ impl Client {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Version as u8,
-            key_length: 0,
-            extras_length: 0,
-            data_type: 0,
-            vbucket_id_or_status: 0,
-            total_body_length: 0,
-            opaque: 0,
-            cas: 0,
+            ..Default::default()
         };
         request_header.write(self.connections[0].reader.get_mut());
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
@@ -60,19 +55,54 @@ impl Client {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Flush as u8,
-            key_length: 0,
-            extras_length: 0,
-            data_type: 0,
-            vbucket_id_or_status: 0,
-            total_body_length: 0,
-            opaque: 0,
-            cas: 0,
+            ..Default::default()
         };
         request_header.write(self.connections[0].reader.get_mut());
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
             // TODO: throw error
         }
+        return Ok(());
+    }
+
+    /// Get a key from memcached server.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let client = memcache::Client::new("localhost:12345").unwrap();
+    /// client.get("foo").unwrap();
+    /// ```
+    pub fn get(mut self, key: &str) -> Result<(), MemcacheError> {
+        let request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            opcode: Opcode::Get as u8,
+            key_length: key.len() as u16, // TODO: check key length
+            total_body_length: key.len() as u32,
+            ..Default::default()
+        };
+        request_header.write(self.connections[0].reader.get_mut());
+        self.connections[0].reader.get_mut().write(key.as_bytes())?;
+        let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
+        let mut result = String::new();
+        self.connections[0]
+            .reader
+            .get_mut()
+            .take(response_header.total_body_length.into())
+            .read_to_string(&mut result)?;
+        // TODO: handle error and return result
+        return Ok(());
+    }
+
+    pub fn set<V: ToMemcacheValue<TcpStream>>(
+        mut self,
+        key: &str,
+        value: V,
+    ) -> Result<(), MemcacheError> {
+        let request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            ..Default::default()
+        };
         return Ok(());
     }
 }

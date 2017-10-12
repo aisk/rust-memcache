@@ -69,10 +69,14 @@ fn decr() {
 #[test]
 fn noreply() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
-    conn.set_with_options("foo",
-                          "bar",
-                          &memcache::Options { noreply: true, ..Default::default() })
-        .unwrap();
+    conn.set_with_options(
+        "foo",
+        "bar",
+        &memcache::Options {
+            noreply: true,
+            ..Default::default()
+        },
+    ).unwrap();
     let result: String = conn.get("foo").unwrap();
     assert!(result == "bar");
 }

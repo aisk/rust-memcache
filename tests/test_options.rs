@@ -11,8 +11,12 @@ fn test_default() {
 #[test]
 fn test_exptime() {
     let mut conn = memcache::Connection::connect("localhost:12345").unwrap();
-    conn.set_with_options("key_with_exptime",
-                          "plus one second",
-                          &memcache::Options { exptime: 1234, ..Default::default() })
-        .unwrap();
+    conn.set_with_options(
+        "key_with_exptime",
+        "plus one second",
+        &memcache::Options {
+            exptime: 1234,
+            ..Default::default()
+        },
+    ).unwrap();
 }

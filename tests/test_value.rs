@@ -4,11 +4,13 @@ extern crate memcache;
 fn string() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
 
-    conn.set("this_is_a_string", String::from("a string")).unwrap();
+    conn.set("this_is_a_string", String::from("a string"))
+        .unwrap();
     let s: String = conn.get("this_is_a_string").unwrap();
     assert!(s.as_str() == "a string");
 
-    conn.set("this_is_another_string", "another string").unwrap();
+    conn.set("this_is_another_string", "another string")
+        .unwrap();
     let s: String = conn.get("this_is_another_string").unwrap();
     assert!(s.as_str() == "another string");
 }
@@ -17,7 +19,8 @@ fn string() {
 fn bytes() {
     let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
 
-    conn.set("this_is_a_bytes", "some bytes".as_bytes()).unwrap();
+    conn.set("this_is_a_bytes", "some bytes".as_bytes())
+        .unwrap();
     let b: Vec<u8> = conn.get("this_is_a_bytes").unwrap();
     assert!(b == b"some bytes");
 }
