@@ -37,6 +37,12 @@ pub struct PacketHeader {
     pub cas: u64,
 }
 
+#[derive(Debug)]
+pub struct StoreExtras {
+    pub flags: u32,
+    pub expiration: u32,
+}
+
 impl PacketHeader {
     pub fn write<T: io::Write>(self, mut writer: T) -> T {
         // TODO: handle write error

@@ -1,9 +1,10 @@
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
 use connection::Connection;
 use error::MemcacheError;
 use value::{ToMemcacheValue, FromMemcacheValue};
-use packet::{Opcode, PacketHeader, Magic, ResponseStatus};
+use packet::{Opcode, PacketHeader, Magic, ResponseStatus, StoreExtras};
 
 pub struct Client {
     connections: Vec<Connection<TcpStream>>,
@@ -94,6 +95,14 @@ impl Client {
         return Ok(());
     }
 
+    /// Set a key with associate value into memcached server.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let client = memcache::Client::new("localhost:12345").unwrap();
+    /// client.set("foofoo", "barbarbarian").unwrap();
+    /// ```
     pub fn set<V: ToMemcacheValue<TcpStream>>(
         mut self,
         key: &str,
@@ -101,8 +110,19 @@ impl Client {
     ) -> Result<(), MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
+            opcode: Opcode::Set as u8,
+            key_length: key.len() as u16,  // TODO: check key length
+            extras_length: 8,
+            total_body_length: (8 + key.len() + value.get_length()) as u32,
             ..Default::default()
         };
+        let extras = StoreExtras{ flags:0, expiration: 0 };
+        request_header.write(self.connections[0].reader.get_mut());
+        self.connections[0].reader.get_mut().write_u32::<BigEndian>(extras.flags)?;
+        self.connections[0].reader.get_mut().write_u32::<BigEndian>(extras.expiration)?;
+        self.connections[0].reader.get_mut().write(key.as_bytes())?;
+        value.write_to(self.connections[0].reader.get_mut())?;
+        let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
         return Ok(());
     }
 }
