@@ -16,6 +16,7 @@ pub enum MemcacheError {
     ClientError(String),
     /// Server side error raise by memcached, [more detail](https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L109-L116).
     ServerError(String),
+    BinaryServerError(u16),
 }
 
 impl fmt::Display for MemcacheError {
@@ -26,6 +27,7 @@ impl fmt::Display for MemcacheError {
             MemcacheError::Error => write!(f, "Error"),
             MemcacheError::ClientError(ref s) => s.fmt(f),
             MemcacheError::ServerError(ref s) => s.fmt(f),
+            MemcacheError::BinaryServerError(r) => write!(f, "BinaryServerError: {}", r),
         }
     }
 }
@@ -38,6 +40,7 @@ impl error::Error for MemcacheError {
             MemcacheError::Error => "Error",
             MemcacheError::ClientError(ref s) => s.as_str(),
             MemcacheError::ServerError(ref s) => s.as_str(),
+            MemcacheError::BinaryServerError(_) => "BinaryServerError",
         }
     }
 
@@ -48,6 +51,7 @@ impl error::Error for MemcacheError {
             MemcacheError::Error => None,
             MemcacheError::ClientError(_) => None,
             MemcacheError::ServerError(_) => None,
+            MemcacheError::BinaryServerError(_) => None,
         }
     }
 }
@@ -75,6 +79,12 @@ impl From<String> for MemcacheError {
         } else {
             panic!("{} if not a memcached error!", s);
         }
+    }
+}
+
+impl From<u16> for MemcacheError {
+    fn from(code: u16) -> MemcacheError {
+        return MemcacheError::BinaryServerError(code);
     }
 }
 

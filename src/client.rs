@@ -33,7 +33,7 @@ impl Client {
         request_header.write(self.connections[0].reader.get_mut());
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
-            // TODO: throw error
+            return Err(MemcacheError::from(response_header.vbucket_id_or_status));
         }
         let mut version = String::new();
         self.connections[0]
@@ -61,7 +61,7 @@ impl Client {
         request_header.write(self.connections[0].reader.get_mut());
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
-            // TODO: throw error
+            return Err(MemcacheError::from(response_header.vbucket_id_or_status));
         }
         return Ok(());
     }
@@ -123,6 +123,9 @@ impl Client {
         self.connections[0].reader.get_mut().write(key.as_bytes())?;
         value.write_to(self.connections[0].reader.get_mut())?;
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
+        if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+            return Err(MemcacheError::from(response_header.vbucket_id_or_status));
+        }
         return Ok(());
     }
 }
