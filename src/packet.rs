@@ -60,8 +60,12 @@ impl PacketHeader {
     }
 
     pub fn read<T: io::Read>(mut reader: T) -> Result<PacketHeader, io::Error> {
+        let magic = reader.read_u8()?;
+        if magic != Magic::Response as u8 {
+            // TODO: raise error
+        }
         let header = PacketHeader {
-            magic: reader.read_u8()?,
+            magic: magic,
             opcode: reader.read_u8()?,
             key_length: reader.read_u16::<BigEndian>()?,
             extras_length: reader.read_u8()?,
