@@ -9,15 +9,15 @@ pub enum Flags {
 
 /// determine how the value is serialize to memcache
 pub trait ToMemcacheValue<W: Write> {
-    fn get_flags(&self) -> u16;
+    fn get_flags(&self) -> u32;
     fn get_exptime(&self) -> u32;
     fn get_length(&self) -> usize;
     fn write_to(&self, stream: &mut W) -> io::Result<()>;
 }
 
 impl<'a, W: Write> ToMemcacheValue<W> for &'a [u8] {
-    fn get_flags(&self) -> u16 {
-        return Flags::Bytes as u16;
+    fn get_flags(&self) -> u32 {
+        return Flags::Bytes as u32;
     }
 
     fn get_exptime(&self) -> u32 {
@@ -37,8 +37,8 @@ impl<'a, W: Write> ToMemcacheValue<W> for &'a [u8] {
 }
 
 impl<W: Write> ToMemcacheValue<W> for String {
-    fn get_flags(&self) -> u16 {
-        return Flags::Bytes as u16;
+    fn get_flags(&self) -> u32 {
+        return Flags::Bytes as u32;
     }
 
     fn get_exptime(&self) -> u32 {
@@ -58,8 +58,8 @@ impl<W: Write> ToMemcacheValue<W> for String {
 }
 
 impl<'a, W: Write> ToMemcacheValue<W> for &'a str {
-    fn get_flags(&self) -> u16 {
-        return Flags::Bytes as u16;
+    fn get_flags(&self) -> u32 {
+        return Flags::Bytes as u32;
     }
 
     fn get_exptime(&self) -> u32 {
@@ -81,8 +81,8 @@ impl<'a, W: Write> ToMemcacheValue<W> for &'a str {
 macro_rules! impl_to_memcache_value_for_number{
     ($ty:ident) => {
         impl<W: Write> ToMemcacheValue<W> for $ty {
-            fn get_flags(&self) -> u16 {
-                return Flags::Bytes as u16;
+            fn get_flags(&self) -> u32 {
+                return Flags::Bytes as u32;
             }
 
             fn get_exptime(&self) -> u32 {
@@ -119,23 +119,23 @@ type MemcacheValue<T> = Result<T, MemcacheError>;
 
 /// determine how the value is unserialize to memcache
 pub trait FromMemcacheValue: Sized {
-    fn from_memcache_value(Vec<u8>, u16) -> MemcacheValue<Self>;
+    fn from_memcache_value(Vec<u8>, u32) -> MemcacheValue<Self>;
 }
 
-impl FromMemcacheValue for (Vec<u8>, u16) {
-    fn from_memcache_value(value: Vec<u8>, flags: u16) -> MemcacheValue<Self> {
+impl FromMemcacheValue for (Vec<u8>, u32) {
+    fn from_memcache_value(value: Vec<u8>, flags: u32) -> MemcacheValue<Self> {
         return Ok((value, flags));
     }
 }
 
 impl FromMemcacheValue for Vec<u8> {
-    fn from_memcache_value(value: Vec<u8>, _: u16) -> MemcacheValue<Self> {
+    fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
         return Ok(value);
     }
 }
 
 impl FromMemcacheValue for String {
-    fn from_memcache_value(value: Vec<u8>, _: u16) -> MemcacheValue<Self> {
+    fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
         return Ok(String::from_utf8(value)?);
     }
 }
@@ -143,7 +143,7 @@ impl FromMemcacheValue for String {
 macro_rules! impl_from_memcache_value_for_number{
     ($ty:ident) => {
         impl FromMemcacheValue for $ty {
-            fn from_memcache_value(value: Vec<u8>, _: u16) -> MemcacheValue<Self> {
+            fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
                 let s: String = String::from_memcache_value(value, 0)?;
                 match Self::from_str(s.as_str()) {
                     Ok(v) => return Ok(v),

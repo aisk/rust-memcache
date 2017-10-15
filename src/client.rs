@@ -86,11 +86,7 @@ impl Client {
         let value_length = response_header.total_body_length - 4; // 32bit for extras
         let mut buffer = vec![0; value_length as usize];
         self.connection.stream.read_exact(buffer.as_mut_slice())?;
-        // TODO: change flags from u16 to u32
-        return Ok(FromMemcacheValue::from_memcache_value(
-            buffer,
-            flags as u16,
-        )?);
+        return Ok(FromMemcacheValue::from_memcache_value(buffer, flags)?);
     }
 
     /// Set a key with associate value into memcached server.
@@ -115,13 +111,11 @@ impl Client {
             ..Default::default()
         };
         let extras = StoreExtras {
-            flags: 0,
+            flags: value.get_flags(),
             expiration: 0,
         };
         request_header.write(&mut self.connection.stream)?;
-        self.connection.stream.write_u32::<BigEndian>(
-            extras.flags,
-        )?;
+        self.connection.stream.write_u32::<BigEndian>(extras.flags)?;
         self.connection.stream.write_u32::<BigEndian>(
             extras.expiration,
         )?;
