@@ -10,7 +10,6 @@ pub enum Flags {
 /// determine how the value is serialize to memcache
 pub trait ToMemcacheValue<W: Write> {
     fn get_flags(&self) -> u32;
-    fn get_exptime(&self) -> u32;
     fn get_length(&self) -> usize;
     fn write_to(&self, stream: &mut W) -> io::Result<()>;
 }
@@ -18,10 +17,6 @@ pub trait ToMemcacheValue<W: Write> {
 impl<'a, W: Write> ToMemcacheValue<W> for &'a [u8] {
     fn get_flags(&self) -> u32 {
         return Flags::Bytes as u32;
-    }
-
-    fn get_exptime(&self) -> u32 {
-        return 0;
     }
 
     fn get_length(&self) -> usize {
@@ -41,10 +36,6 @@ impl<W: Write> ToMemcacheValue<W> for String {
         return Flags::Bytes as u32;
     }
 
-    fn get_exptime(&self) -> u32 {
-        return 0;
-    }
-
     fn get_length(&self) -> usize {
         return self.as_bytes().len();
     }
@@ -60,10 +51,6 @@ impl<W: Write> ToMemcacheValue<W> for String {
 impl<'a, W: Write> ToMemcacheValue<W> for &'a str {
     fn get_flags(&self) -> u32 {
         return Flags::Bytes as u32;
-    }
-
-    fn get_exptime(&self) -> u32 {
-        return 0;
     }
 
     fn get_length(&self) -> usize {
@@ -83,10 +70,6 @@ macro_rules! impl_to_memcache_value_for_number{
         impl<W: Write> ToMemcacheValue<W> for $ty {
             fn get_flags(&self) -> u32 {
                 return Flags::Bytes as u32;
-            }
-
-            fn get_exptime(&self) -> u32 {
-                return 0;
             }
 
             fn get_length(&self) -> usize {
