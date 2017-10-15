@@ -6,9 +6,8 @@ use error::MemcacheError;
 use value::{ToMemcacheValue, FromMemcacheValue};
 use packet::{Opcode, PacketHeader, Magic, ResponseStatus, StoreExtras};
 
-#[derive(Debug)]
 pub struct Client {
-    connections: Vec<Connection<TcpStream>>,
+    connections: Vec<Connection>,
 }
 
 impl Client {
