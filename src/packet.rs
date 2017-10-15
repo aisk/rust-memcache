@@ -1,5 +1,6 @@
 use std::io;
 use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
+use error::MemcacheError;
 
 #[allow(dead_code)]
 pub enum Opcode {
@@ -59,10 +60,12 @@ impl PacketHeader {
         return Ok(());
     }
 
-    pub fn read<T: io::Read>(mut reader: T) -> Result<PacketHeader, io::Error> {
+    pub fn read<T: io::Read>(mut reader: T) -> Result<PacketHeader, MemcacheError> {
         let magic = reader.read_u8()?;
         if magic != Magic::Response as u8 {
-            // TODO: raise error
+            return Err(MemcacheError::ClientError(
+                String::from("Bad magic number in response header"),
+            ));
         }
         let header = PacketHeader {
             magic: magic,
