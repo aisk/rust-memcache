@@ -31,7 +31,7 @@ impl Client {
             opcode: Opcode::Version as u8,
             ..Default::default()
         };
-        request_header.write(self.connections[0].reader.get_mut());
+        request_header.write(self.connections[0].reader.get_mut())?;
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
             return Err(MemcacheError::from(response_header.vbucket_id_or_status));
@@ -59,7 +59,7 @@ impl Client {
             opcode: Opcode::Flush as u8,
             ..Default::default()
         };
-        request_header.write(self.connections[0].reader.get_mut());
+        request_header.write(self.connections[0].reader.get_mut())?;
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
             return Err(MemcacheError::from(response_header.vbucket_id_or_status));
@@ -84,7 +84,7 @@ impl Client {
             total_body_length: key.len() as u32,
             ..Default::default()
         };
-        request_header.write(self.connections[0].reader.get_mut());
+        request_header.write(self.connections[0].reader.get_mut())?;
         self.connections[0].reader.get_mut().write(key.as_bytes())?;
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
         let flags = self.connections[0].reader.get_mut().read_u32::<BigEndian>()?;
@@ -119,7 +119,7 @@ impl Client {
             ..Default::default()
         };
         let extras = StoreExtras{ flags:0, expiration: 0 };
-        request_header.write(self.connections[0].reader.get_mut());
+        request_header.write(self.connections[0].reader.get_mut())?;
         self.connections[0].reader.get_mut().write_u32::<BigEndian>(extras.flags)?;
         self.connections[0].reader.get_mut().write_u32::<BigEndian>(extras.expiration)?;
         self.connections[0].reader.get_mut().write(key.as_bytes())?;

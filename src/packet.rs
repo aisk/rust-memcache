@@ -46,18 +46,17 @@ pub struct StoreExtras {
 }
 
 impl PacketHeader {
-    pub fn write<T: io::Write>(self, mut writer: T) -> T {
-        // TODO: handle write error
-        writer.write_u8(self.magic);
-        writer.write_u8(self.opcode);
-        writer.write_u16::<BigEndian>(self.key_length);
-        writer.write_u8(self.extras_length);
-        writer.write_u8(self.data_type);
-        writer.write_u16::<BigEndian>(self.vbucket_id_or_status);
-        writer.write_u32::<BigEndian>(self.total_body_length);
-        writer.write_u32::<BigEndian>(self.opaque);
-        writer.write_u64::<BigEndian>(self.cas);
-        return writer;
+    pub fn write<T: io::Write>(self, mut writer: T) -> Result<(), io::Error> {
+        writer.write_u8(self.magic)?;
+        writer.write_u8(self.opcode)?;
+        writer.write_u16::<BigEndian>(self.key_length)?;
+        writer.write_u8(self.extras_length)?;
+        writer.write_u8(self.data_type)?;
+        writer.write_u16::<BigEndian>(self.vbucket_id_or_status)?;
+        writer.write_u32::<BigEndian>(self.total_body_length)?;
+        writer.write_u32::<BigEndian>(self.opaque)?;
+        writer.write_u64::<BigEndian>(self.cas)?;
+        return Ok(());
     }
 
     pub fn read<T: io::Read>(mut reader: T) -> Result<PacketHeader, io::Error> {
