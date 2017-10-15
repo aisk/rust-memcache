@@ -1,7 +1,4 @@
-use std::fmt;
-use std::io::BufRead;
-use std::io::Write;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::io;
 use std::net;
 #[cfg(unix)]
@@ -10,9 +7,7 @@ use std::os;
 use std::convert::AsRef;
 #[cfg(unix)]
 use std::path::Path;
-use options::Options;
-use value::{ToMemcacheValue, FromMemcacheValue};
-use error::{MemcacheError, is_memcache_error};
+use error::MemcacheError;
 
 /// The connection acts as a TCP connection to the memcached server
 #[derive(Debug)]
@@ -44,26 +39,6 @@ impl Connection<os::unix::net::UnixStream> {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, MemcacheError> {
         let stream = os::unix::net::UnixStream::connect(path)?;
         return Ok(Connection { reader: io::BufReader::new(stream) });
-    }
-}
-
-enum StoreCommand {
-    Set,
-    Add,
-    Replace,
-    Append,
-    Prepend,
-}
-
-impl fmt::Display for StoreCommand {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            StoreCommand::Set => write!(f, "set"),
-            StoreCommand::Add => write!(f, "add"),
-            StoreCommand::Replace => write!(f, "replace"),
-            StoreCommand::Append => write!(f, "append"),
-            StoreCommand::Prepend => write!(f, "prepend"),
-        }
     }
 }
 

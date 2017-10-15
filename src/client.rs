@@ -6,6 +6,7 @@ use error::MemcacheError;
 use value::{ToMemcacheValue, FromMemcacheValue};
 use packet::{Opcode, PacketHeader, Magic, ResponseStatus, StoreExtras};
 
+#[derive(Debug)]
 pub struct Client {
     connections: Vec<Connection<TcpStream>>,
 }
@@ -21,10 +22,10 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let client = memcache::Client::new("localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
     /// client.version().unwrap();
     /// ```
-    pub fn version(mut self) -> Result<String, MemcacheError> {
+    pub fn version(&mut self) -> Result<String, MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Version as u8,
@@ -49,10 +50,10 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let client = memcache::Client::new("localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
     /// client.flush().unwrap();
     /// ```
-    pub fn flush(mut self) -> Result<(), MemcacheError> {
+    pub fn flush(&mut self) -> Result<(), MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Flush as u8,
@@ -71,10 +72,11 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let client = memcache::Client::new("localhost:12345").unwrap();
-    /// client.get("foo").unwrap();
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// let result: String = client.get("foo").unwrap();
+    /// println!(">>> {}", result);
     /// ```
-    pub fn get(mut self, key: &str) -> Result<(), MemcacheError> {
+    pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<V, MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Get as u8,
@@ -85,14 +87,14 @@ impl Client {
         request_header.write(self.connections[0].reader.get_mut());
         self.connections[0].reader.get_mut().write(key.as_bytes())?;
         let response_header = PacketHeader::read(self.connections[0].reader.get_mut())?;
-        let mut result = String::new();
+        let flags = self.connections[0].reader.get_mut().read_u32::<BigEndian>()?;
+        let value_length = response_header.total_body_length - 4;  // 32bit for extras
+        let mut buffer = vec![0; value_length as usize];
         self.connections[0]
             .reader
-            .get_mut()
-            .take(response_header.total_body_length.into())
-            .read_to_string(&mut result)?;
-        // TODO: handle error and return result
-        return Ok(());
+            .get_mut().read_exact(buffer.as_mut_slice())?;
+        // TODO: change flags from u16 to u32
+        return Ok(FromMemcacheValue::from_memcache_value(buffer, flags as u16)?);
     }
 
     /// Set a key with associate value into memcached server.
@@ -100,11 +102,11 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let client = memcache::Client::new("localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
     /// client.set("foofoo", "barbarbarian").unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<TcpStream>>(
-        mut self,
+        &mut self,
         key: &str,
         value: V,
     ) -> Result<(), MemcacheError> {

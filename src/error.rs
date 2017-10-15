@@ -87,7 +87,3 @@ impl From<u16> for MemcacheError {
         return MemcacheError::BinaryServerError(code);
     }
 }
-
-pub fn is_memcache_error(s: &str) -> bool {
-    return s == "ERROR\r\n" || s.starts_with("CIENT_ERROR") || s.starts_with("SERVER_ERROR");
-}

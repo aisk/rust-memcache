@@ -26,26 +26,20 @@ memcache = "*"
 
 ```rust
 // create connection
-let mut conn = memcache::Client::new("127.0.0.1:12345").unwrap();
+let mut client = memcache::Client::new("127.0.0.1:12345").unwrap();
 
 // flush the database
-conn.flush().unwrap();
+client.flush().unwrap();
 
 // set a string value
-conn.set("foo", "bar").unwrap();
+client.set("foo", "bar").unwrap();
 // retrieve from memcached
-let value: String = conn.get("foo").unwrap();
+let value: String = client.get("foo").unwrap();
 assert!(value == "bar");
 ```
 !*/
 
 extern crate byteorder;
-
-pub use connection::Connection;
-pub use error::MemcacheError;
-pub use options::Options;
-pub use value::{ToMemcacheValue, FromMemcacheValue};
-pub use client::Client;
 
 mod connection;
 mod error;
@@ -53,3 +47,9 @@ mod value;
 mod options;
 mod packet;
 mod client;
+
+pub use connection::Connection;
+pub use error::MemcacheError;
+pub use options::Options;
+pub use value::{ToMemcacheValue, FromMemcacheValue};
+pub use client::Client;

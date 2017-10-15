@@ -1,7 +1,7 @@
 use std::io;
 use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
 
-
+#[allow(dead_code)]
 pub enum Opcode {
     Get = 0x00,
     Set = 0x01,
@@ -16,6 +16,7 @@ pub enum Magic {
     Response = 0x81,
 }
 
+#[allow(dead_code)]
 pub enum ResponseStatus {
     NoError = 0x0000,
     KeyNotFound = 0x0001,
@@ -24,6 +25,7 @@ pub enum ResponseStatus {
     InvalidArguments = 0x004,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct PacketHeader {
     pub magic: u8,
