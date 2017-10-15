@@ -17,11 +17,10 @@ memcache = "*"
 
 ## Features:
 
-- [x] ASCII protocal
-- [ ] Binary protocal
+- [x] Binary protocal
 - [x] TCP connection
 - [ ] UDP connection
-- [x] UNIX Domain socket connection
+- [ ] UNIX Domain socket connection
 - [ ] Automatically compress
 - [ ] Automatically serialize to JSON / msgpack etc.
 - [x] Typed interface
@@ -31,24 +30,16 @@ memcache = "*"
 
 ```rust
 // create connection
-let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
+let mut client = memcache::Client::new("127.0.0.1:12345").unwrap();
 
 // flush the database
-conn.flush().unwrap();
+client.flush().unwrap();
 
 // set a string value
-conn.set("foo", "bar").unwrap();
+client.set("foo", "bar").unwrap();
 // retrieve from memcached
-let value: String = conn.get("foo").unwrap();
+let value: String = client.get("foo").unwrap();
 assert!(value == "bar");
-
-// set a int value
-conn.set("number", 42).unwrap();
-// increment it atomic
-conn.incr("number", 1);
-// retrieve it as i32
-let value: i32 = conn.get("number").unwrap();
-assert!(value == 43);
 ```
 
 ## License
