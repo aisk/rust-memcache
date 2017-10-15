@@ -7,13 +7,13 @@ use value::{ToMemcacheValue, FromMemcacheValue};
 use packet::{Opcode, PacketHeader, Magic, ResponseStatus, StoreExtras};
 
 pub struct Client {
-    connections: Vec<Connection>,
+    connection: Connection,
 }
 
 impl Client {
     pub fn new<A: ToSocketAddrs>(addr: A) -> Result<Self, MemcacheError> {
         let connection = Connection::connect(addr)?;
-        return Ok(Client { connections: vec![connection] });
+        return Ok(Client { connection: connection });
     }
 
     /// Get the memcached server version.
@@ -30,13 +30,13 @@ impl Client {
             opcode: Opcode::Version as u8,
             ..Default::default()
         };
-        request_header.write(&mut self.connections[0].stream)?;
-        let response_header = PacketHeader::read(&mut self.connections[0].stream)?;
+        request_header.write(&mut self.connection.stream)?;
+        let response_header = PacketHeader::read(&mut self.connection.stream)?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
             return Err(MemcacheError::from(response_header.vbucket_id_or_status));
         }
         let mut buffer = vec![0; response_header.total_body_length as usize];
-        self.connections[0].stream.read_exact(buffer.as_mut_slice())?;
+        self.connection.stream.read_exact(buffer.as_mut_slice())?;
         return Ok(String::from_utf8(buffer)?);
     }
 
@@ -54,8 +54,8 @@ impl Client {
             opcode: Opcode::Flush as u8,
             ..Default::default()
         };
-        request_header.write(&mut self.connections[0].stream)?;
-        let response_header = PacketHeader::read(&mut self.connections[0].stream)?;
+        request_header.write(&mut self.connection.stream)?;
+        let response_header = PacketHeader::read(&mut self.connection.stream)?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
             return Err(MemcacheError::from(response_header.vbucket_id_or_status));
         }
@@ -79,13 +79,13 @@ impl Client {
             total_body_length: key.len() as u32,
             ..Default::default()
         };
-        request_header.write(&mut self.connections[0].stream)?;
-        self.connections[0].stream.write(key.as_bytes())?;
-        let response_header = PacketHeader::read(&mut self.connections[0].stream)?;
-        let flags = self.connections[0].stream.read_u32::<BigEndian>()?;
+        request_header.write(&mut self.connection.stream)?;
+        self.connection.stream.write(key.as_bytes())?;
+        let response_header = PacketHeader::read(&mut self.connection.stream)?;
+        let flags = self.connection.stream.read_u32::<BigEndian>()?;
         let value_length = response_header.total_body_length - 4; // 32bit for extras
         let mut buffer = vec![0; value_length as usize];
-        self.connections[0].stream.read_exact(buffer.as_mut_slice())?;
+        self.connection.stream.read_exact(buffer.as_mut_slice())?;
         // TODO: change flags from u16 to u32
         return Ok(FromMemcacheValue::from_memcache_value(
             buffer,
@@ -118,16 +118,16 @@ impl Client {
             flags: 0,
             expiration: 0,
         };
-        request_header.write(&mut self.connections[0].stream)?;
-        self.connections[0].stream.write_u32::<BigEndian>(
+        request_header.write(&mut self.connection.stream)?;
+        self.connection.stream.write_u32::<BigEndian>(
             extras.flags,
         )?;
-        self.connections[0].stream.write_u32::<BigEndian>(
+        self.connection.stream.write_u32::<BigEndian>(
             extras.expiration,
         )?;
-        self.connections[0].stream.write(key.as_bytes())?;
-        value.write_to(&mut self.connections[0].stream)?;
-        let response_header = PacketHeader::read(&mut self.connections[0].stream)?;
+        self.connection.stream.write(key.as_bytes())?;
+        value.write_to(&mut self.connection.stream)?;
+        let response_header = PacketHeader::read(&mut self.connection.stream)?;
         if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
             return Err(MemcacheError::from(response_header.vbucket_id_or_status));
         }
