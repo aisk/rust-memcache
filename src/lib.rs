@@ -26,7 +26,7 @@ memcache = "*"
 
 ```rust
 // create connection
-let mut conn = memcache::Connection::connect("127.0.0.1:12345").unwrap();
+let mut conn = memcache::Client::new("127.0.0.1:12345").unwrap();
 
 // flush the database
 conn.flush().unwrap();
@@ -36,14 +36,6 @@ conn.set("foo", "bar").unwrap();
 // retrieve from memcached
 let value: String = conn.get("foo").unwrap();
 assert!(value == "bar");
-
-// set a int value
-conn.set("number", 42).unwrap();
-// increment it atomic
-conn.incr("number", 1).unwrap();
-// retrieve it as i32
-let value: i32 = conn.get("number").unwrap();
-assert!(value == 43);
 ```
 !*/
 
