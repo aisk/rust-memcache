@@ -9,6 +9,7 @@ pub enum Opcode {
     Set = 0x01,
     Add = 0x02,
     Repalce = 0x03,
+    Delete = 0x04,
     Flush = 0x08,
     Version = 0x0b,
 }
@@ -112,4 +113,14 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(mut reader: R) -> R
     let mut buffer = vec![0; value_length as usize];
     reader.read_exact(buffer.as_mut_slice())?;
     return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
+}
+
+pub fn parse_delete_response<R: io::Read>(reader: R) -> Result<bool, MemcacheError> {
+    let header = PacketHeader::read(reader)?;
+    if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
+        return Ok(false);
+    } else if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+        return Err(MemcacheError::from(header.vbucket_id_or_status));
+    }
+    return Ok(true);
 }
