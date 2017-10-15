@@ -33,8 +33,8 @@ client.flush().unwrap();
 // set a string value
 client.set("foo", "bar").unwrap();
 // retrieve from memcached
-let value: String = client.get("foo").unwrap();
-assert!(value == "bar");
+let value: Option<String> = client.get("foo").unwrap();
+assert_eq!(value, Some(String::from("bar")));
 ```
 !*/
 

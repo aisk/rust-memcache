@@ -1,6 +1,7 @@
 use std::io;
 use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
 use error::MemcacheError;
+use value::FromMemcacheValue;
 
 #[allow(dead_code)]
 pub enum Opcode {
@@ -26,7 +27,6 @@ pub enum ResponseStatus {
     InvalidArguments = 0x004,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct PacketHeader {
     pub magic: u8,
@@ -47,7 +47,7 @@ pub struct StoreExtras {
 }
 
 impl PacketHeader {
-    pub fn write<T: io::Write>(self, mut writer: T) -> Result<(), io::Error> {
+    pub fn write<W: io::Write>(self, mut writer: W) -> Result<(), io::Error> {
         writer.write_u8(self.magic)?;
         writer.write_u8(self.opcode)?;
         writer.write_u16::<BigEndian>(self.key_length)?;
@@ -60,7 +60,7 @@ impl PacketHeader {
         return Ok(());
     }
 
-    pub fn read<T: io::Read>(mut reader: T) -> Result<PacketHeader, MemcacheError> {
+    pub fn read<R: io::Read>(mut reader: R) -> Result<PacketHeader, MemcacheError> {
         let magic = reader.read_u8()?;
         if magic != Magic::Response as u8 {
             return Err(MemcacheError::ClientError(
@@ -80,4 +80,36 @@ impl PacketHeader {
         };
         return Ok(header);
     }
+}
+
+pub fn parse_header_only_response<R: io::Read>(reader: R) -> Result<(), MemcacheError> {
+    let header = PacketHeader::read(reader)?;
+    if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+        return Err(MemcacheError::from(header.vbucket_id_or_status));
+    }
+    return Ok(())
+}
+
+pub fn parse_version_response<R: io::Read>(mut reader: R) -> Result<String, MemcacheError> {
+    let header = PacketHeader::read(&mut reader)?;
+    if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+        return Err(MemcacheError::from(header.vbucket_id_or_status));
+    }
+    let mut buffer = vec![0; header.total_body_length as usize];
+    reader.read_exact(buffer.as_mut_slice())?;
+    return Ok(String::from_utf8(buffer)?);
+}
+
+pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(mut reader: R) -> Result<Option<V>, MemcacheError> {
+    let header = PacketHeader::read(&mut reader)?;
+    if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
+        return Ok(None);
+    } else if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+        return Err(MemcacheError::from(header.vbucket_id_or_status));
+    }
+    let flags = reader.read_u32::<BigEndian>()?;
+    let value_length = header.total_body_length - 4; // 32bit for extras
+    let mut buffer = vec![0; value_length as usize];
+    reader.read_exact(buffer.as_mut_slice())?;
+    return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
 }

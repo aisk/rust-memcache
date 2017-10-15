@@ -1,10 +1,11 @@
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
-use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
+use byteorder::{WriteBytesExt, BigEndian};
 use connection::Connection;
 use error::MemcacheError;
 use value::{ToMemcacheValue, FromMemcacheValue};
-use packet::{Opcode, PacketHeader, Magic, ResponseStatus, StoreExtras};
+use packet;
+use packet::{Opcode, PacketHeader, Magic, StoreExtras};
 
 pub struct Client {
     connection: Connection,
@@ -31,13 +32,7 @@ impl Client {
             ..Default::default()
         };
         request_header.write(&mut self.connection.stream)?;
-        let response_header = PacketHeader::read(&mut self.connection.stream)?;
-        if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
-            return Err(MemcacheError::from(response_header.vbucket_id_or_status));
-        }
-        let mut buffer = vec![0; response_header.total_body_length as usize];
-        self.connection.stream.read_exact(buffer.as_mut_slice())?;
-        return Ok(String::from_utf8(buffer)?);
+        return packet::parse_version_response(&mut self.connection.stream);
     }
 
     /// Flush all cache on memcached server.
@@ -55,11 +50,7 @@ impl Client {
             ..Default::default()
         };
         request_header.write(&mut self.connection.stream)?;
-        let response_header = PacketHeader::read(&mut self.connection.stream)?;
-        if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
-            return Err(MemcacheError::from(response_header.vbucket_id_or_status));
-        }
-        return Ok(());
+        return packet::parse_header_only_response(&mut self.connection.stream);
     }
 
     /// Get a key from memcached server.
@@ -68,10 +59,9 @@ impl Client {
     ///
     /// ```rust
     /// let mut client = memcache::Client::new("localhost:12345").unwrap();
-    /// let result: String = client.get("foo").unwrap();
-    /// println!(">>> {}", result);
+    /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
-    pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<V, MemcacheError> {
+    pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Get as u8,
@@ -81,12 +71,7 @@ impl Client {
         };
         request_header.write(&mut self.connection.stream)?;
         self.connection.stream.write(key.as_bytes())?;
-        let response_header = PacketHeader::read(&mut self.connection.stream)?;
-        let flags = self.connection.stream.read_u32::<BigEndian>()?;
-        let value_length = response_header.total_body_length - 4; // 32bit for extras
-        let mut buffer = vec![0; value_length as usize];
-        self.connection.stream.read_exact(buffer.as_mut_slice())?;
-        return Ok(FromMemcacheValue::from_memcache_value(buffer, flags)?);
+        return packet::parse_get_response(&mut self.connection.stream);
     }
 
     /// Set a key with associate value into memcached server.
@@ -95,7 +80,7 @@ impl Client {
     ///
     /// ```rust
     /// let mut client = memcache::Client::new("localhost:12345").unwrap();
-    /// client.set("foofoo", "barbarbarian").unwrap();
+    /// client.set("foo", "bar").unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<TcpStream>>(
         &mut self,
@@ -121,10 +106,6 @@ impl Client {
         )?;
         self.connection.stream.write(key.as_bytes())?;
         value.write_to(&mut self.connection.stream)?;
-        let response_header = PacketHeader::read(&mut self.connection.stream)?;
-        if response_header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
-            return Err(MemcacheError::from(response_header.vbucket_id_or_status));
-        }
-        return Ok(());
+        return packet::parse_header_only_response(&mut self.connection.stream);
     }
 }
