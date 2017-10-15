@@ -147,7 +147,7 @@ macro_rules! impl_from_memcache_value_for_number{
                 let s: String = String::from_memcache_value(value, 0)?;
                 match Self::from_str(s.as_str()) {
                     Ok(v) => return Ok(v),
-                    Err(_) => Err(MemcacheError::Error),
+                    Err(e) => Err(MemcacheError::from(e)),
                 }
             }
         }

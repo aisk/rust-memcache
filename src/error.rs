@@ -1,6 +1,8 @@
-use std::io;
-use std::fmt;
 use std::error;
+use std::fmt;
+use std::io;
+use std::num;
+use std::str;
 use std::string;
 
 /// Stands for errors raised from rust-memcache
@@ -10,13 +12,11 @@ pub enum MemcacheError {
     Io(io::Error),
     /// Error raised when unserialize value data which from memcached to String
     FromUtf8(string::FromUtf8Error),
-    /// Unknown error raised by memcached, [more detail](https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L99-L101).
-    Error,
-    /// Client side error raised by memcached, probably caused by invalid input, [more detail](https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L103-L107).
+    ParseIntError(num::ParseIntError),
+    ParseFloatError(num::ParseFloatError),
+    ParseBoolError(str::ParseBoolError),
     ClientError(String),
-    /// Server side error raise by memcached, [more detail](https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L109-L116).
-    ServerError(String),
-    BinaryServerError(u16),
+    ServerError(u16),
 }
 
 impl fmt::Display for MemcacheError {
@@ -24,10 +24,11 @@ impl fmt::Display for MemcacheError {
         match *self {
             MemcacheError::Io(ref err) => err.fmt(f),
             MemcacheError::FromUtf8(ref err) => err.fmt(f),
-            MemcacheError::Error => write!(f, "Error"),
+            MemcacheError::ParseIntError(ref err) => err.fmt(f),
+            MemcacheError::ParseFloatError(ref err) => err.fmt(f),
+            MemcacheError::ParseBoolError(ref err) => err.fmt(f),
             MemcacheError::ClientError(ref s) => s.fmt(f),
-            MemcacheError::ServerError(ref s) => s.fmt(f),
-            MemcacheError::BinaryServerError(r) => write!(f, "BinaryServerError: {}", r),
+            MemcacheError::ServerError(r) => write!(f, "ServerError: {}", r),
         }
     }
 }
@@ -37,10 +38,11 @@ impl error::Error for MemcacheError {
         match *self {
             MemcacheError::Io(ref err) => err.description(),
             MemcacheError::FromUtf8(ref err) => err.description(),
-            MemcacheError::Error => "Error",
+            MemcacheError::ParseIntError(ref err) => err.description(),
+            MemcacheError::ParseFloatError(ref err) => err.description(),
+            MemcacheError::ParseBoolError(ref err) => err.description(),
             MemcacheError::ClientError(ref s) => s.as_str(),
-            MemcacheError::ServerError(ref s) => s.as_str(),
-            MemcacheError::BinaryServerError(_) => "BinaryServerError",
+            MemcacheError::ServerError(_) => "ServerError",
         }
     }
 
@@ -48,10 +50,11 @@ impl error::Error for MemcacheError {
         match *self {
             MemcacheError::Io(ref err) => err.cause(),
             MemcacheError::FromUtf8(ref err) => err.cause(),
-            MemcacheError::Error => None,
+            MemcacheError::ParseIntError(ref err) => err.cause(),
+            MemcacheError::ParseFloatError(ref err) => err.cause(),
+            MemcacheError::ParseBoolError(ref err) => err.cause(),
             MemcacheError::ClientError(_) => None,
             MemcacheError::ServerError(_) => None,
-            MemcacheError::BinaryServerError(_) => None,
         }
     }
 }
@@ -68,22 +71,32 @@ impl From<string::FromUtf8Error> for MemcacheError {
     }
 }
 
+impl From<num::ParseIntError> for MemcacheError {
+    fn from(err: num::ParseIntError) -> MemcacheError {
+        MemcacheError::ParseIntError(err)
+    }
+}
+
+impl From<num::ParseFloatError> for MemcacheError {
+    fn from(err: num::ParseFloatError) -> MemcacheError {
+        MemcacheError::ParseFloatError(err)
+    }
+}
+
+impl From<str::ParseBoolError> for MemcacheError {
+    fn from(err: str::ParseBoolError) -> MemcacheError {
+        MemcacheError::ParseBoolError(err)
+    }
+}
+
 impl From<String> for MemcacheError {
     fn from(s: String) -> MemcacheError {
-        if s == "ERROR\r\n" {
-            return MemcacheError::Error;
-        } else if s.starts_with("CLIENT_ERROR") {
-            return MemcacheError::ClientError(s);
-        } else if s.starts_with("SERVER_ERROR") {
-            return MemcacheError::ServerError(s);
-        } else {
-            panic!("{} if not a memcached error!", s);
-        }
+        return MemcacheError::ClientError(s);
     }
 }
 
 impl From<u16> for MemcacheError {
     fn from(code: u16) -> MemcacheError {
-        return MemcacheError::BinaryServerError(code);
+        return MemcacheError::ServerError(code);
     }
 }
