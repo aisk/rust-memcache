@@ -1,4 +1,14 @@
 language: rust
+addons:
+  apt:
+    packages:
+      - libcurl4-openssl-dev
+      - libelf-dev
+      - libdw-dev
+      - binutils-dev
+      - cmake
+    sources:
+      - kalalris-make
 
 rust:
   - stable
@@ -12,6 +22,15 @@ before_script:
 
 script:
   - RUST_BACKTRACE=1 cargo test
+
+before_install:
+  - cargo install cargo-travis && export PATH=$HOME/.cargo/bin:$PATH
+
+after_success:
+  - if [[ "$TRAVIS_OS_NAME" == "linux" && "$TRAVIS_RUST_VERSION" == "stable" ]; then
+      cargo coveralls
+    fi
+
 
 notifications:
   email: false
