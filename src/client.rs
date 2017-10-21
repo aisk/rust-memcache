@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::ToSocketAddrs;
 use byteorder::{WriteBytesExt, BigEndian};
 use connection::Connection;
 use error::MemcacheError;
@@ -31,8 +31,8 @@ impl Client {
             opcode: Opcode::Version as u8,
             ..Default::default()
         };
-        request_header.write(&mut self.connection.stream)?;
-        return packet::parse_version_response(&mut self.connection.stream);
+        request_header.write(&mut self.connection)?;
+        return packet::parse_version_response(&mut self.connection);
     }
 
     /// Flush all cache on memcached server.
@@ -49,8 +49,8 @@ impl Client {
             opcode: Opcode::Flush as u8,
             ..Default::default()
         };
-        request_header.write(&mut self.connection.stream)?;
-        return packet::parse_header_only_response(&mut self.connection.stream);
+        request_header.write(&mut self.connection)?;
+        return packet::parse_header_only_response(&mut self.connection);
     }
 
     /// Get a key from memcached server.
@@ -69,9 +69,9 @@ impl Client {
             total_body_length: key.len() as u32,
             ..Default::default()
         };
-        request_header.write(&mut self.connection.stream)?;
-        self.connection.stream.write(key.as_bytes())?;
-        return packet::parse_get_response(&mut self.connection.stream);
+        request_header.write(&mut self.connection)?;
+        self.connection.write(key.as_bytes())?;
+        return packet::parse_get_response(&mut self.connection);
     }
 
     /// Set a key with associate value into memcached server.
@@ -82,7 +82,7 @@ impl Client {
     /// let mut client = memcache::Client::new("localhost:12345").unwrap();
     /// client.set("foo", "bar").unwrap();
     /// ```
-    pub fn set<V: ToMemcacheValue<TcpStream>>(
+    pub fn set<V: ToMemcacheValue<Connection>>(
         &mut self,
         key: &str,
         value: V,
@@ -99,14 +99,12 @@ impl Client {
             flags: value.get_flags(),
             expiration: 0,
         };
-        request_header.write(&mut self.connection.stream)?;
-        self.connection.stream.write_u32::<BigEndian>(extras.flags)?;
-        self.connection.stream.write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
-        self.connection.stream.write(key.as_bytes())?;
-        value.write_to(&mut self.connection.stream)?;
-        return packet::parse_header_only_response(&mut self.connection.stream);
+        request_header.write(&mut self.connection)?;
+        self.connection.write_u32::<BigEndian>(extras.flags)?;
+        self.connection.write_u32::<BigEndian>(extras.expiration)?;
+        self.connection.write(key.as_bytes())?;
+        value.write_to(&mut self.connection)?;
+        return packet::parse_header_only_response(&mut self.connection);
     }
 
     /// Delete a key from memcached server.
@@ -125,9 +123,9 @@ impl Client {
             total_body_length: key.len() as u32,
             ..Default::default()
         };
-        request_header.write(&mut self.connection.stream)?;
-        self.connection.stream.write(key.as_bytes())?;
-        return packet::parse_delete_response(&mut self.connection.stream);
+        request_header.write(&mut self.connection)?;
+        self.connection.write(key.as_bytes())?;
+        return packet::parse_delete_response(&mut self.connection);
     }
 
     /// Increment the value with amount.
@@ -152,16 +150,12 @@ impl Client {
             initial_value: 0,
             expiration: 0,
         };
-        request_header.write(&mut self.connection.stream)?;
-        self.connection.stream.write_u64::<BigEndian>(extras.amount)?;
-        self.connection.stream.write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.connection.stream.write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
-        self.connection.stream.write(key.as_bytes())?;
-        return packet::parse_counter_response(&mut self.connection.stream);
+        request_header.write(&mut self.connection)?;
+        self.connection.write_u64::<BigEndian>(extras.amount)?;
+        self.connection.write_u64::<BigEndian>(extras.initial_value)?;
+        self.connection.write_u32::<BigEndian>(extras.expiration)?;
+        self.connection.write(key.as_bytes())?;
+        return packet::parse_counter_response(&mut self.connection);
     }
 
 
@@ -187,16 +181,12 @@ impl Client {
             initial_value: 0,
             expiration: 0,
         };
-        request_header.write(&mut self.connection.stream)?;
-        self.connection.stream.write_u64::<BigEndian>(extras.amount)?;
-        self.connection.stream.write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.connection.stream.write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
-        self.connection.stream.write(key.as_bytes())?;
-        return packet::parse_counter_response(&mut self.connection.stream);
+        request_header.write(&mut self.connection)?;
+        self.connection.write_u64::<BigEndian>(extras.amount)?;
+        self.connection.write_u64::<BigEndian>(extras.initial_value)?;
+        self.connection.write_u32::<BigEndian>(extras.expiration)?;
+        self.connection.write(key.as_bytes())?;
+        return packet::parse_counter_response(&mut self.connection);
     }
 }
 
