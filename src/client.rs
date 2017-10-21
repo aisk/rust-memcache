@@ -35,7 +35,7 @@ impl Client {
         return packet::parse_version_response(&mut self.connection);
     }
 
-    /// Flush all cache on memcached server.
+    /// Flush all cache on memcached server immediately.
     ///
     /// Example:
     ///
@@ -50,6 +50,27 @@ impl Client {
             ..Default::default()
         };
         request_header.write(&mut self.connection)?;
+        return packet::parse_header_only_response(&mut self.connection);
+    }
+
+    /// Flush all cache on memcached server with a delay seconds.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// client.flush_with_delay(10).unwrap();
+    /// ```
+    pub fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
+        let request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            opcode: Opcode::Flush as u8,
+            extras_length: 4,
+            total_body_length: 4,
+            ..Default::default()
+        };
+        request_header.write(&mut self.connection)?;
+        self.connection.write_u32::<BigEndian>(delay)?;
         return packet::parse_header_only_response(&mut self.connection);
     }
 
@@ -98,6 +119,40 @@ impl Client {
         let extras = packet::StoreExtras {
             flags: value.get_flags(),
             expiration: 0,
+        };
+        request_header.write(&mut self.connection)?;
+        self.connection.write_u32::<BigEndian>(extras.flags)?;
+        self.connection.write_u32::<BigEndian>(extras.expiration)?;
+        self.connection.write(key.as_bytes())?;
+        value.write_to(&mut self.connection)?;
+        return packet::parse_header_only_response(&mut self.connection);
+    }
+
+    /// Set a key with associate value into memcached server with expiration seconds.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// client.set_with_expiration("foo", "bar", 10).unwrap();
+    /// ```
+    pub fn set_with_expiration<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32
+    ) -> Result<(), MemcacheError> {
+        let request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            opcode: Opcode::Set as u8,
+            key_length: key.len() as u16, // TODO: check key length
+            extras_length: 8,
+            total_body_length: (8 + key.len() + value.get_length()) as u32,
+            ..Default::default()
+        };
+        let extras = packet::StoreExtras {
+            flags: value.get_flags(),
+            expiration: expiration,
         };
         request_header.write(&mut self.connection)?;
         self.connection.write_u32::<BigEndian>(extras.flags)?;

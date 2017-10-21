@@ -24,14 +24,17 @@ memcache = "*"
 # Basic usage:
 
 ```rust
-// create connection
+// create connection:
 let mut client = memcache::Client::new("127.0.0.1:12345").unwrap();
 
-// flush the database
+// flush the database:
 client.flush().unwrap();
 
-// set a string value
+// set a string value:
 client.set("foo", "bar").unwrap();
+// set a key with expiration seconds:
+client.set_with_expiration("foo", "bar", 10).unwrap();
+
 // retrieve from memcached
 let value: Option<String> = client.get("foo").unwrap();
 assert_eq!(value, Some(String::from("bar")));
