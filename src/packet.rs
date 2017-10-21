@@ -8,7 +8,7 @@ pub enum Opcode {
     Get = 0x00,
     Set = 0x01,
     Add = 0x02,
-    Repalce = 0x03,
+    Replace = 0x03,
     Delete = 0x04,
     Increment = 0x05,
     Decrement = 0x06,
@@ -73,9 +73,9 @@ impl PacketHeader {
     pub fn read<R: io::Read>(mut reader: R) -> Result<PacketHeader, MemcacheError> {
         let magic = reader.read_u8()?;
         if magic != Magic::Response as u8 {
-            return Err(MemcacheError::ClientError(
-                String::from("Bad magic number in response header"),
-            ));
+            return Err(MemcacheError::ClientError(String::from(
+                format!("Bad magic number in response header: {}", magic),
+            )));
         }
         let header = PacketHeader {
             magic: magic,
@@ -126,8 +126,14 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
     return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
 }
 
-pub fn parse_delete_response<R: io::Read>(reader: R) -> Result<bool, MemcacheError> {
-    let header = PacketHeader::read(reader)?;
+pub fn parse_delete_response<R: io::Read>(mut reader: R) -> Result<bool, MemcacheError> {
+    let header = PacketHeader::read(&mut reader)?;
+    if header.total_body_length != 0 {
+        reader.read_exact(
+            vec![0; header.total_body_length as usize]
+                .as_mut_slice(),
+        )?;
+    }
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
         return Ok(false);
     } else if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {

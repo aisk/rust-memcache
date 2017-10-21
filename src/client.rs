@@ -95,56 +95,16 @@ impl Client {
         return packet::parse_get_response(&mut self.connection);
     }
 
-    /// Set a key with associate value into memcached server.
-    ///
-    /// Example:
-    ///
-    /// ```rust
-    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
-    /// client.set("foo", "bar").unwrap();
-    /// ```
-    pub fn set<V: ToMemcacheValue<Connection>>(
+    fn store<V: ToMemcacheValue<Connection>>(
         &mut self,
+        opcode: Opcode,
         key: &str,
         value: V,
+        expiration: u32,
     ) -> Result<(), MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
-            opcode: Opcode::Set as u8,
-            key_length: key.len() as u16, // TODO: check key length
-            extras_length: 8,
-            total_body_length: (8 + key.len() + value.get_length()) as u32,
-            ..Default::default()
-        };
-        let extras = packet::StoreExtras {
-            flags: value.get_flags(),
-            expiration: 0,
-        };
-        request_header.write(&mut self.connection)?;
-        self.connection.write_u32::<BigEndian>(extras.flags)?;
-        self.connection.write_u32::<BigEndian>(extras.expiration)?;
-        self.connection.write(key.as_bytes())?;
-        value.write_to(&mut self.connection)?;
-        return packet::parse_header_only_response(&mut self.connection);
-    }
-
-    /// Set a key with associate value into memcached server with expiration seconds.
-    ///
-    /// Example:
-    ///
-    /// ```rust
-    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
-    /// client.set_with_expiration("foo", "bar", 10).unwrap();
-    /// ```
-    pub fn set_with_expiration<V: ToMemcacheValue<Connection>>(
-        &mut self,
-        key: &str,
-        value: V,
-        expiration: u32
-    ) -> Result<(), MemcacheError> {
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Set as u8,
+            opcode: opcode as u8,
             key_length: key.len() as u16, // TODO: check key length
             extras_length: 8,
             total_body_length: (8 + key.len() + value.get_length()) as u32,
@@ -160,6 +120,113 @@ impl Client {
         self.connection.write(key.as_bytes())?;
         value.write_to(&mut self.connection)?;
         return packet::parse_header_only_response(&mut self.connection);
+    }
+
+    /// Set a key with associate value into memcached server.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// client.set("foo", "bar").unwrap();
+    /// ```
+    pub fn set<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+    ) -> Result<(), MemcacheError> {
+        return self.store(Opcode::Set, key, value, 0);
+    }
+
+    /// Set a key with associate value into memcached server with expiration seconds.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// client.set_with_expiration("foo", "bar", 10).unwrap();
+    /// ```
+    pub fn set_with_expiration<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
+        return self.store(Opcode::Set, key, value, expiration);
+    }
+
+    /// Add a key with associate value into memcached server.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// let key = "add_test";
+    /// client.delete(key).unwrap();
+    /// client.add(key, "bar").unwrap();
+    /// ```
+    pub fn add<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+    ) -> Result<(), MemcacheError> {
+        return self.store(Opcode::Add, key, value, 0);
+    }
+
+    /// Add a key with associate value into memcached server with expiration seconds.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// let key = "add_with_expiration_test";
+    /// client.delete(key).unwrap();
+    /// client.add_with_expiration(key, "bar", 100000000).unwrap();
+    /// ```
+    pub fn add_with_expiration<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
+        return self.store(Opcode::Add, key, value, expiration);
+    }
+
+    /// Replace a key with associate value into memcached server.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// let key = "replace_test";
+    /// client.set(key, "bar").unwrap();
+    /// client.replace(key, "baz").unwrap();
+    /// ```
+    pub fn replace<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+    ) -> Result<(), MemcacheError> {
+        return self.store(Opcode::Replace, key, value, 0);
+    }
+
+    /// Replace a key with associate value into memcached server with expiration seconds.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("localhost:12345").unwrap();
+    /// let key = "replace_with_expiration_test";
+    /// client.set(key, "bar").unwrap();
+    /// client.replace_with_expiration(key, "baz", 100000000).unwrap();
+    /// ```
+    pub fn replace_with_expiration<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
+        return self.store(Opcode::Replace, key, value, expiration);
     }
 
     /// Delete a key from memcached server.
