@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::net::ToSocketAddrs;
+use std::net::{ToSocketAddrs, TcpStream};
 use byteorder::{WriteBytesExt, BigEndian};
 use connection::Connection;
 use error::MemcacheError;
@@ -13,8 +13,8 @@ pub struct Client {
 
 impl Client {
     pub fn new<A: ToSocketAddrs>(addr: A) -> Result<Self, MemcacheError> {
-        let connection = Connection::connect(addr)?;
-        return Ok(Client { connection: connection });
+        let stream = TcpStream::connect(addr)?;
+        return Ok(Client { connection: Connection::TcpStream(stream) });
     }
 
     /// Get the memcached server version.
