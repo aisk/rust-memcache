@@ -10,6 +10,8 @@ pub enum Opcode {
     Add = 0x02,
     Repalce = 0x03,
     Delete = 0x04,
+    Increment = 0x05,
+    Decrement = 0x06,
     Flush = 0x08,
     Version = 0x0b,
 }
@@ -21,11 +23,11 @@ pub enum Magic {
 
 #[allow(dead_code)]
 pub enum ResponseStatus {
-    NoError = 0x0000,
-    KeyNotFound = 0x0001,
-    KeyExits = 0x0002,
-    ValueTooLarge = 0x003,
-    InvalidArguments = 0x004,
+    NoError = 0x00,
+    KeyNotFound = 0x01,
+    KeyExits = 0x02,
+    ValueTooLarge = 0x03,
+    InvalidArguments = 0x04,
 }
 
 #[derive(Debug, Default)]
@@ -44,6 +46,13 @@ pub struct PacketHeader {
 #[derive(Debug)]
 pub struct StoreExtras {
     pub flags: u32,
+    pub expiration: u32,
+}
+
+#[derive(Debug)]
+pub struct CounterExtras {
+    pub amount: u64,
+    pub initial_value: u64,
     pub expiration: u32,
 }
 
@@ -88,7 +97,7 @@ pub fn parse_header_only_response<R: io::Read>(reader: R) -> Result<(), Memcache
     if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
-    return Ok(())
+    return Ok(());
 }
 
 pub fn parse_version_response<R: io::Read>(mut reader: R) -> Result<String, MemcacheError> {
@@ -101,7 +110,9 @@ pub fn parse_version_response<R: io::Read>(mut reader: R) -> Result<String, Memc
     return Ok(String::from_utf8(buffer)?);
 }
 
-pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(mut reader: R) -> Result<Option<V>, MemcacheError> {
+pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
+    mut reader: R,
+) -> Result<Option<V>, MemcacheError> {
     let header = PacketHeader::read(&mut reader)?;
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
         return Ok(None);
@@ -123,4 +134,12 @@ pub fn parse_delete_response<R: io::Read>(reader: R) -> Result<bool, MemcacheErr
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
     return Ok(true);
+}
+
+pub fn parse_counter_response<R: io::Read>(mut reader: R) -> Result<u64, MemcacheError> {
+    let header = PacketHeader::read(&mut reader)?;
+    if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+        return Err(MemcacheError::from(header.vbucket_id_or_status));
+    }
+    return Ok(reader.read_u64::<BigEndian>()?);
 }
