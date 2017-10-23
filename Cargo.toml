@@ -10,3 +10,4 @@ keywords = ["memcache", "memcached", "client", "driver"]
 
 [dependencies]
 byteorder = "1"
+url = "1"
