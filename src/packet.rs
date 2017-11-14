@@ -17,6 +17,8 @@ pub enum Opcode {
     Noop = 0x0a,
     Version = 0x0b,
     GetKQ = 0x0d,
+    Append = 0x0e,
+    Prepend = 0x0f,
 }
 
 pub enum Magic {

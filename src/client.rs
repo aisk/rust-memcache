@@ -281,6 +281,66 @@ impl Client {
         return self.store(Opcode::Replace, key, value, expiration);
     }
 
+    /// Append value to the key.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let key = "key_to_append";
+    /// client.set(key, "hello").unwrap();
+    /// client.append(key, ", world!").unwrap();
+    /// let result: String = client.get(key).unwrap().unwrap();
+    /// assert_eq!(result, "hello, world!");
+    /// ```
+    pub fn append<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+    ) -> Result<(), MemcacheError> {
+        let request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            opcode: Opcode::Append as u8,
+            key_length: key.len() as u16, // TODO: check key length
+            total_body_length: (key.len() + value.get_length()) as u32,
+            ..Default::default()
+        };
+        request_header.write(&mut self.connection)?;
+        self.connection.write(key.as_bytes())?;
+        value.write_to(&mut self.connection)?;
+        return packet::parse_header_only_response(&mut self.connection);
+    }
+
+    /// Prepend value to the key.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let key = "key_to_append";
+    /// client.set(key, "world!").unwrap();
+    /// client.prepend(key, "hello, ").unwrap();
+    /// let result: String = client.get(key).unwrap().unwrap();
+    /// assert_eq!(result, "hello, world!");
+    /// ```
+    pub fn prepend<V: ToMemcacheValue<Connection>>(
+        &mut self,
+        key: &str,
+        value: V,
+    ) -> Result<(), MemcacheError> {
+        let request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            opcode: Opcode::Prepend as u8,
+            key_length: key.len() as u16, // TODO: check key length
+            total_body_length: (key.len() + value.get_length()) as u32,
+            ..Default::default()
+        };
+        request_header.write(&mut self.connection)?;
+        self.connection.write(key.as_bytes())?;
+        value.write_to(&mut self.connection)?;
+        return packet::parse_header_only_response(&mut self.connection);
+    }
+
     /// Delete a key from memcached server.
     ///
     /// Example:
