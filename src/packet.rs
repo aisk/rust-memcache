@@ -1,4 +1,5 @@
 use std::io;
+use std::collections::HashMap;
 use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
 use error::MemcacheError;
 use value::FromMemcacheValue;
@@ -13,7 +14,9 @@ pub enum Opcode {
     Increment = 0x05,
     Decrement = 0x06,
     Flush = 0x08,
+    Noop = 0x0a,
     Version = 0x0b,
+    GetKQ = 0x0d,
 }
 
 pub enum Magic {
@@ -120,10 +123,39 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
     let flags = reader.read_u32::<BigEndian>()?;
-    let value_length = header.total_body_length - 4; // 32bit for extras
+    let value_length = header.total_body_length - header.extras_length as u32;
     let mut buffer = vec![0; value_length as usize];
     reader.read_exact(buffer.as_mut_slice())?;
     return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
+}
+
+pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
+    mut reader: R,
+) -> Result<HashMap<String, V>, MemcacheError> {
+    let mut result = HashMap::new();
+    loop {
+        let header = PacketHeader::read(&mut reader)?;
+        if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+            return Err(MemcacheError::from(header.vbucket_id_or_status));
+        }
+        if header.opcode == Opcode::Noop as u8 {
+            break;
+        }
+        let flags = reader.read_u32::<BigEndian>()?;
+        let key_length = header.key_length;
+        let value_length = header.total_body_length - key_length as u32 -
+            header.extras_length as u32;
+        let mut key_buffer = vec![0; key_length as usize];
+        reader.read_exact(key_buffer.as_mut_slice())?;
+        let key = String::from_utf8(key_buffer)?;
+        let mut value_buffer = vec![0; value_length as usize];
+        reader.read_exact(value_buffer.as_mut_slice())?;
+        result.insert(
+            key,
+            FromMemcacheValue::from_memcache_value(value_buffer, flags)?,
+        );
+    }
+    return Ok(result);
 }
 
 pub fn parse_delete_response<R: io::Read>(mut reader: R) -> Result<bool, MemcacheError> {

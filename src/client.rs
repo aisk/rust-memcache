@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::net::TcpStream;
+use std::collections::HashMap;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use byteorder::{WriteBytesExt, BigEndian};
@@ -109,6 +110,41 @@ impl Client {
         request_header.write(&mut self.connection)?;
         self.connection.write(key.as_bytes())?;
         return packet::parse_get_response(&mut self.connection);
+    }
+
+    /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce netwark workloads.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// client.set("foo", "42");
+    /// let result: std::collections::HashMap<String, String> = client.gets(vec!["foo", "bar", "baz"]).unwrap();
+    /// assert_eq!(result.len(), 1);
+    /// assert_eq!(result["foo"], "42");
+    /// ```
+    pub fn gets<V: FromMemcacheValue>(
+        &mut self,
+        keys: Vec<&str>,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
+        for key in keys {
+            let request_header = PacketHeader {
+                magic: Magic::Request as u8,
+                opcode: Opcode::GetKQ as u8,
+                key_length: key.len() as u16, // TODO: check key length
+                total_body_length: key.len() as u32,
+                ..Default::default()
+            };
+            request_header.write(&mut self.connection)?;
+            self.connection.write(key.as_bytes())?;
+        }
+        let noop_request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            opcode: Opcode::Noop as u8,
+            ..Default::default()
+        };
+        noop_request_header.write(&mut self.connection)?;
+        return packet::parse_gets_response(&mut self.connection);
     }
 
     fn store<V: ToMemcacheValue<Connection>>(
