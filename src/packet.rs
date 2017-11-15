@@ -62,7 +62,7 @@ pub struct CounterExtras {
 }
 
 impl PacketHeader {
-    pub fn write<W: io::Write>(self, mut writer: W) -> Result<(), io::Error> {
+    pub fn write<W: io::Write>(self, writer: &mut W) -> Result<(), io::Error> {
         writer.write_u8(self.magic)?;
         writer.write_u8(self.opcode)?;
         writer.write_u16::<BigEndian>(self.key_length)?;
@@ -75,7 +75,7 @@ impl PacketHeader {
         return Ok(());
     }
 
-    pub fn read<R: io::Read>(mut reader: R) -> Result<PacketHeader, MemcacheError> {
+    pub fn read<R: io::Read>(reader: &mut R) -> Result<PacketHeader, MemcacheError> {
         let magic = reader.read_u8()?;
         if magic != Magic::Response as u8 {
             return Err(MemcacheError::ClientError(String::from(
@@ -97,7 +97,7 @@ impl PacketHeader {
     }
 }
 
-pub fn parse_header_only_response<R: io::Read>(reader: R) -> Result<(), MemcacheError> {
+pub fn parse_header_only_response<R: io::Read>(reader: &mut R) -> Result<(), MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
         return Err(MemcacheError::from(header.vbucket_id_or_status));
@@ -105,8 +105,8 @@ pub fn parse_header_only_response<R: io::Read>(reader: R) -> Result<(), Memcache
     return Ok(());
 }
 
-pub fn parse_version_response<R: io::Read>(mut reader: R) -> Result<String, MemcacheError> {
-    let header = PacketHeader::read(&mut reader)?;
+pub fn parse_version_response<R: io::Read>(reader: &mut R) -> Result<String, MemcacheError> {
+    let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
@@ -116,9 +116,9 @@ pub fn parse_version_response<R: io::Read>(mut reader: R) -> Result<String, Memc
 }
 
 pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
-    mut reader: R,
+    reader: &mut R,
 ) -> Result<Option<V>, MemcacheError> {
-    let header = PacketHeader::read(&mut reader)?;
+    let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
         return Ok(None);
     } else if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
@@ -132,11 +132,11 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
 }
 
 pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
-    mut reader: R,
+    reader: &mut R,
 ) -> Result<HashMap<String, V>, MemcacheError> {
     let mut result = HashMap::new();
     loop {
-        let header = PacketHeader::read(&mut reader)?;
+        let header = PacketHeader::read(reader)?;
         if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
             return Err(MemcacheError::from(header.vbucket_id_or_status));
         }
@@ -160,8 +160,8 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
     return Ok(result);
 }
 
-pub fn parse_delete_response<R: io::Read>(mut reader: R) -> Result<bool, MemcacheError> {
-    let header = PacketHeader::read(&mut reader)?;
+pub fn parse_delete_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
+    let header = PacketHeader::read(reader)?;
     if header.total_body_length != 0 {
         reader.read_exact(
             vec![0; header.total_body_length as usize]
@@ -176,8 +176,8 @@ pub fn parse_delete_response<R: io::Read>(mut reader: R) -> Result<bool, Memcach
     return Ok(true);
 }
 
-pub fn parse_counter_response<R: io::Read>(mut reader: R) -> Result<u64, MemcacheError> {
-    let header = PacketHeader::read(&mut reader)?;
+pub fn parse_counter_response<R: io::Read>(reader: &mut R) -> Result<u64, MemcacheError> {
+    let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
