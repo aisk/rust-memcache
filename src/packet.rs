@@ -78,9 +78,9 @@ impl PacketHeader {
     pub fn read<R: io::Read>(reader: &mut R) -> Result<PacketHeader, MemcacheError> {
         let magic = reader.read_u8()?;
         if magic != Magic::Response as u8 {
-            return Err(MemcacheError::ClientError(String::from(
+            return Err(MemcacheError::ClientError(
                 format!("Bad magic number in response header: {}", magic),
-            )));
+            ));
         }
         let header = PacketHeader {
             magic: magic,
@@ -125,7 +125,7 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
     let flags = reader.read_u32::<BigEndian>()?;
-    let value_length = header.total_body_length - header.extras_length as u32;
+    let value_length = header.total_body_length - u32::from(header.extras_length);
     let mut buffer = vec![0; value_length as usize];
     reader.read_exact(buffer.as_mut_slice())?;
     return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
@@ -145,8 +145,8 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
         }
         let flags = reader.read_u32::<BigEndian>()?;
         let key_length = header.key_length;
-        let value_length = header.total_body_length - key_length as u32 -
-            header.extras_length as u32;
+        let value_length = header.total_body_length - u32::from(key_length) -
+            u32::from(header.extras_length);
         let mut key_buffer = vec![0; key_length as usize];
         reader.read_exact(key_buffer.as_mut_slice())?;
         let key = String::from_utf8(key_buffer)?;

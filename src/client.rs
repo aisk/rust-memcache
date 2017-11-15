@@ -129,7 +129,7 @@ impl<'a> Client {
             ..Default::default()
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).write_all(key.as_bytes())?;
         return packet::parse_get_response(self.get_connection(key));
     }
 
@@ -157,7 +157,7 @@ impl<'a> Client {
                 ..Default::default()
             };
             request_header.write(self.get_connection(key))?;
-            self.get_connection(key).write(key.as_bytes())?;
+            self.get_connection(key).write_all(key.as_bytes())?;
         }
         let noop_request_header = PacketHeader {
             magic: Magic::Request as u8,
@@ -194,7 +194,7 @@ impl<'a> Client {
         self.get_connection(key).write_u32::<BigEndian>(
             extras.expiration,
         )?;
-        self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).write_all(key.as_bytes())?;
         value.write_to(self.get_connection(key))?;
         return packet::parse_header_only_response(self.get_connection(key));
     }
@@ -331,7 +331,7 @@ impl<'a> Client {
             ..Default::default()
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).write_all(key.as_bytes())?;
         value.write_to(self.get_connection(key))?;
         return packet::parse_header_only_response(self.get_connection(key));
     }
@@ -361,7 +361,7 @@ impl<'a> Client {
             ..Default::default()
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).write_all(key.as_bytes())?;
         value.write_to(&mut self.get_connection(key))?;
         return packet::parse_header_only_response(self.get_connection(key));
     }
@@ -383,7 +383,7 @@ impl<'a> Client {
             ..Default::default()
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).write_all(key.as_bytes())?;
         return packet::parse_delete_response(self.get_connection(key));
     }
 
@@ -419,7 +419,7 @@ impl<'a> Client {
         self.get_connection(key).write_u32::<BigEndian>(
             extras.expiration,
         )?;
-        self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).write_all(key.as_bytes())?;
         return packet::parse_counter_response(self.get_connection(key));
     }
 
