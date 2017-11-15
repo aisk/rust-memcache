@@ -25,7 +25,7 @@ memcache = "*"
 
 ```rust
 // create connection:
-let mut client = memcache::Client::connect("memcache://127.0.0.1:12345").unwrap();
+let mut client = memcache::Client::new("memcache://127.0.0.1:12345").unwrap();
 
 // flush the database:
 client.flush().unwrap();

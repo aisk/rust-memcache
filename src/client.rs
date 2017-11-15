@@ -1,15 +1,28 @@
 use std::io::Write;
-use std::net::TcpStream;
 use std::collections::HashMap;
 #[cfg(unix)]
-use std::os::unix::net::UnixStream;
 use byteorder::{WriteBytesExt, BigEndian};
-use url::{Host, Url};
 use connection::Connection;
 use error::MemcacheError;
 use value::{ToMemcacheValue, FromMemcacheValue};
 use packet;
 use packet::{Opcode, PacketHeader, Magic};
+
+pub trait Connectable<'a> {
+    fn get_urls(self) -> Vec<&'a str>;
+}
+
+impl<'a> Connectable<'a> for &'a str {
+    fn get_urls(self) -> Vec<&'a str> {
+        return vec![self];
+    }
+}
+
+impl<'a> Connectable<'a> for Vec<&'a str> {
+    fn get_urls(self) -> Vec<&'a str> {
+        return self;
+    }
+}
 
 pub struct Client {
     connections: Vec<Connection>,
@@ -20,28 +33,16 @@ fn default_hash_function(key: &str) -> usize {
     return 0;
 }
 
-impl Client {
-    pub fn connect(addr: &str) -> Result<Self, MemcacheError> {
-        let addr = match Url::parse(addr) {
-            Ok(v) => v,
-            Err(_) => return Err(MemcacheError::ClientError("Invalid memcache URL".into())),
-        };
-        if addr.scheme() != "memcache" {
-            return Err(MemcacheError::ClientError(
-                "memcache URL should start with 'memcache://'".into(),
-            ));
+impl<'a> Client {
+    pub fn new<C: Connectable<'a>>(target: C) -> Result<Self, MemcacheError> {
+        let urls = target.get_urls();
+        let mut connections = vec![];
+        for url in urls {
+            connections.push(Connection::connect(url)?);
         }
-        if cfg!(unix) && addr.host() == Some(Host::Domain("")) && addr.port() == None {
-            let stream = UnixStream::connect(addr.path())?;
-            return Ok(Client {
-                 connections: vec![Connection::UnixStream(stream)],
-                 hash_function: default_hash_function,
-            });
-        }
-        let stream = TcpStream::connect(addr)?;
         return Ok(Client {
-             connections: vec![Connection::TcpStream(stream)],
-             hash_function: default_hash_function,
+            connections: connections,
+            hash_function: default_hash_function,
         });
     }
 
@@ -55,7 +56,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.version().unwrap();
     /// ```
     pub fn version(&mut self) -> Result<String, MemcacheError> {
@@ -73,7 +74,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.flush().unwrap();
     /// ```
     pub fn flush(&mut self) -> Result<(), MemcacheError> {
@@ -91,7 +92,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.flush_with_delay(10).unwrap();
     /// ```
     pub fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
@@ -112,7 +113,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
     pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
@@ -133,7 +134,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.set("foo", "42");
     /// let result: std::collections::HashMap<String, String> = client.gets(vec!["foo", "bar", "baz"]).unwrap();
     /// assert_eq!(result.len(), 1);
@@ -183,8 +184,12 @@ impl Client {
             expiration: expiration,
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u32::<BigEndian>(extras.flags)?;
-        self.get_connection(key).write_u32::<BigEndian>(extras.expiration)?;
+        self.get_connection(key).write_u32::<BigEndian>(
+            extras.flags,
+        )?;
+        self.get_connection(key).write_u32::<BigEndian>(
+            extras.expiration,
+        )?;
         self.get_connection(key).write(key.as_bytes())?;
         value.write_to(self.get_connection(key))?;
         return packet::parse_header_only_response(self.get_connection(key));
@@ -195,7 +200,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar").unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<Connection>>(
@@ -211,7 +216,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.set_with_expiration("foo", "bar", 10).unwrap();
     /// ```
     pub fn set_with_expiration<V: ToMemcacheValue<Connection>>(
@@ -228,7 +233,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// let key = "add_test";
     /// client.delete(key).unwrap();
     /// client.add(key, "bar").unwrap();
@@ -246,7 +251,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// let key = "add_with_expiration_test";
     /// client.delete(key).unwrap();
     /// client.add_with_expiration(key, "bar", 100000000).unwrap();
@@ -265,7 +270,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// let key = "replace_test";
     /// client.set(key, "bar").unwrap();
     /// client.replace(key, "baz").unwrap();
@@ -283,7 +288,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// let key = "replace_with_expiration_test";
     /// client.set(key, "bar").unwrap();
     /// client.replace_with_expiration(key, "baz", 100000000).unwrap();
@@ -302,7 +307,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// let key = "key_to_append";
     /// client.set(key, "hello").unwrap();
     /// client.append(key, ", world!").unwrap();
@@ -332,7 +337,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// let key = "key_to_append";
     /// client.set(key, "world!").unwrap();
     /// client.prepend(key, "hello, ").unwrap();
@@ -362,7 +367,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.delete("foo").unwrap();
     /// ```
     pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
@@ -383,7 +388,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.increment("counter", 42).unwrap();
     /// ```
     pub fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
@@ -401,9 +406,15 @@ impl Client {
             expiration: 0,
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u64::<BigEndian>(extras.amount)?;
-        self.get_connection(key).write_u64::<BigEndian>(extras.initial_value)?;
-        self.get_connection(key).write_u32::<BigEndian>(extras.expiration)?;
+        self.get_connection(key).write_u64::<BigEndian>(
+            extras.amount,
+        )?;
+        self.get_connection(key).write_u64::<BigEndian>(
+            extras.initial_value,
+        )?;
+        self.get_connection(key).write_u32::<BigEndian>(
+            extras.expiration,
+        )?;
         self.get_connection(key).write(key.as_bytes())?;
         return packet::parse_counter_response(self.get_connection(key));
     }
@@ -414,7 +425,7 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.decrement("counter", 42).unwrap();
     /// ```
     pub fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
@@ -432,9 +443,15 @@ impl Client {
             expiration: 0,
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u64::<BigEndian>(extras.amount)?;
-        self.get_connection(key).write_u64::<BigEndian>(extras.initial_value)?;
-        self.get_connection(key).write_u32::<BigEndian>(extras.expiration)?;
+        self.get_connection(key).write_u64::<BigEndian>(
+            extras.amount,
+        )?;
+        self.get_connection(key).write_u64::<BigEndian>(
+            extras.initial_value,
+        )?;
+        self.get_connection(key).write_u32::<BigEndian>(
+            extras.expiration,
+        )?;
         self.get_connection(key).write(key.as_bytes())?;
         return packet::parse_counter_response(self.get_connection(key));
     }
@@ -444,13 +461,13 @@ impl Client {
 mod tests {
     #[test]
     fn unix() {
-        let mut client = super::Client::connect("memcache:///tmp/memcached.sock").unwrap();
+        let mut client = super::Client::new("memcache:///tmp/memcached.sock").unwrap();
         assert!(client.version().unwrap() != "");
     }
 
     #[test]
     fn delete() {
-        let mut client = super::Client::connect("memcache://localhost:12345").unwrap();
+        let mut client = super::Client::new("memcache://localhost:12345").unwrap();
         client.set("an_exists_key", "value").unwrap();
         assert_eq!(client.delete("an_exists_key").unwrap(), true);
         assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
@@ -458,7 +475,7 @@ mod tests {
 
     #[test]
     fn increment() {
-        let mut client = super::Client::connect("memcache://localhost:12345").unwrap();
+        let mut client = super::Client::new("memcache://localhost:12345").unwrap();
         client.delete("counter").unwrap();
         client.set("counter", 321).unwrap();
         assert_eq!(client.increment("counter", 123).unwrap(), 444);

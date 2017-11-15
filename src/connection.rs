@@ -3,38 +3,71 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+use url::{Host, Url};
+use error::MemcacheError;
 
-/// The connection acts as a TCP connection to the memcached server
-pub enum Connection {
+enum Stream {
     TcpStream(TcpStream),
     #[cfg(unix)]
     UnixStream(UnixStream),
 }
 
+/// The connection acts as a TCP connection to the memcached server
+pub struct Connection {
+    stream: Stream,
+    pub url: String,
+}
+
+impl Connection {
+    pub fn connect(addr: &str) -> Result<Self, MemcacheError> {
+        let addr = match Url::parse(addr) {
+            Ok(v) => v,
+            Err(_) => return Err(MemcacheError::ClientError("Invalid memcache URL".into())),
+        };
+        if addr.scheme() != "memcache" {
+            return Err(MemcacheError::ClientError(
+                "memcache URL should start with 'memcache://'".into(),
+            ));
+        }
+        if cfg!(unix) && addr.host() == Some(Host::Domain("")) && addr.port() == None {
+            let stream = UnixStream::connect(addr.path())?;
+            return Ok(Connection {
+                url: addr.into_string(),
+                stream: Stream::UnixStream(stream),
+            });
+        }
+        let stream = TcpStream::connect(addr.clone())?;
+        return Ok(Connection {
+            url: addr.into_string(),
+            stream: Stream::TcpStream(stream),
+        });
+    }
+}
+
 impl Read for Connection {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match *self {
-            Connection::TcpStream(ref mut stream) => stream.read(buf),
+        match self.stream {
+            Stream::TcpStream(ref mut stream) => stream.read(buf),
             #[cfg(unix)]
-            Connection::UnixStream(ref mut stream) => stream.read(buf),
+            Stream::UnixStream(ref mut stream) => stream.read(buf),
         }
     }
 }
 
 impl Write for Connection {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match *self {
-            Connection::TcpStream(ref mut stream) => stream.write(buf),
+        match self.stream {
+            Stream::TcpStream(ref mut stream) => stream.write(buf),
             #[cfg(unix)]
-            Connection::UnixStream(ref mut stream) => stream.write(buf),
+            Stream::UnixStream(ref mut stream) => stream.write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        match *self {
-            Connection::TcpStream(ref mut stream) => stream.flush(),
+        match self.stream {
+            Stream::TcpStream(ref mut stream) => stream.flush(),
             #[cfg(unix)]
-            Connection::UnixStream(ref mut stream) => stream.flush(),
+            Stream::UnixStream(ref mut stream) => stream.flush(),
         }
     }
 }
