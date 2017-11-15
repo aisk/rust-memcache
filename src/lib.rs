@@ -19,13 +19,13 @@ memcache = "*"
 - <input type="checkbox"  disabled /> Automatically compress
 - <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
 - <input type="checkbox"  disabled checked /> Typed interface
-- <input type="checkbox"  disabled /> Mutiple server support with custom key hash algorithm
+- <input type="checkbox"  disabled checkbox /> Mutiple server support with custom key hash algorithm
 
 # Basic usage:
 
 ```rust
-// create connection:
-let mut client = memcache::Client::new("memcache://127.0.0.1:12345").unwrap();
+// create connection with to memcached server node:
+let mut client = memcache::Client::new(vec!["memcache://127.0.0.1:12345", "memcache:///tmp/memcached.sock"]).unwrap();
 
 // flush the database:
 client.flush().unwrap();

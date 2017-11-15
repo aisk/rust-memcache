@@ -1,5 +1,7 @@
 use std::io::Write;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 #[cfg(unix)]
 use byteorder::{WriteBytesExt, BigEndian};
 use connection::Connection;
@@ -26,11 +28,13 @@ impl<'a> Connectable<'a> for Vec<&'a str> {
 
 pub struct Client {
     connections: Vec<Connection>,
-    hash_function: fn(&str) -> usize,
+    hash_function: fn(&str) -> u64,
 }
 
-fn default_hash_function(key: &str) -> usize {
-    return 0;
+fn default_hash_function(key: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    return hasher.finish();
 }
 
 impl<'a> Client {
@@ -48,7 +52,7 @@ impl<'a> Client {
 
     fn get_connection(&mut self, key: &str) -> &mut Connection {
         let connections_count = self.connections.len();
-        return &mut self.connections[(self.hash_function)(key) % connections_count];
+        return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
     }
 
     /// Get the memcached server version.
