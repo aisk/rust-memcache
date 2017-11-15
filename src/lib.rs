@@ -47,12 +47,9 @@ extern crate url;
 mod connection;
 mod error;
 mod value;
-mod options;
 mod packet;
 mod client;
 
-pub use connection::Connection;
 pub use error::MemcacheError;
-pub use options::Options;
 pub use value::{ToMemcacheValue, FromMemcacheValue};
 pub use client::Client;
