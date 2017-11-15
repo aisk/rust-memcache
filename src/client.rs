@@ -13,6 +13,11 @@ use packet::{Opcode, PacketHeader, Magic};
 
 pub struct Client {
     connections: Vec<Connection>,
+    hash_function: fn(&str) -> usize,
+}
+
+fn default_hash_function(key: &str) -> usize {
+    return 0;
 }
 
 impl Client {
@@ -28,14 +33,21 @@ impl Client {
         }
         if cfg!(unix) && addr.host() == Some(Host::Domain("")) && addr.port() == None {
             let stream = UnixStream::connect(addr.path())?;
-            return Ok(Client { connections: vec![Connection::UnixStream(stream)] });
+            return Ok(Client {
+                 connections: vec![Connection::UnixStream(stream)],
+                 hash_function: default_hash_function,
+            });
         }
         let stream = TcpStream::connect(addr)?;
-        return Ok(Client { connections: vec![Connection::TcpStream(stream)] });
+        return Ok(Client {
+             connections: vec![Connection::TcpStream(stream)],
+             hash_function: default_hash_function,
+        });
     }
 
     fn get_connection(&mut self, key: &str) -> &mut Connection {
-        return &mut self.connections[0];
+        let connections_count = self.connections.len();
+        return &mut self.connections[(self.hash_function)(key) % connections_count];
     }
 
     /// Get the memcached server version.
