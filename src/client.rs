@@ -28,7 +28,7 @@ impl<'a> Connectable<'a> for Vec<&'a str> {
 
 pub struct Client {
     connections: Vec<Connection>,
-    hash_function: fn(&str) -> u64,
+    pub hash_function: fn(&str) -> u64,
 }
 
 fn default_hash_function(key: &str) -> u64 {
