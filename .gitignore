@@ -2,6 +2,4 @@ Cargo.lock
 
 *.swp
 *.dSYM
-memcache~
-memcachetest~
 target/
