@@ -87,13 +87,16 @@ impl<'a> Client {
     /// client.flush().unwrap();
     /// ```
     pub fn flush(&mut self) -> Result<(), MemcacheError> {
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Flush as u8,
-            ..Default::default()
+        for connection in &mut self.connections {
+            let request_header = PacketHeader {
+                magic: Magic::Request as u8,
+                opcode: Opcode::Flush as u8,
+                ..Default::default()
+            };
+            request_header.write(connection)?;
+            packet::parse_header_only_response(connection)?;
         };
-        request_header.write(self.get_connection("TODO"))?;
-        return packet::parse_header_only_response(self.get_connection("TODO"));
+        return Ok(());
     }
 
     /// Flush all cache on memcached server with a delay seconds.
@@ -105,16 +108,19 @@ impl<'a> Client {
     /// client.flush_with_delay(10).unwrap();
     /// ```
     pub fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Flush as u8,
-            extras_length: 4,
-            total_body_length: 4,
-            ..Default::default()
-        };
-        request_header.write(self.get_connection("TODO"))?;
-        self.get_connection("TODO").write_u32::<BigEndian>(delay)?;
-        return packet::parse_header_only_response(self.get_connection("TODO"));
+        for connection in &mut self.connections {
+            let request_header = PacketHeader {
+                magic: Magic::Request as u8,
+                opcode: Opcode::Flush as u8,
+                extras_length: 4,
+                total_body_length: 4,
+                ..Default::default()
+            };
+            request_header.write(connection)?;
+            connection.write_u32::<BigEndian>(delay)?;
+            packet::parse_header_only_response(connection)?;
+        }
+        return Ok(());
     }
 
     /// Get a key from memcached server.
