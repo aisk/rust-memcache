@@ -2,7 +2,6 @@ use std::io::Write;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-#[cfg(unix)]
 use byteorder::{WriteBytesExt, BigEndian};
 use connection::Connection;
 use error::MemcacheError;
@@ -463,6 +462,7 @@ impl<'a> Client {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     #[test]
     fn unix() {
         let mut client = super::Client::new("memcache:///tmp/memcached.sock").unwrap();

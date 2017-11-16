@@ -25,7 +25,7 @@ memcache = "*"
 
 ```rust
 // create connection with to memcached server node:
-let mut client = memcache::Client::new(vec!["memcache://127.0.0.1:12345", "memcache:///tmp/memcached.sock"]).unwrap();
+let mut client = memcache::Client::new("memcache://127.0.0.1:12345").unwrap();
 
 // flush the database:
 client.flush().unwrap();

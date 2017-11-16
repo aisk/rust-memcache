@@ -3,7 +3,9 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use url::{Host, Url};
+use url::Url;
+#[cfg(unix)]
+use url::Host;
 use error::MemcacheError;
 
 enum Stream {
@@ -29,12 +31,15 @@ impl Connection {
                 "memcache URL should start with 'memcache://'".into(),
             ));
         }
-        if cfg!(unix) && addr.host() == Some(Host::Domain("")) && addr.port() == None {
-            let stream = UnixStream::connect(addr.path())?;
-            return Ok(Connection {
-                url: addr.into_string(),
-                stream: Stream::UnixStream(stream),
-            });
+        #[cfg(unix)]
+        {
+            if addr.host() == Some(Host::Domain("")) && addr.port() == None {
+                let stream = UnixStream::connect(addr.path())?;
+                return Ok(Connection {
+                    url: addr.into_string(),
+                    stream: Stream::UnixStream(stream),
+                });
+            }
         }
         let stream = TcpStream::connect(addr.clone())?;
         return Ok(Connection {
