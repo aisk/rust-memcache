@@ -62,14 +62,20 @@ impl<'a> Client {
     /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
     /// client.version().unwrap();
     /// ```
-    pub fn version(&mut self) -> Result<String, MemcacheError> {
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Version as u8,
-            ..Default::default()
-        };
-        request_header.write(self.get_connection("TODO"))?;
-        return packet::parse_version_response(self.get_connection("TODO"));
+    pub fn version(&mut self) -> Result<Vec<(String, String)>, MemcacheError> {
+        let mut result: Vec<(String, String)> = vec![];
+        for connection in &mut self.connections {
+            let request_header = PacketHeader {
+                magic: Magic::Request as u8,
+                opcode: Opcode::Version as u8,
+                ..Default::default()
+            };
+            request_header.write(connection)?;
+            let version = packet::parse_version_response(connection)?;
+            let url = connection.url.clone();
+            result.push((url, version));
+        }
+        return Ok(result);
     }
 
     /// Flush all cache on memcached server immediately.
