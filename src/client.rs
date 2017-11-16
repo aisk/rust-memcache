@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn unix() {
         let mut client = super::Client::new("memcache:///tmp/memcached.sock").unwrap();
-        assert!(client.version().unwrap() != "");
+        assert!(client.version().unwrap()[0].1 != "");
     }
 
     #[test]
