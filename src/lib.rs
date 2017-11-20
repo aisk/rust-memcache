@@ -34,7 +34,7 @@ client.flush().unwrap();
 client.set("foo", "bar", 0).unwrap();
 
 // retrieve from memcached:
-let mut value: Option<String> = client.get("foo").unwrap();
+let value: Option<String> = client.get("foo").unwrap();
 assert_eq!(value, Some(String::from("bar")));
 assert_eq!(value.unwrap(), "bar");
 

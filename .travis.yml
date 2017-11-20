@@ -9,7 +9,12 @@ services: memcache
 
 before_script:
   - memcached -p 12345 -d
+  - memcached -p 12346 -d
+  - memcached -p 12347 -d
+  - memcached -p 12348 -d
+  - memcached -p 12349 -d
   - memcached -s /tmp/memcached.sock -d
+  - memcached -s /tmp/memcached2.sock -d
 
 after_success: |
   sudo apt-get install libcurl4-openssl-dev libelf-dev libdw-dev &&

@@ -120,6 +120,8 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
 ) -> Result<Option<V>, MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
+        let mut buffer = vec![0; header.total_body_length as usize];
+        reader.read_exact(buffer.as_mut_slice())?;
         return Ok(None);
     } else if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
         return Err(MemcacheError::from(header.vbucket_id_or_status));
