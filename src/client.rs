@@ -150,7 +150,7 @@ impl<'a> Client {
     ///
     /// ```rust
     /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
-    /// client.set("foo", "42");
+    /// client.set("foo", "42").unwrap();
     /// let result: std::collections::HashMap<String, String> = client.gets(vec!["foo", "bar", "baz"]).unwrap();
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
@@ -158,6 +158,25 @@ impl<'a> Client {
     pub fn gets<V: FromMemcacheValue>(
         &mut self,
         keys: Vec<&str>,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
+        let mut con_keys: HashMap<u64, Vec<&str>> = HashMap::new();
+        let mut result: HashMap<String, V> = HashMap::new();
+        for key in keys {
+            let connection_index = (self.hash_function)(key);
+            let array = con_keys.entry(connection_index).or_insert_with(||Vec::new());
+            array.push(key);
+        }
+        for (&connection_index, keys) in con_keys.iter() {
+            let connections_count = self.connections.len();
+            let connection = &mut self.connections[connection_index as usize % connections_count];
+            result.extend(Client::gets_by_connection(connection, keys)?);
+        }
+        return Ok(result);
+    }
+
+    fn gets_by_connection<V: FromMemcacheValue>(
+        connection: &mut Connection,
+        keys: &Vec<&str>,
     ) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
             let request_header = PacketHeader {
@@ -167,16 +186,16 @@ impl<'a> Client {
                 total_body_length: key.len() as u32,
                 ..Default::default()
             };
-            request_header.write(self.get_connection(key))?;
-            self.get_connection(key).write_all(key.as_bytes())?;
+            request_header.write(connection)?;
+            connection.write_all(key.as_bytes())?;
         }
         let noop_request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Noop as u8,
             ..Default::default()
         };
-        noop_request_header.write(self.get_connection("TODO"))?;
-        return packet::parse_gets_response(self.get_connection("TODO"));
+        noop_request_header.write(connection)?;
+        return packet::parse_gets_response(connection);
     }
 
     fn store<V: ToMemcacheValue<Connection>>(
