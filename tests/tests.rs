@@ -1,7 +1,13 @@
+extern crate rand;
 extern crate memcache;
 
 use std::thread;
 use std::time;
+use rand::Rng;
+
+fn gen_random_key() -> String {
+    return rand::thread_rng().gen_ascii_chars().take(10).collect::<String>();
+}
 
 #[test]
 fn test() {
@@ -25,4 +31,16 @@ fn test() {
     thread::sleep(time::Duration::from_secs(4));
     let value: Option<String> = client.get("foo").unwrap();
     assert_eq!(value, None);
+
+    let mut keys: Vec<String> = Vec::new();
+    for _ in 0..10000 {
+        let key = gen_random_key();
+        keys.push(key.clone());
+        client.set(key.as_str(), "xxx", 0).unwrap();
+    }
+
+    for key in keys {
+        let value: String = client.get(key.as_str()).unwrap().unwrap();
+        assert_eq!(value, "xxx");
+    }
 }
