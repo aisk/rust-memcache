@@ -95,7 +95,7 @@ impl<'a> Client {
             };
             request_header.write(connection)?;
             packet::parse_header_only_response(connection)?;
-        };
+        }
         return Ok(());
     }
 
@@ -163,7 +163,9 @@ impl<'a> Client {
         let mut result: HashMap<String, V> = HashMap::new();
         for key in keys {
             let connection_index = (self.hash_function)(key);
-            let array = con_keys.entry(connection_index).or_insert_with(||Vec::new());
+            let array = con_keys.entry(connection_index).or_insert_with(
+                || Vec::new(),
+            );
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
@@ -401,7 +403,6 @@ impl<'a> Client {
         return packet::parse_counter_response(self.get_connection(key));
     }
 
-
     /// Decrement the value with amount.
     ///
     /// Example:
@@ -436,6 +437,31 @@ impl<'a> Client {
         )?;
         self.get_connection(key).write(key.as_bytes())?;
         return packet::parse_counter_response(self.get_connection(key));
+    }
+
+    /// Set a new expiration time for a exist key.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
+    /// assert_eq!(client.touch("not_exists_key", 12345).unwrap(), false);
+    /// client.set("foo", "bar", 123).unwrap();
+    /// assert_eq!(client.touch("foo", 12345).unwrap(), true);
+    /// ```
+    pub fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
+        let request_header = PacketHeader {
+            magic: Magic::Request as u8,
+            opcode: Opcode::Touch as u8,
+            key_length: key.len() as u16, // TODO: check key length
+            extras_length: 4,
+            total_body_length: (key.len() as u32 + 4),
+            ..Default::default()
+        };
+        request_header.write(self.get_connection(key))?;
+        self.get_connection(key).write_u32::<BigEndian>(expiration)?;
+        self.get_connection(key).write_all(key.as_bytes())?;
+        return packet::parse_touch_response(self.get_connection(key));
     }
 }
 

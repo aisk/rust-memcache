@@ -19,6 +19,7 @@ pub enum Opcode {
     GetKQ = 0x0d,
     Append = 0x0e,
     Prepend = 0x0f,
+    Touch = 0x1c,
 }
 
 pub enum Magic {
@@ -184,4 +185,20 @@ pub fn parse_counter_response<R: io::Read>(reader: &mut R) -> Result<u64, Memcac
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
     return Ok(reader.read_u64::<BigEndian>()?);
+}
+
+pub fn parse_touch_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
+    let header = PacketHeader::read(reader)?;
+    if header.total_body_length != 0 {
+        reader.read_exact(
+            vec![0; header.total_body_length as usize]
+                .as_mut_slice(),
+        )?;
+    }
+    if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
+        return Ok(false);
+    } else if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+        return Err(MemcacheError::from(header.vbucket_id_or_status));
+    }
+    return Ok(true);
 }

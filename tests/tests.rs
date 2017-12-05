@@ -6,12 +6,20 @@ use std::time;
 use rand::Rng;
 
 fn gen_random_key() -> String {
-    return rand::thread_rng().gen_ascii_chars().take(10).collect::<String>();
+    return rand::thread_rng()
+        .gen_ascii_chars()
+        .take(10)
+        .collect::<String>();
 }
 
 #[test]
 fn test() {
-    let mut urls = vec!["memcache://localhost:12346", "memcache://localhost:12347", "memcache://localhost:12348", "memcache://localhost:12349"];
+    let mut urls = vec![
+        "memcache://localhost:12346",
+        "memcache://localhost:12347",
+        "memcache://localhost:12348",
+        "memcache://localhost:12349",
+    ];
     if cfg!(unix) {
         urls.push("memcache:///tmp/memcached2.sock");
     }
@@ -33,7 +41,7 @@ fn test() {
     assert_eq!(value, None);
 
     let mut keys: Vec<String> = Vec::new();
-    for _ in 0..10000 {
+    for _ in 0..1000 {
         let key = gen_random_key();
         keys.push(key.clone());
         client.set(key.as_str(), "xxx", 0).unwrap();
