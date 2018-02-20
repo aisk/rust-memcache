@@ -47,6 +47,17 @@ impl Connection {
             stream: Stream::TcpStream(stream),
         });
     }
+
+    pub fn set_nodelay(&self, nodelay: bool) -> Result<(), MemcacheError> {
+        match self.stream {
+            Stream::TcpStream(ref stream) => stream
+                .set_nodelay(nodelay)
+                .map_err(|e| MemcacheError::Io(e)),
+            Stream::UnixStream(_) => Err(MemcacheError::ClientError(
+                "Unix stream does not suppeed delay".into(),
+            )),
+        }
+    }
 }
 
 impl Read for Connection {

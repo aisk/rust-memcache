@@ -54,6 +54,14 @@ impl<'a> Client {
         return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
     }
 
+    pub fn set_nodelay(&self, nodelay: bool) -> Result<(), MemcacheError> {
+        for conn in &self.connections {
+            conn.set_nodelay(nodelay)?;
+        }
+
+        Ok(())
+    }
+
     /// Get the memcached server version.
     ///
     /// Example:
