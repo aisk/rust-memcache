@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::io;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -43,9 +42,7 @@ impl Connection {
         }
         let stream = TcpStream::connect(addr.clone())?;
         let tcp_nodelay = addr.query_pairs()
-            .find(|&(ref k, ref v)| {
-                k == &Cow::Borrowed("tcp_nodelay") && v == &Cow::Borrowed("true")
-            })
+            .find(|&(ref k, ref v)| k == "tcp_nodelay" && v == "true")
             .is_some();
         stream.set_nodelay(tcp_nodelay)?;
         return Ok(Connection {
