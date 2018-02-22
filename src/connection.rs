@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -41,21 +42,16 @@ impl Connection {
             }
         }
         let stream = TcpStream::connect(addr.clone())?;
+        let tcp_nodelay = addr.query_pairs()
+            .find(|&(ref k, ref v)| {
+                k == &Cow::Borrowed("tcp_nodelay") && v == &Cow::Borrowed("true")
+            })
+            .is_some();
+        stream.set_nodelay(tcp_nodelay)?;
         return Ok(Connection {
             url: addr.into_string(),
             stream: Stream::TcpStream(stream),
         });
-    }
-
-    pub fn set_nodelay(&self, nodelay: bool) -> Result<(), MemcacheError> {
-        match self.stream {
-            Stream::TcpStream(ref stream) => stream
-                .set_nodelay(nodelay)
-                .map_err(|e| MemcacheError::Io(e)),
-            Stream::UnixStream(_) => Err(MemcacheError::ClientError(
-                "Unix stream does not suppeed delay".into(),
-            )),
-        }
     }
 }
 
