@@ -2,12 +2,13 @@ use std::io::Write;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use byteorder::{WriteBytesExt, BigEndian};
+use std::default::Default;
+use byteorder::{BigEndian, WriteBytesExt};
 use connection::Connection;
 use error::MemcacheError;
-use value::{ToMemcacheValue, FromMemcacheValue};
+use value::{FromMemcacheValue, ToMemcacheValue};
 use packet;
-use packet::{Opcode, PacketHeader, Magic};
+use packet::{Magic, Opcode, PacketHeader};
 
 pub trait Connectable<'a> {
     fn get_urls(self) -> Vec<&'a str>;
@@ -25,6 +26,16 @@ impl<'a> Connectable<'a> for Vec<&'a str> {
     }
 }
 
+pub struct Options {
+    tcp_nodelay: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self { tcp_nodelay: false }
+    }
+}
+
 pub struct Client {
     connections: Vec<Connection>,
     pub hash_function: fn(&str) -> u64,
@@ -38,10 +49,23 @@ fn default_hash_function(key: &str) -> u64 {
 
 impl<'a> Client {
     pub fn new<C: Connectable<'a>>(target: C) -> Result<Self, MemcacheError> {
+        Self::new_with_options(target, Options::default())
+    }
+
+    pub fn new_with_options<C: Connectable<'a>>(
+        target: C,
+        options: Options,
+    ) -> Result<Self, MemcacheError> {
         let urls = target.get_urls();
         let mut connections = vec![];
         for url in urls {
             connections.push(Connection::connect(url)?);
+        }
+        #[cfg(unix)]
+        {
+            for connection in &connections {
+                connection.set_nodelay(options.tcp_nodelay)?;
+            }
         }
         return Ok(Client {
             connections: connections,
@@ -52,14 +76,6 @@ impl<'a> Client {
     fn get_connection(&mut self, key: &str) -> &mut Connection {
         let connections_count = self.connections.len();
         return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
-    }
-
-    pub fn set_nodelay(&self, nodelay: bool) -> Result<(), MemcacheError> {
-        for conn in &self.connections {
-            conn.set_nodelay(nodelay)?;
-        }
-
-        Ok(())
     }
 
     /// Get the memcached server version.
@@ -171,9 +187,9 @@ impl<'a> Client {
         let mut result: HashMap<String, V> = HashMap::new();
         for key in keys {
             let connection_index = (self.hash_function)(key);
-            let array = con_keys.entry(connection_index).or_insert_with(
-                || Vec::new(),
-            );
+            let array = con_keys
+                .entry(connection_index)
+                .or_insert_with(|| Vec::new());
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
@@ -228,12 +244,10 @@ impl<'a> Client {
             expiration: expiration,
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.flags,
-        )?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
+        self.get_connection(key)
+            .write_u32::<BigEndian>(extras.flags)?;
+        self.get_connection(key)
+            .write_u32::<BigEndian>(extras.expiration)?;
         self.get_connection(key).write_all(key.as_bytes())?;
         value.write_to(self.get_connection(key))?;
         return packet::parse_header_only_response(self.get_connection(key));
@@ -398,15 +412,12 @@ impl<'a> Client {
             expiration: 0,
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.amount,
-        )?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
+        self.get_connection(key)
+            .write_u64::<BigEndian>(extras.amount)?;
+        self.get_connection(key)
+            .write_u64::<BigEndian>(extras.initial_value)?;
+        self.get_connection(key)
+            .write_u32::<BigEndian>(extras.expiration)?;
         self.get_connection(key).write_all(key.as_bytes())?;
         return packet::parse_counter_response(self.get_connection(key));
     }
@@ -434,15 +445,12 @@ impl<'a> Client {
             expiration: 0,
         };
         request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.amount,
-        )?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
+        self.get_connection(key)
+            .write_u64::<BigEndian>(extras.amount)?;
+        self.get_connection(key)
+            .write_u64::<BigEndian>(extras.initial_value)?;
+        self.get_connection(key)
+            .write_u32::<BigEndian>(extras.expiration)?;
         self.get_connection(key).write(key.as_bytes())?;
         return packet::parse_counter_response(self.get_connection(key));
     }

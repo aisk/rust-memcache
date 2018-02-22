@@ -10,8 +10,7 @@ use error::MemcacheError;
 
 enum Stream {
     TcpStream(TcpStream),
-    #[cfg(unix)]
-    UnixStream(UnixStream),
+    #[cfg(unix)] UnixStream(UnixStream),
 }
 
 /// The connection acts as a TCP connection to the memcached server
