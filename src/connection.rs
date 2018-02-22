@@ -10,8 +10,7 @@ use error::MemcacheError;
 
 enum Stream {
     TcpStream(TcpStream),
-    #[cfg(unix)]
-    UnixStream(UnixStream),
+    #[cfg(unix)] UnixStream(UnixStream),
 }
 
 /// The connection acts as a TCP connection to the memcached server
@@ -42,6 +41,10 @@ impl Connection {
             }
         }
         let stream = TcpStream::connect(addr.clone())?;
+        let tcp_nodelay = addr.query_pairs()
+            .find(|&(ref k, ref v)| k == "tcp_nodelay" && v == "true")
+            .is_some();
+        stream.set_nodelay(tcp_nodelay)?;
         return Ok(Connection {
             url: addr.into_string(),
             stream: Stream::TcpStream(stream),
@@ -74,5 +77,13 @@ impl Write for Connection {
             #[cfg(unix)]
             Stream::UnixStream(ref mut stream) => stream.flush(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tcp_nodelay() {
+        super::Connection::connect("memcache://localhost:12345?tcp_nodelay=true").unwrap();
     }
 }
