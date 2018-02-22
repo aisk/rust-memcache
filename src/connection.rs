@@ -79,3 +79,11 @@ impl Write for Connection {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tcp_nodelay() {
+        super::Connection::connect("memcache://localhost:12345?tcp_nodelay=true").unwrap();
+    }
+}
