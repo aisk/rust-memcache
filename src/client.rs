@@ -132,10 +132,13 @@ impl<'a> Client {
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
     pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Get as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             total_body_length: key.len() as u32,
             ..Default::default()
         };
@@ -181,10 +184,13 @@ impl<'a> Client {
         keys: &Vec<&str>,
     ) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
+            if key.len() > 250 {
+                return Err(MemcacheError::ClientError(String::from("key is too long")));
+            }
             let request_header = PacketHeader {
                 magic: Magic::Request as u8,
                 opcode: Opcode::GetKQ as u8,
-                key_length: key.len() as u16, // TODO: check key length
+                key_length: key.len() as u16,
                 total_body_length: key.len() as u32,
                 ..Default::default()
             };
@@ -207,10 +213,13 @@ impl<'a> Client {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: opcode as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             extras_length: 8,
             total_body_length: (8 + key.len() + value.get_length()) as u32,
             ..Default::default()
@@ -303,10 +312,13 @@ impl<'a> Client {
         key: &str,
         value: V,
     ) -> Result<(), MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Append as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             total_body_length: (key.len() + value.get_length()) as u32,
             ..Default::default()
         };
@@ -333,10 +345,13 @@ impl<'a> Client {
         key: &str,
         value: V,
     ) -> Result<(), MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Prepend as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             total_body_length: (key.len() + value.get_length()) as u32,
             ..Default::default()
         };
@@ -355,10 +370,13 @@ impl<'a> Client {
     /// client.delete("foo").unwrap();
     /// ```
     pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Delete as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             total_body_length: key.len() as u32,
             ..Default::default()
         };
@@ -376,10 +394,13 @@ impl<'a> Client {
     /// client.increment("counter", 42).unwrap();
     /// ```
     pub fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Increment as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             extras_length: 20,
             total_body_length: (20 + key.len()) as u32,
             ..Default::default()
@@ -412,10 +433,13 @@ impl<'a> Client {
     /// client.decrement("counter", 42).unwrap();
     /// ```
     pub fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Decrement as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             extras_length: 20,
             total_body_length: (20 + key.len()) as u32,
             ..Default::default()
@@ -450,10 +474,13 @@ impl<'a> Client {
     /// assert_eq!(client.touch("foo", 12345).unwrap(), true);
     /// ```
     pub fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
+        if key.len() > 250 {
+            return Err(MemcacheError::ClientError(String::from("key is too long")));
+        }
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Touch as u8,
-            key_length: key.len() as u16, // TODO: check key length
+            key_length: key.len() as u16,
             extras_length: 4,
             total_body_length: (key.len() as u32 + 4),
             ..Default::default()
