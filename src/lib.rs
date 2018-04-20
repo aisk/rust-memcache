@@ -66,4 +66,4 @@ mod client;
 
 pub use error::MemcacheError;
 pub use value::{ToMemcacheValue, FromMemcacheValue};
-pub use client::Client;
+pub use client::{Client, Connectable};
