@@ -14,7 +14,7 @@ memcache = "*"
 
 - <input type="checkbox"  disabled checked /> Binary protocal
 - <input type="checkbox"  disabled checked /> TCP connection
-- <input type="checkbox"  disabled /> UDP connection
+- <input type="checkbox"  disabled checked /> UDP connection
 - <input type="checkbox"  disabled checked/> UNIX Domain socket connection
 - <input type="checkbox"  disabled /> Automatically compress
 - <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
@@ -25,7 +25,7 @@ memcache = "*"
 
 ```rust
 // create connection with to memcached server node:
-let mut client = memcache::Client::new("memcache://127.0.0.1:12345").unwrap();
+let mut client = memcache::Client::new("memcache://127.0.0.1:12345", memcache::ConnectionType::TCP).unwrap();
 
 // flush the database:
 client.flush().unwrap();
@@ -57,6 +57,7 @@ assert_eq!(answer, 42);
 
 extern crate byteorder;
 extern crate url;
+extern crate rand;
 
 mod connection;
 mod error;
@@ -67,3 +68,4 @@ mod client;
 pub use error::MemcacheError;
 pub use value::{ToMemcacheValue, FromMemcacheValue};
 pub use client::{Client, Connectable};
+pub use connection::ConnectionType;
