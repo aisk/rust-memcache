@@ -4,6 +4,7 @@ extern crate memcache;
 use std::thread;
 use std::time;
 use rand::Rng;
+use std::thread::JoinHandle;
 
 fn gen_random_key() -> String {
     return rand::thread_rng()
@@ -23,7 +24,7 @@ fn test() {
     if cfg!(unix) {
         urls.push("memcache:///tmp/memcached2.sock");
     }
-    let mut client = memcache::Client::new(urls, memcache::ConnectionType::TCP).unwrap();
+    let mut client = memcache::Client::new(urls).unwrap();
 
     client.version().unwrap();
 
@@ -55,8 +56,8 @@ fn test() {
 
 #[test]
 fn udp_test() {
-    let urls = vec!["memcache://localhost:22345"];
-    let mut client = memcache::Client::new(urls, memcache::ConnectionType::UDP).unwrap();
+    let urls = vec!["memcache://localhost:22345?udp=true"];
+    let mut client = memcache::Client::new(urls).unwrap();
 
     client.version().unwrap();
 
@@ -124,5 +125,48 @@ fn udp_test() {
         let value: String = client.get(key.as_str()).unwrap().unwrap();
 
         assert_eq!(value, "xxx");
+    }
+
+    // test with multiple udp connections
+    let mut handles: Vec<Option<JoinHandle<_>>> = Vec::new();
+    for i in 0..10 {
+        handles.push(Some(thread::spawn(move || {
+            let key = format!("key{}", i);
+            let value = format!("value{}", i);
+            let mut client = memcache::Client::new("memcache://localhost:22345?udp=true").unwrap();
+            for j in 0..50 {
+                let value = format!("{}{}", value, j);
+                client.set(key.as_str(), value.clone(), 0).unwrap();
+                let result: Option<String> = client.get(key.as_str()).unwrap();
+                assert_eq!(result, Some(value.clone()));
+
+                let result = client.add(key.as_str(), value.clone(), 0);
+                assert_eq!(result.is_err(), true);
+
+                client.delete(key.as_str()).unwrap();
+                let result: Option<String> = client.get(key.as_str()).unwrap();
+                assert_eq!(result, None);
+
+                client.add(key.as_str(), value.clone(), 0).unwrap();
+                let result: Option<String> = client.get(key.as_str()).unwrap();
+                assert_eq!(result, Some(value.clone()));
+
+                client.replace(key.as_str(), value.clone(), 0).unwrap();
+                let result: Option<String> = client.get(key.as_str()).unwrap();
+                assert_eq!(result, Some(value.clone()));
+
+                client.append(key.as_str(), value.clone()).unwrap();
+                let result: Option<String> = client.get(key.as_str()).unwrap();
+                assert_eq!(result, Some(format!("{}{}", value, value)));
+
+                client.prepend(key.as_str(), value.clone()).unwrap();
+                let result: Option<String> = client.get(key.as_str()).unwrap();
+                assert_eq!(result, Some(format!("{}{}{}", value, value, value)));
+            }
+        })));
+    }
+
+    for i in 0..10 {
+        handles[i].take().unwrap().join().unwrap();
     }
 }

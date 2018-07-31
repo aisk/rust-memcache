@@ -25,7 +25,7 @@ memcache = "*"
 
 ```rust
 // create connection with to memcached server node:
-let mut client = memcache::Client::new("memcache://127.0.0.1:12345", memcache::ConnectionType::TCP).unwrap();
+let mut client = memcache::Client::new("memcache://127.0.0.1:12345").unwrap();
 
 // flush the database:
 client.flush().unwrap();
@@ -60,6 +60,7 @@ extern crate url;
 extern crate rand;
 
 mod connection;
+mod udp_stream;
 mod error;
 mod value;
 mod packet;
@@ -68,4 +69,3 @@ mod client;
 pub use error::MemcacheError;
 pub use value::{ToMemcacheValue, FromMemcacheValue};
 pub use client::{Client, Connectable};
-pub use connection::ConnectionType;
