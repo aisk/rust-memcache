@@ -14,7 +14,7 @@ memcache = "*"
 
 - <input type="checkbox"  disabled checked /> Binary protocal
 - <input type="checkbox"  disabled checked /> TCP connection
-- <input type="checkbox"  disabled /> UDP connection
+- <input type="checkbox"  disabled checked /> UDP connection
 - <input type="checkbox"  disabled checked/> UNIX Domain socket connection
 - <input type="checkbox"  disabled /> Automatically compress
 - <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
@@ -57,8 +57,10 @@ assert_eq!(answer, 42);
 
 extern crate byteorder;
 extern crate url;
+extern crate rand;
 
 mod connection;
+mod udp_stream;
 mod error;
 mod value;
 mod packet;

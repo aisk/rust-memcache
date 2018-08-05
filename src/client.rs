@@ -71,6 +71,7 @@ impl<'a> Client {
                 ..Default::default()
             };
             request_header.write(connection)?;
+            connection.flush()?;
             let version = packet::parse_version_response(connection)?;
             let url = connection.url.clone();
             result.push((url, version));
@@ -94,6 +95,7 @@ impl<'a> Client {
                 ..Default::default()
             };
             request_header.write(connection)?;
+            connection.flush()?;
             packet::parse_header_only_response(connection)?;
         }
         return Ok(());
@@ -118,6 +120,7 @@ impl<'a> Client {
             };
             request_header.write(connection)?;
             connection.write_u32::<BigEndian>(delay)?;
+            connection.flush()?;
             packet::parse_header_only_response(connection)?;
         }
         return Ok(());
@@ -144,6 +147,7 @@ impl<'a> Client {
         };
         request_header.write(self.get_connection(key))?;
         self.get_connection(key).write_all(key.as_bytes())?;
+        self.get_connection(key).flush()?;
         return packet::parse_get_response(self.get_connection(key));
     }
 
@@ -237,6 +241,7 @@ impl<'a> Client {
         )?;
         self.get_connection(key).write_all(key.as_bytes())?;
         value.write_to(self.get_connection(key))?;
+        self.get_connection(key).flush()?;
         return packet::parse_header_only_response(self.get_connection(key));
     }
 
@@ -325,6 +330,7 @@ impl<'a> Client {
         request_header.write(self.get_connection(key))?;
         self.get_connection(key).write_all(key.as_bytes())?;
         value.write_to(self.get_connection(key))?;
+        self.get_connection(key).flush()?;
         return packet::parse_header_only_response(self.get_connection(key));
     }
 
@@ -358,6 +364,7 @@ impl<'a> Client {
         request_header.write(self.get_connection(key))?;
         self.get_connection(key).write_all(key.as_bytes())?;
         value.write_to(&mut self.get_connection(key))?;
+        self.get_connection(key).flush()?;
         return packet::parse_header_only_response(self.get_connection(key));
     }
 
@@ -382,6 +389,7 @@ impl<'a> Client {
         };
         request_header.write(self.get_connection(key))?;
         self.get_connection(key).write_all(key.as_bytes())?;
+        self.get_connection(key).flush()?;
         return packet::parse_delete_response(self.get_connection(key));
     }
 
@@ -421,6 +429,7 @@ impl<'a> Client {
             extras.expiration,
         )?;
         self.get_connection(key).write_all(key.as_bytes())?;
+        self.get_connection(key).flush()?;
         return packet::parse_counter_response(self.get_connection(key));
     }
 
@@ -460,6 +469,7 @@ impl<'a> Client {
             extras.expiration,
         )?;
         self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).flush()?;
         return packet::parse_counter_response(self.get_connection(key));
     }
 
@@ -488,6 +498,7 @@ impl<'a> Client {
         request_header.write(self.get_connection(key))?;
         self.get_connection(key).write_u32::<BigEndian>(expiration)?;
         self.get_connection(key).write_all(key.as_bytes())?;
+        self.get_connection(key).flush()?;
         return packet::parse_touch_response(self.get_connection(key));
     }
 }

@@ -21,7 +21,7 @@ memcache = "*"
 
 - [x] Binary protocal
 - [x] TCP connection
-- [ ] UDP connection
+- [x] UDP connection
 - [x] UNIX Domain socket connection
 - [ ] Automatically compress
 - [ ] Automatically serialize to JSON / msgpack etc.
