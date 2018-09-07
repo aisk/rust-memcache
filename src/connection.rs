@@ -1,18 +1,20 @@
+use error::MemcacheError;
 use std::io;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use udp_stream::UdpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use url::Url;
+use std::time::Duration;
+use udp_stream::UdpStream;
 #[cfg(unix)]
 use url::Host;
-use error::MemcacheError;
+use url::Url;
 
 enum Stream {
     TcpStream(TcpStream),
     UdpSocket(UdpStream),
-    #[cfg(unix)] UnixStream(UnixStream),
+    #[cfg(unix)]
+    UnixStream(UnixStream),
 }
 
 /// a connection to the memcached server
@@ -33,15 +35,16 @@ impl Connection {
             ));
         }
 
-        let is_udp = addr.query_pairs()
+        let is_udp = addr
+            .query_pairs()
             .find(|&(ref k, ref v)| k == "udp" && v == "true")
             .is_some();
 
         if is_udp {
-            let udp_stream = Stream::UdpSocket(UdpStream::new(addr.clone())?); 
+            let udp_stream = Stream::UdpSocket(UdpStream::new(addr.clone())?);
             return Ok(Connection {
                 url: addr.into_string(),
-                stream: udp_stream
+                stream: udp_stream,
             });
         }
 
@@ -56,7 +59,8 @@ impl Connection {
             }
         }
         let stream = TcpStream::connect(addr.clone())?;
-        let tcp_nodelay = addr.query_pairs()
+        let tcp_nodelay = addr
+            .query_pairs()
             .find(|&(ref k, ref v)| k == "tcp_nodelay" && v == "true")
             .is_some();
         stream.set_nodelay(tcp_nodelay)?;
@@ -64,6 +68,20 @@ impl Connection {
             url: addr.into_string(),
             stream: Stream::TcpStream(stream),
         });
+    }
+
+    pub(crate) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        if  let Stream::TcpStream(ref mut conn) =  self.stream {
+            conn.set_read_timeout(timeout)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        if  let Stream::TcpStream(ref mut conn) =  self.stream {
+            conn.set_write_timeout(timeout)?;
+        }
+        Ok(())
     }
 }
 
@@ -77,7 +95,6 @@ impl Read for Connection {
         }
     }
 }
-
 
 impl Write for Connection {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
