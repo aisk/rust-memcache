@@ -2,6 +2,7 @@ use std::io::Write;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::time::Duration;
 use byteorder::{WriteBytesExt, BigEndian};
 use connection::Connection;
 use error::MemcacheError;
@@ -52,6 +53,36 @@ impl<'a> Client {
     fn get_connection(&mut self, key: &str) -> &mut Connection {
         let connections_count = self.connections.len();
         return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
+    }
+
+    /// Set the socket read timeout for tcp conections.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
+    /// client.set_read_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
+    /// ```
+    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        for conn in self.connections.iter_mut() {
+            conn.set_read_timeout(timeout)?;
+        }
+        Ok(())
+    }
+
+    /// Set the socket write timeout for tcp conections.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
+    /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
+    /// ```
+    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        for conn in self.connections.iter_mut() {
+            conn.set_write_timeout(timeout)?;
+        }
+        Ok(())
     }
 
     /// Get the memcached server version.
