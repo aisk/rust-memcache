@@ -32,7 +32,7 @@ memcache = "*"
 
 ```rust
 // create connection with to memcached server node:
-let mut client = memcache::Client::new("memcache://127.0.0.1:12345").unwrap();
+let mut client = memcache::Client::new("memcache://127.0.0.1:12345?timeout=10&tcp_nodelay=true").unwrap();
 
 // flush the database
 client.flush().unwrap();

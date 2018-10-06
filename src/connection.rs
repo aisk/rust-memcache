@@ -58,12 +58,21 @@ impl Connection {
                 });
             }
         }
+
         let stream = TcpStream::connect(addr.clone())?;
         let tcp_nodelay = addr
             .query_pairs()
             .find(|&(ref k, ref v)| k == "tcp_nodelay" && v == "true")
             .is_some();
         stream.set_nodelay(tcp_nodelay)?;
+        let timeout = addr.query_pairs()
+            .find(|&(ref k, ref _v)| k == "timeout")
+            .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
+            .map(|s| Duration::from_secs(s));
+        if timeout.is_some() {
+            stream.set_read_timeout(timeout)?;
+            stream.set_write_timeout(timeout)?;
+        }
         return Ok(Connection {
             url: addr.into_string(),
             stream: Stream::TcpStream(stream),
