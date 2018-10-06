@@ -1,7 +1,7 @@
 # rust-memcache
 
 [![Build Status](https://travis-ci.org/aisk/rust-memcache.svg?branch=master)](https://travis-ci.org/aisk/rust-memcache)
-[![Coverage Status](https://coveralls.io/repos/github/aisk/rust-memcache/badge.svg?branch=master)](https://coveralls.io/github/aisk/rust-memcache?branch=master)
+[![Codecov Status](https://codecov.io/gh/aisk/rust-memcache/branch/master/graph/badge.svg)](https://codecov.io/gh/aisk/rust-memcache)
 [![Crates.io](https://img.shields.io/crates/v/memcache.svg)](https://crates.io/crates/memcache)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Docs](https://docs.rs/memcache/badge.svg)](https://docs.rs/memcache/)
