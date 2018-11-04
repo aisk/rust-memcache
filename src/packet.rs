@@ -14,6 +14,7 @@ pub enum Opcode {
     Increment = 0x05,
     Decrement = 0x06,
     Flush = 0x08,
+    Stat = 0x10,
     Noop = 0x0a,
     Version = 0x0b,
     GetKQ = 0x0d,
@@ -201,4 +202,28 @@ pub fn parse_touch_response<R: io::Read>(reader: &mut R) -> Result<bool, Memcach
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }
     return Ok(true);
+}
+
+pub fn parse_stats_response<R: io::Read>(reader: &mut R) -> Result<HashMap<String, String>, MemcacheError> {
+    let mut result = HashMap::new();
+    loop {
+        let header = PacketHeader::read(reader)?;
+        if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+            return Err(MemcacheError::from(header.vbucket_id_or_status));
+        }
+        let key_length = header.key_length;
+        let value_length = header.total_body_length - u32::from(key_length) -
+            u32::from(header.extras_length);
+        let mut key_buffer = vec![0; key_length as usize];
+        reader.read_exact(key_buffer.as_mut_slice())?;
+        let key = String::from_utf8(key_buffer)?;
+        let mut value_buffer = vec![0; value_length as usize];
+        reader.read_exact(value_buffer.as_mut_slice())?;
+        let value = String::from_utf8(value_buffer)?;
+        if key == "" && value == "" {
+            break;
+        }
+        result.insert(key, value);
+    }
+    return Ok(result);
 }

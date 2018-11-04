@@ -24,6 +24,9 @@ addons:
 
 services: memcache
 
+env:
+  - RUST_TEST_THREADS=1
+
 before_script:
   - memcached -p 12345 -d
   - memcached -p 12346 -d
