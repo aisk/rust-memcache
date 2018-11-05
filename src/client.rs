@@ -532,6 +532,30 @@ impl<'a> Client {
         self.get_connection(key).flush()?;
         return packet::parse_touch_response(self.get_connection(key));
     }
+
+    /// Get all servers' statistics.
+    ///
+    /// Example:
+    /// ```rust
+    /// let mut client = memcache::Client::new("memcache://localhost:12345").unwrap();
+    /// let stats = client.stats().unwrap();
+    /// ```
+    pub fn stats(&mut self) -> Result<Vec<(String, HashMap<String, String>)>, MemcacheError> {
+        let mut result: Vec<(String, HashMap<String, String>)> = vec![];
+        for connection in &mut self.connections {
+            let request_header = PacketHeader {
+                magic: Magic::Request as u8,
+                opcode: Opcode::Stat as u8,
+                ..Default::default()
+            };
+            request_header.write(connection)?;
+            connection.flush()?;
+            let stats_info = packet::parse_stats_response(connection)?;
+            let url = connection.url.clone();
+            result.push((url, stats_info));
+        }
+        return Ok(result);
+    }
 }
 
 #[cfg(test)]
