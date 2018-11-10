@@ -5,6 +5,7 @@
 [![Crates.io](https://img.shields.io/crates/v/memcache.svg)](https://crates.io/crates/memcache)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Docs](https://docs.rs/memcache/badge.svg)](https://docs.rs/memcache/)
+[![Gitter chat](https://badges.gitter.im/rust-memcache/Lobby.png)](https://gitter.im/rust-memcache/Lobby)
 
 rust-memcache is a [Memcached](https://memcached.org/) client written in pure rust.
 
