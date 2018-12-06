@@ -197,18 +197,19 @@ impl<'a> Client {
         &mut self,
         keys: Vec<&str>,
     ) -> Result<HashMap<String, V>, MemcacheError> {
-        let mut con_keys: HashMap<u64, Vec<&str>> = HashMap::new();
+        let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
+        let connections_count = self.connections.len();
+
         for key in keys {
-            let connection_index = (self.hash_function)(key);
-            let array = con_keys.entry(connection_index).or_insert_with(
-                || Vec::new(),
-            );
+            let connection_index = (self.hash_function)(key) as usize % connections_count;
+            let array = con_keys
+                .entry(connection_index)
+                .or_insert_with(|| Vec::new());
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
-            let connections_count = self.connections.len();
-            let connection = &mut self.connections[connection_index as usize % connections_count];
+            let connection = &mut self.connections[connection_index];
             result.extend(Client::gets_by_connection(connection, keys)?);
         }
         return Ok(result);
