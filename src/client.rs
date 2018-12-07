@@ -500,7 +500,7 @@ impl<'a> Client {
         self.get_connection(key).write_u32::<BigEndian>(
             extras.expiration,
         )?;
-        self.get_connection(key).write(key.as_bytes())?;
+        self.get_connection(key).write_all(key.as_bytes())?;
         self.get_connection(key).flush()?;
         return packet::parse_counter_response(self.get_connection(key));
     }
