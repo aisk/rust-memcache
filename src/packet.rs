@@ -85,7 +85,7 @@ impl PacketHeader {
             ));
         }
         let header = PacketHeader {
-            magic: magic,
+            magic,
             opcode: reader.read_u8()?,
             key_length: reader.read_u16::<BigEndian>()?,
             extras_length: reader.read_u8()?,

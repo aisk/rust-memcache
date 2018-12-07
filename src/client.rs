@@ -45,7 +45,7 @@ impl<'a> Client {
             connections.push(Connection::connect(url)?);
         }
         return Ok(Client {
-            connections: connections,
+            connections,
             hash_function: default_hash_function,
         });
     }
@@ -205,7 +205,7 @@ impl<'a> Client {
             let connection_index = (self.hash_function)(key) as usize % connections_count;
             let array = con_keys
                 .entry(connection_index)
-                .or_insert_with(|| Vec::new());
+                .or_insert_with(Vec::new);
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
@@ -217,7 +217,7 @@ impl<'a> Client {
 
     fn gets_by_connection<V: FromMemcacheValue>(
         connection: &mut Connection,
-        keys: &Vec<&str>,
+        keys: &[&str],
     ) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
             if key.len() > 250 {
@@ -262,7 +262,7 @@ impl<'a> Client {
         };
         let extras = packet::StoreExtras {
             flags: value.get_flags(),
-            expiration: expiration,
+            expiration,
         };
         request_header.write(self.get_connection(key))?;
         self.get_connection(key).write_u32::<BigEndian>(
@@ -446,7 +446,7 @@ impl<'a> Client {
             ..Default::default()
         };
         let extras = packet::CounterExtras {
-            amount: amount,
+            amount,
             initial_value: 0,
             expiration: 0,
         };
@@ -486,7 +486,7 @@ impl<'a> Client {
             ..Default::default()
         };
         let extras = packet::CounterExtras {
-            amount: amount,
+            amount,
             initial_value: 0,
             expiration: 0,
         };

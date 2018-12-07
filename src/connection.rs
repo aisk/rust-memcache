@@ -37,8 +37,7 @@ impl Connection {
 
         let is_udp = addr
             .query_pairs()
-            .find(|&(ref k, ref v)| k == "udp" && v == "true")
-            .is_some();
+            .any(|(ref k, ref v)| k == "udp" && v == "true");
 
         if is_udp {
             let udp_stream = Stream::UdpSocket(UdpStream::new(addr.clone())?);
@@ -62,13 +61,12 @@ impl Connection {
         let stream = TcpStream::connect(addr.clone())?;
         let tcp_nodelay = addr
             .query_pairs()
-            .find(|&(ref k, ref v)| k == "tcp_nodelay" && v == "true")
-            .is_some();
+            .any(|(ref k, ref v)| k == "tcp_nodelay" && v == "true");
         stream.set_nodelay(tcp_nodelay)?;
         let timeout = addr.query_pairs()
             .find(|&(ref k, ref _v)| k == "timeout")
             .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
-            .map(|s| Duration::from_secs(s));
+            .map(Duration::from_secs);
         if timeout.is_some() {
             stream.set_read_timeout(timeout)?;
             stream.set_write_timeout(timeout)?;
