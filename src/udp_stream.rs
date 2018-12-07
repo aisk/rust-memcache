@@ -20,7 +20,7 @@ impl UdpStream {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         socket.connect(addr)?;
         return Ok(UdpStream {
-                socket: socket,
+                socket,
                 read_buf: Vec::new(),
                 write_buf: Vec::new(),
                 request_id:  rand::random::<u16>()
@@ -70,20 +70,20 @@ impl Write for UdpStream {
                 return Err(Error::new(ErrorKind::Other, "Invalid UDP header received"));
             }
 
-            let request_id = BigEndian::read_u16(&mut buf[0..]);
+            let request_id = BigEndian::read_u16(&buf[0..]);
             if self.request_id != request_id { // ideally this shouldn't happen as we wait to read out response before sending another request
                 continue;
             }
-            let sequence_no = BigEndian::read_u16(&mut buf[2..]);
-            total_datagrams = BigEndian::read_u16(&mut buf[4..]);
+            let sequence_no = BigEndian::read_u16(&buf[2..]);
+            total_datagrams = BigEndian::read_u16(&buf[4..]);
             if remaining_datagrams == 0 {
                 remaining_datagrams = total_datagrams;
             }
 
             let mut v: Vec<u8> = Vec::new();
-            v.extend_from_slice(&mut buf[8..bytes_read]);
+            v.extend_from_slice(&buf[8..bytes_read]);
             response_datagrams.insert(sequence_no, v);
-            remaining_datagrams = remaining_datagrams - 1;
+            remaining_datagrams -= 1;
             if remaining_datagrams == 0 {
                 break;
             }
