@@ -6,7 +6,7 @@ repository = "https://github.com/aisk/rust-memcache"
 readme = "README.md"
 license = "MIT"
 description = "memcached client for rust"
-keywords = ["memcache", "memcached", "client", "driver", "cache", "database"]
+keywords = ["memcache", "memcached", "driver", "cache", "database"]
 
 [dependencies]
 byteorder = "1"
