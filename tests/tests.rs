@@ -3,12 +3,14 @@ extern crate memcache;
 
 use std::thread;
 use std::time;
-use rand::Rng;
+use std::iter;
+use rand::{Rng, thread_rng};
+use rand::distributions::Alphanumeric;
 use std::thread::JoinHandle;
 
 fn gen_random_key() -> String {
-    return rand::thread_rng()
-        .gen_ascii_chars()
+    return iter::repeat(())
+        .map(|()| thread_rng().sample(Alphanumeric))
         .take(10)
         .collect::<String>();
 }
