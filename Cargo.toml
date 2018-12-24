@@ -11,4 +11,4 @@ keywords = ["memcache", "memcached", "driver", "cache", "database"]
 [dependencies]
 byteorder = "1"
 url = "1"
-rand = "0.3"
+rand = "0.6"
