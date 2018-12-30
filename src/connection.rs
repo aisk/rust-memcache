@@ -59,10 +59,13 @@ impl Connection {
         }
 
         let stream = TcpStream::connect(addr.clone())?;
-        let tcp_nodelay = addr
+
+        let disable_tcp_nodelay = addr
             .query_pairs()
-            .any(|(ref k, ref v)| k == "tcp_nodelay" && v == "true");
-        stream.set_nodelay(tcp_nodelay)?;
+            .any(|(ref k, ref v)| k == "tcp_nodelay" && v == "false");
+        if !disable_tcp_nodelay {
+            stream.set_nodelay(true)?;
+        }
         let timeout = addr.query_pairs()
             .find(|&(ref k, ref _v)| k == "timeout")
             .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
