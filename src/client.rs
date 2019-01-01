@@ -10,6 +10,8 @@ use value::{ToMemcacheValue, FromMemcacheValue};
 use packet;
 use packet::{Opcode, PacketHeader, Magic};
 
+pub type Stats = HashMap<String, String>;
+
 pub trait Connectable<'a> {
     fn get_urls(self) -> Vec<&'a str>;
 }
@@ -546,7 +548,7 @@ impl<'a> Client {
     /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// let stats = client.stats().unwrap();
     /// ```
-    pub fn stats(&mut self) -> Result<Vec<(String, HashMap<String, String>)>, MemcacheError> {
+    pub fn stats(&mut self) -> Result<Vec<(String, Stats)>, MemcacheError> {
         let mut result: Vec<(String, HashMap<String, String>)> = vec![];
         for connection in &mut self.connections {
             let request_header = PacketHeader {
