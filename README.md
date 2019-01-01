@@ -33,7 +33,7 @@ memcache = "*"
 
 ```rust
 // create connection with to memcached server node:
-let mut client = memcache::Client::new("memcache://127.0.0.1:12345?timeout=10&tcp_nodelay=true").unwrap();
+let mut client = memcache::Client::connect("memcache://127.0.0.1:12345?timeout=10&tcp_nodelay=true").unwrap();
 
 // flush the database
 client.flush().unwrap();
@@ -69,7 +69,7 @@ If you have multiple memcached server, you can create the `memcache::Client` str
 This library have a basic rule to do this with rust's builtin hash function, and also you can use your custom function to do this, for something like you can using a have more data on one server which have more memory quota, or cluster keys with their prefix, or using consitent hash for large memcached cluster.
 
 ```rust
-let mut client = memcache::Client::new(vec!["memcache://127.0.0.1:12345", "memcache:///tmp/memcached.sock"]).unwrap();
+let mut client = memcache::Client::connect(vec!["memcache://127.0.0.1:12345", "memcache:///tmp/memcached.sock"]).unwrap();
 client.hash_function = |key: &str| -> u64 {
     // your custom hashing function here
     return 1;

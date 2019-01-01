@@ -26,7 +26,7 @@ fn test() {
     if cfg!(unix) {
         urls.push("memcache:///tmp/memcached2.sock");
     }
-    let mut client = memcache::Client::new(urls).unwrap();
+    let mut client = memcache::Client::connect(urls).unwrap();
 
     client.version().unwrap();
 
@@ -59,7 +59,7 @@ fn test() {
 #[test]
 fn udp_test() {
     let urls = vec!["memcache://localhost:22345?udp=true"];
-    let mut client = memcache::Client::new(urls).unwrap();
+    let mut client = memcache::Client::connect(urls).unwrap();
 
     client.version().unwrap();
 
@@ -135,7 +135,7 @@ fn udp_test() {
         handles.push(Some(thread::spawn(move || {
             let key = format!("key{}", i);
             let value = format!("value{}", i);
-            let mut client = memcache::Client::new("memcache://localhost:22345?udp=true").unwrap();
+            let mut client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
             for j in 0..50 {
                 let value = format!("{}{}", value, j);
                 client.set(key.as_str(), value.clone(), 0).unwrap();
