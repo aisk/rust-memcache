@@ -12,19 +12,35 @@ use packet::{Opcode, PacketHeader, Magic};
 
 pub type Stats = HashMap<String, String>;
 
-pub trait Connectable<'a> {
-    fn get_urls(self) -> Vec<&'a str>;
+pub trait Connectable {
+    fn get_urls(self) -> Vec<String>;
 }
 
-impl<'a> Connectable<'a> for &'a str {
-    fn get_urls(self) -> Vec<&'a str> {
+impl Connectable for String {
+    fn get_urls(self) -> Vec<String> {
         return vec![self];
     }
 }
 
-impl<'a> Connectable<'a> for Vec<&'a str> {
-    fn get_urls(self) -> Vec<&'a str> {
+impl Connectable for Vec<String> {
+    fn get_urls(self) -> Vec<String> {
         return self;
+    }
+}
+
+impl Connectable for &str {
+    fn get_urls(self) -> Vec<String> {
+        return vec![self.to_string()];
+    }
+}
+
+impl Connectable for Vec<&str> {
+    fn get_urls(self) -> Vec<String> {
+        let mut urls = vec![];
+        for url in self {
+            urls.push(url.to_string());
+        }
+        return urls;
     }
 }
 
@@ -39,17 +55,17 @@ fn default_hash_function(key: &str) -> u64 {
     return hasher.finish();
 }
 
-impl<'a> Client {
+impl Client {
     #[deprecated(since="0.10.0", note="please use `connect` instead")]
-    pub fn new<C: Connectable<'a>>(target: C) -> Result<Self, MemcacheError> {
+    pub fn new<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
         return Self::connect(target);
     }
 
-    pub fn connect<C: Connectable<'a>>(target: C) -> Result<Self, MemcacheError> {
+    pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
         let urls = target.get_urls();
         let mut connections = vec![];
         for url in urls {
-            connections.push(Connection::connect(url)?);
+            connections.push(Connection::connect(url.as_str())?);
         }
         return Ok(Client {
             connections,
