@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
+
 use byteorder::{WriteBytesExt, BigEndian};
+use url::Url;
+
 use connection::Connection;
 use error::MemcacheError;
 use value::{ToMemcacheValue, FromMemcacheValue};
@@ -65,7 +68,32 @@ impl Client {
         let urls = target.get_urls();
         let mut connections = vec![];
         for url in urls {
-            connections.push(Connection::connect(url.as_str())?);
+            let parsed = match Url::parse(url.as_str()) {
+                Ok(v) => v,
+                Err(_) => return Err(MemcacheError::ClientError("Invalid memcache URL".into())),
+            };
+
+
+            let mut connection = Connection::connect(&parsed)?;
+
+            if parsed.has_authority() && parsed.username() != "" && parsed.password().is_some() {
+                let key = "PLAIN";
+                let value = format!("\x00{}\x00{}", parsed.username(), parsed.password().unwrap());
+                let request_header = PacketHeader {
+                    magic: Magic::Request as u8,
+                    opcode: Opcode::StartAuth as u8,
+                    key_length: key.len() as u16,
+                    total_body_length: (key.len() + value.len()) as u32,
+                    ..Default::default()
+                };
+                request_header.write(&mut connection)?;
+                connection.write_all(key.as_bytes())?;
+                value.write_to(&mut connection)?;
+                connection.flush()?;
+                packet::parse_start_auth_response(&mut connection)?;
+            }
+
+            connections.push(connection);
         }
         return Ok(Client {
             connections,
