@@ -21,6 +21,7 @@ pub enum Opcode {
     Append = 0x0e,
     Prepend = 0x0f,
     Touch = 0x1c,
+    StartAuth = 0x21,
 }
 
 pub enum Magic {
@@ -35,6 +36,7 @@ pub enum ResponseStatus {
     KeyExits = 0x02,
     ValueTooLarge = 0x03,
     InvalidArguments = 0x04,
+    AuthenticationRequired = 0x20,
 }
 
 #[derive(Debug, Default)]
@@ -226,4 +228,18 @@ pub fn parse_stats_response<R: io::Read>(reader: &mut R) -> Result<HashMap<Strin
         result.insert(key, value);
     }
     return Ok(result);
+}
+
+pub fn parse_start_auth_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
+    let header = PacketHeader::read(reader)?;
+    if header.total_body_length != 0 {
+        reader.read_exact(
+            vec![0; header.total_body_length as usize]
+                .as_mut_slice(),
+        )?;
+    }
+    if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
+        return Err(MemcacheError::from(header.vbucket_id_or_status));
+    }
+    return Ok(true);
 }
