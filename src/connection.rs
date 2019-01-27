@@ -5,17 +5,12 @@ use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
-use udp_stream::UdpStream;
 #[cfg(unix)]
 use url::Host;
 use url::Url;
 
-enum Stream {
-    TcpStream(TcpStream),
-    UdpSocket(UdpStream),
-    #[cfg(unix)]
-    UnixStream(UnixStream),
-}
+use stream::Stream;
+use stream::UdpStream;
 
 /// a connection to the memcached server
 pub struct Connection {
@@ -36,7 +31,7 @@ impl Connection {
             .any(|(ref k, ref v)| k == "udp" && v == "true");
 
         if is_udp {
-            let udp_stream = Stream::UdpSocket(UdpStream::new(url.clone())?);
+            let udp_stream = Stream::UdpStream(UdpStream::new(url.clone())?);
             return Ok(Connection {
                 url: url.to_string(),
                 stream: udp_stream,
@@ -95,7 +90,7 @@ impl Read for Connection {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.stream {
             Stream::TcpStream(ref mut stream) => stream.read(buf),
-            Stream::UdpSocket(ref mut stream) => stream.read(buf),
+            Stream::UdpStream(ref mut stream) => stream.read(buf),
             #[cfg(unix)]
             Stream::UnixStream(ref mut stream) => stream.read(buf),
         }
@@ -106,7 +101,7 @@ impl Write for Connection {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self.stream {
             Stream::TcpStream(ref mut stream) => stream.write(buf),
-            Stream::UdpSocket(ref mut stream) => stream.write(buf),
+            Stream::UdpStream(ref mut stream) => stream.write(buf),
             #[cfg(unix)]
             Stream::UnixStream(ref mut stream) => stream.write(buf),
         }
@@ -115,7 +110,7 @@ impl Write for Connection {
     fn flush(&mut self) -> io::Result<()> {
         match self.stream {
             Stream::TcpStream(ref mut stream) => stream.flush(),
-            Stream::UdpSocket(ref mut stream) => stream.flush(),
+            Stream::UdpStream(ref mut stream) => stream.flush(),
             #[cfg(unix)]
             Stream::UnixStream(ref mut stream) => stream.flush(),
         }
