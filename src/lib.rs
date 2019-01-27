@@ -63,11 +63,11 @@ extern crate url;
 extern crate rand;
 
 mod connection;
-mod udp_stream;
 mod error;
 mod value;
 mod packet;
 mod client;
+mod stream;
 
 pub use error::MemcacheError;
 pub use value::{ToMemcacheValue, FromMemcacheValue};

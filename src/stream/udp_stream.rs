@@ -8,7 +8,7 @@ use byteorder::{BigEndian, WriteBytesExt, ByteOrder};
 use std::collections::HashMap;
 use std::u16;
 
-pub struct UdpStream {
+pub(crate) struct UdpStream {
     socket: UdpSocket,
     read_buf: Vec<u8>,
     write_buf: Vec<u8>,
