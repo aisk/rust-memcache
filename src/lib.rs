@@ -68,6 +68,7 @@ mod value;
 mod packet;
 mod client;
 mod stream;
+mod protocol;
 
 pub use error::MemcacheError;
 pub use value::{ToMemcacheValue, FromMemcacheValue};
