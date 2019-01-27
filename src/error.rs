@@ -46,13 +46,13 @@ impl error::Error for MemcacheError {
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn source(&self)-> Option<&(error::Error + 'static)> {
         match *self {
-            MemcacheError::Io(ref err) => err.cause(),
-            MemcacheError::FromUtf8(ref err) => err.cause(),
-            MemcacheError::ParseIntError(ref err) => err.cause(),
-            MemcacheError::ParseFloatError(ref err) => err.cause(),
-            MemcacheError::ParseBoolError(ref err) => err.cause(),
+            MemcacheError::Io(ref err) => err.source(),
+            MemcacheError::FromUtf8(ref err) => err.source(),
+            MemcacheError::ParseIntError(ref err) => err.source(),
+            MemcacheError::ParseFloatError(ref err) => err.source(),
+            MemcacheError::ParseBoolError(ref err) => err.source(),
             MemcacheError::ClientError(_) => None,
             MemcacheError::ServerError(_) => None,
         }
