@@ -1,20 +1,19 @@
-use error::MemcacheError;
-use std::io;
-use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use std::time::Duration;
 #[cfg(unix)]
 use url::Host;
 use url::Url;
 
+use error::MemcacheError;
 use stream::Stream;
 use stream::UdpStream;
+use protocol::{Protocol, BinaryProtocol};
 
 /// a connection to the memcached server
 pub struct Connection {
-    stream: Stream,
+    pub protocol: Protocol,
     pub url: String,
 }
 
@@ -31,10 +30,10 @@ impl Connection {
             .any(|(ref k, ref v)| k == "udp" && v == "true");
 
         if is_udp {
-            let udp_stream = Stream::UdpStream(UdpStream::new(url.clone())?);
+            let udp_stream = Stream::Udp(UdpStream::new(url.clone())?);
             return Ok(Connection {
                 url: url.to_string(),
-                stream: udp_stream,
+                protocol: Protocol::Binary(BinaryProtocol{stream: udp_stream}),
             });
         }
 
@@ -44,7 +43,7 @@ impl Connection {
                 let stream = UnixStream::connect(url.path())?;
                 return Ok(Connection {
                     url: url.to_string(),
-                    stream: Stream::UnixStream(stream),
+                    protocol: Protocol::Binary(BinaryProtocol{stream: Stream::Unix(stream)}),
                 });
             }
         }
@@ -67,52 +66,8 @@ impl Connection {
         }
         return Ok(Connection {
             url: url.to_string(),
-            stream: Stream::TcpStream(stream),
+            protocol: Protocol::Binary(BinaryProtocol{stream: Stream::Tcp(stream)}),
         });
     }
 
-    pub(crate) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        if  let Stream::TcpStream(ref mut conn) =  self.stream {
-            conn.set_read_timeout(timeout)?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        if  let Stream::TcpStream(ref mut conn) =  self.stream {
-            conn.set_write_timeout(timeout)?;
-        }
-        Ok(())
-    }
-}
-
-impl Read for Connection {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self.stream {
-            Stream::TcpStream(ref mut stream) => stream.read(buf),
-            Stream::UdpStream(ref mut stream) => stream.read(buf),
-            #[cfg(unix)]
-            Stream::UnixStream(ref mut stream) => stream.read(buf),
-        }
-    }
-}
-
-impl Write for Connection {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.stream {
-            Stream::TcpStream(ref mut stream) => stream.write(buf),
-            Stream::UdpStream(ref mut stream) => stream.write(buf),
-            #[cfg(unix)]
-            Stream::UnixStream(ref mut stream) => stream.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self.stream {
-            Stream::TcpStream(ref mut stream) => stream.flush(),
-            Stream::UdpStream(ref mut stream) => stream.flush(),
-            #[cfg(unix)]
-            Stream::UnixStream(ref mut stream) => stream.flush(),
-        }
-    }
 }
