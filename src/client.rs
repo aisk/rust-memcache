@@ -1,17 +1,13 @@
-use std::io::Write;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::time::Duration;
 
-use byteorder::{WriteBytesExt, BigEndian};
 use url::Url;
 
 use connection::Connection;
 use error::MemcacheError;
 use value::{ToMemcacheValue, FromMemcacheValue};
-use packet;
-use packet::{Opcode, PacketHeader, Magic};
+use stream::Stream;
 
 pub type Stats = HashMap<String, String>;
 
@@ -73,30 +69,29 @@ impl Client {
                 Err(_) => return Err(MemcacheError::ClientError("Invalid memcache URL".into())),
             };
 
-
             let mut connection = Connection::connect(&parsed)?;
 
-            if parsed.has_authority() && parsed.username() != "" && parsed.password().is_some() {
-                let key = "PLAIN";
-                let value = format!("\x00{}\x00{}", parsed.username(), parsed.password().unwrap());
-                let request_header = PacketHeader {
-                    magic: Magic::Request as u8,
-                    opcode: Opcode::StartAuth as u8,
-                    key_length: key.len() as u16,
-                    total_body_length: (key.len() + value.len()) as u32,
-                    ..Default::default()
-                };
-                request_header.write(&mut connection)?;
-                connection.write_all(key.as_bytes())?;
-                value.write_to(&mut connection)?;
-                connection.flush()?;
-                packet::parse_start_auth_response(&mut connection)?;
-            }
+            // if parsed.has_authority() && parsed.username() != "" && parsed.password().is_some() {
+            //     let key = "PLAIN";
+            //     let value = format!("\x00{}\x00{}", parsed.username(), parsed.password().unwrap());
+            //     let request_header = PacketHeader {
+            //         magic: Magic::Request as u8,
+            //         opcode: Opcode::StartAuth as u8,
+            //         key_length: key.len() as u16,
+            //         total_body_length: (key.len() + value.len()) as u32,
+            //         ..Default::default()
+            //     };
+            //     request_header.write(&mut connection)?;
+            //     connection.write_all(key.as_bytes())?;
+            //     value.write_to(&mut connection)?;
+            //     connection.flush()?;
+            //     packet::parse_start_auth_response(&mut connection)?;
+            // }
 
             connections.push(connection);
         }
         return Ok(Client {
-            connections,
+            connections: connections,
             hash_function: default_hash_function,
         });
     }
@@ -106,35 +101,35 @@ impl Client {
         return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
     }
 
-    /// Set the socket read timeout for tcp conections.
-    ///
-    /// Example:
-    ///
-    /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.set_read_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
-    /// ```
-    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        for conn in self.connections.iter_mut() {
-            conn.set_read_timeout(timeout)?;
-        }
-        Ok(())
-    }
+    // /// Set the socket read timeout for tcp conections.
+    // ///
+    // /// Example:
+    // ///
+    // /// ```rust
+    // /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    // /// client.set_read_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
+    // /// ```
+    // pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+    //     for conn in self.connections.iter_mut() {
+    //         conn.set_read_timeout(timeout)?;
+    //     }
+    //     Ok(())
+    // }
 
-    /// Set the socket write timeout for tcp conections.
-    ///
-    /// Example:
-    ///
-    /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
-    /// ```
-    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        for conn in self.connections.iter_mut() {
-            conn.set_write_timeout(timeout)?;
-        }
-        Ok(())
-    }
+    // /// Set the socket write timeout for tcp conections.
+    // ///
+    // /// Example:
+    // ///
+    // /// ```rust
+    // /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    // /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
+    // /// ```
+    // pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+    //     for conn in self.connections.iter_mut() {
+    //         conn.set_write_timeout(timeout)?;
+    //     }
+    //     Ok(())
+    // }
 
     /// Get the memcached server version.
     ///
@@ -147,16 +142,7 @@ impl Client {
     pub fn version(&mut self) -> Result<Vec<(String, String)>, MemcacheError> {
         let mut result: Vec<(String, String)> = vec![];
         for connection in &mut self.connections {
-            let request_header = PacketHeader {
-                magic: Magic::Request as u8,
-                opcode: Opcode::Version as u8,
-                ..Default::default()
-            };
-            request_header.write(connection)?;
-            connection.flush()?;
-            let version = packet::parse_version_response(connection)?;
-            let url = connection.url.clone();
-            result.push((url, version));
+            result.push(("".into(), connection.protocol.version()?));
         }
         return Ok(result);
     }
@@ -171,14 +157,7 @@ impl Client {
     /// ```
     pub fn flush(&mut self) -> Result<(), MemcacheError> {
         for connection in &mut self.connections {
-            let request_header = PacketHeader {
-                magic: Magic::Request as u8,
-                opcode: Opcode::Flush as u8,
-                ..Default::default()
-            };
-            request_header.write(connection)?;
-            connection.flush()?;
-            packet::parse_header_only_response(connection)?;
+            connection.protocol.flush()?;
         }
         return Ok(());
     }
@@ -193,17 +172,7 @@ impl Client {
     /// ```
     pub fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
         for connection in &mut self.connections {
-            let request_header = PacketHeader {
-                magic: Magic::Request as u8,
-                opcode: Opcode::Flush as u8,
-                extras_length: 4,
-                total_body_length: 4,
-                ..Default::default()
-            };
-            request_header.write(connection)?;
-            connection.write_u32::<BigEndian>(delay)?;
-            connection.flush()?;
-            packet::parse_header_only_response(connection)?;
+            connection.protocol.flush_with_delay(delay)?;
         }
         return Ok(());
     }
@@ -217,20 +186,7 @@ impl Client {
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
     pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Get as u8,
-            key_length: key.len() as u16,
-            total_body_length: key.len() as u32,
-            ..Default::default()
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        self.get_connection(key).flush()?;
-        return packet::parse_get_response(self.get_connection(key));
+        return self.get_connection(key).protocol.get(key);
     }
 
     /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce netwark workloads.
@@ -261,71 +217,9 @@ impl Client {
         }
         for (&connection_index, keys) in con_keys.iter() {
             let connection = &mut self.connections[connection_index];
-            result.extend(Client::gets_by_connection(connection, keys)?);
+            result.extend(connection.protocol.gets(keys.to_vec())?);
         }
         return Ok(result);
-    }
-
-    fn gets_by_connection<V: FromMemcacheValue>(
-        connection: &mut Connection,
-        keys: &[&str],
-    ) -> Result<HashMap<String, V>, MemcacheError> {
-        for key in keys {
-            if key.len() > 250 {
-                return Err(MemcacheError::ClientError(String::from("key is too long")));
-            }
-            let request_header = PacketHeader {
-                magic: Magic::Request as u8,
-                opcode: Opcode::GetKQ as u8,
-                key_length: key.len() as u16,
-                total_body_length: key.len() as u32,
-                ..Default::default()
-            };
-            request_header.write(connection)?;
-            connection.write_all(key.as_bytes())?;
-        }
-        let noop_request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Noop as u8,
-            ..Default::default()
-        };
-        noop_request_header.write(connection)?;
-        return packet::parse_gets_response(connection);
-    }
-
-    fn store<V: ToMemcacheValue<Connection>>(
-        &mut self,
-        opcode: Opcode,
-        key: &str,
-        value: V,
-        expiration: u32,
-    ) -> Result<(), MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: opcode as u8,
-            key_length: key.len() as u16,
-            extras_length: 8,
-            total_body_length: (8 + key.len() + value.get_length()) as u32,
-            ..Default::default()
-        };
-        let extras = packet::StoreExtras {
-            flags: value.get_flags(),
-            expiration,
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.flags,
-        )?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        value.write_to(self.get_connection(key))?;
-        self.get_connection(key).flush()?;
-        return packet::parse_header_only_response(self.get_connection(key));
     }
 
     /// Set a key with associate value into memcached server with expiration seconds.
@@ -336,13 +230,13 @@ impl Client {
     /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar", 10).unwrap();
     /// ```
-    pub fn set<V: ToMemcacheValue<Connection>>(
+    pub fn set<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Set, key, value, expiration);
+        return self.get_connection(key).protocol.set(key, value, expiration)
     }
 
     /// Add a key with associate value into memcached server with expiration seconds.
@@ -355,13 +249,13 @@ impl Client {
     /// client.delete(key).unwrap();
     /// client.add(key, "bar", 100000000).unwrap();
     /// ```
-    pub fn add<V: ToMemcacheValue<Connection>>(
+    pub fn add<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Add, key, value, expiration);
+        return self.get_connection(key).protocol.add(key, value, expiration)
     }
 
     /// Replace a key with associate value into memcached server with expiration seconds.
@@ -374,13 +268,13 @@ impl Client {
     /// client.set(key, "bar", 0).unwrap();
     /// client.replace(key, "baz", 100000000).unwrap();
     /// ```
-    pub fn replace<V: ToMemcacheValue<Connection>>(
+    pub fn replace<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Replace, key, value, expiration);
+        return self.get_connection(key).protocol.replace(key, value, expiration)
     }
 
     /// Append value to the key.
@@ -395,26 +289,12 @@ impl Client {
     /// let result: String = client.get(key).unwrap().unwrap();
     /// assert_eq!(result, "hello, world!");
     /// ```
-    pub fn append<V: ToMemcacheValue<Connection>>(
+    pub fn append<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
     ) -> Result<(), MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Append as u8,
-            key_length: key.len() as u16,
-            total_body_length: (key.len() + value.get_length()) as u32,
-            ..Default::default()
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        value.write_to(self.get_connection(key))?;
-        self.get_connection(key).flush()?;
-        return packet::parse_header_only_response(self.get_connection(key));
+        return self.get_connection(key).protocol.append(key, value)
     }
 
     /// Prepend value to the key.
@@ -429,26 +309,12 @@ impl Client {
     /// let result: String = client.get(key).unwrap().unwrap();
     /// assert_eq!(result, "hello, world!");
     /// ```
-    pub fn prepend<V: ToMemcacheValue<Connection>>(
+    pub fn prepend<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
     ) -> Result<(), MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Prepend as u8,
-            key_length: key.len() as u16,
-            total_body_length: (key.len() + value.get_length()) as u32,
-            ..Default::default()
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        value.write_to(&mut self.get_connection(key))?;
-        self.get_connection(key).flush()?;
-        return packet::parse_header_only_response(self.get_connection(key));
+        return self.get_connection(key).protocol.prepend(key, value)
     }
 
     /// Delete a key from memcached server.
@@ -460,20 +326,7 @@ impl Client {
     /// client.delete("foo").unwrap();
     /// ```
     pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Delete as u8,
-            key_length: key.len() as u16,
-            total_body_length: key.len() as u32,
-            ..Default::default()
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        self.get_connection(key).flush()?;
-        return packet::parse_delete_response(self.get_connection(key));
+        return self.get_connection(key).protocol.delete(key)
     }
 
     /// Increment the value with amount.
@@ -485,35 +338,7 @@ impl Client {
     /// client.increment("counter", 42).unwrap();
     /// ```
     pub fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Increment as u8,
-            key_length: key.len() as u16,
-            extras_length: 20,
-            total_body_length: (20 + key.len()) as u32,
-            ..Default::default()
-        };
-        let extras = packet::CounterExtras {
-            amount,
-            initial_value: 0,
-            expiration: 0,
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.amount,
-        )?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        self.get_connection(key).flush()?;
-        return packet::parse_counter_response(self.get_connection(key));
+        return self.get_connection(key).protocol.increment(key, amount)
     }
 
     /// Decrement the value with amount.
@@ -525,35 +350,7 @@ impl Client {
     /// client.decrement("counter", 42).unwrap();
     /// ```
     pub fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Decrement as u8,
-            key_length: key.len() as u16,
-            extras_length: 20,
-            total_body_length: (20 + key.len()) as u32,
-            ..Default::default()
-        };
-        let extras = packet::CounterExtras {
-            amount,
-            initial_value: 0,
-            expiration: 0,
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.amount,
-        )?;
-        self.get_connection(key).write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.get_connection(key).write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        self.get_connection(key).flush()?;
-        return packet::parse_counter_response(self.get_connection(key));
+        return self.get_connection(key).protocol.decrement(key, amount)
     }
 
     /// Set a new expiration time for a exist key.
@@ -567,22 +364,7 @@ impl Client {
     /// assert_eq!(client.touch("foo", 12345).unwrap(), true);
     /// ```
     pub fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Touch as u8,
-            key_length: key.len() as u16,
-            extras_length: 4,
-            total_body_length: (key.len() as u32 + 4),
-            ..Default::default()
-        };
-        request_header.write(self.get_connection(key))?;
-        self.get_connection(key).write_u32::<BigEndian>(expiration)?;
-        self.get_connection(key).write_all(key.as_bytes())?;
-        self.get_connection(key).flush()?;
-        return packet::parse_touch_response(self.get_connection(key));
+        return self.get_connection(key).protocol.touch(key, expiration)
     }
 
     /// Get all servers' statistics.
@@ -595,14 +377,7 @@ impl Client {
     pub fn stats(&mut self) -> Result<Vec<(String, Stats)>, MemcacheError> {
         let mut result: Vec<(String, HashMap<String, String>)> = vec![];
         for connection in &mut self.connections {
-            let request_header = PacketHeader {
-                magic: Magic::Request as u8,
-                opcode: Opcode::Stat as u8,
-                ..Default::default()
-            };
-            request_header.write(connection)?;
-            connection.flush()?;
-            let stats_info = packet::parse_stats_response(connection)?;
+            let stats_info = connection.protocol.stats()?;
             let url = connection.url.clone();
             result.push((url, stats_info));
         }

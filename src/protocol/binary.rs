@@ -2,19 +2,18 @@ use std::collections::HashMap;
 use std::io::Write;
 use byteorder::{WriteBytesExt, BigEndian};
 use client::Stats;
-use connection::Connection;
+use stream::Stream;
 use error::MemcacheError;
 use packet::{Opcode, PacketHeader, Magic};
 use packet;
-use protocol::Protocol;
 use value::{ToMemcacheValue, FromMemcacheValue};
 
-pub(crate) struct BinaryProtocol<'a> {
-    connection: &'a mut Connection
+pub struct BinaryProtocol {
+    pub stream: Stream,
 }
 
-impl<'a> BinaryProtocol<'a> {
-    fn store<V: ToMemcacheValue<Connection>>(
+impl BinaryProtocol {
+    fn store<V: ToMemcacheValue<Stream>>(
         &mut self,
         opcode: Opcode,
         key: &str,
@@ -36,42 +35,40 @@ impl<'a> BinaryProtocol<'a> {
             flags: value.get_flags(),
             expiration,
         };
-        request_header.write(self.connection)?;
-        self.connection.write_u32::<BigEndian>(extras.flags)?;
-        self.connection.write_u32::<BigEndian>(extras.expiration)?;
-        self.connection.write_all(key.as_bytes())?;
-        value.write_to(self.connection)?;
-        self.connection.flush()?;
-        return packet::parse_header_only_response(self.connection);
+        request_header.write(&mut self.stream)?;
+        self.stream.write_u32::<BigEndian>(extras.flags)?;
+        self.stream.write_u32::<BigEndian>(extras.expiration)?;
+        self.stream.write_all(key.as_bytes())?;
+        value.write_to(&mut self.stream)?;
+        self.stream.flush()?;
+        return packet::parse_header_only_response(&mut self.stream);
     }
-}
 
-impl<'a> Protocol for BinaryProtocol<'a> {
-    fn version(&mut self) -> Result<String, MemcacheError> {
+    pub fn version(&mut self) -> Result<String, MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Version as u8,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.flush()?;
-        let version = packet::parse_version_response(self.connection)?;
+        request_header.write(&mut self.stream)?;
+        self.stream.flush()?;
+        let version = packet::parse_version_response(&mut self.stream)?;
         return Ok(version);
     }
 
-   fn flush(&mut self) -> Result<(), MemcacheError> {
+   pub fn flush(&mut self) -> Result<(), MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Flush as u8,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.flush()?;
-        packet::parse_header_only_response(self.connection)?;
+        request_header.write(&mut self.stream)?;
+        self.stream.flush()?;
+        packet::parse_header_only_response(&mut self.stream)?;
         return Ok(());
     }
 
-    fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
+    pub fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Flush as u8,
@@ -79,14 +76,14 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             total_body_length: 4,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.write_u32::<BigEndian>(delay)?;
-        self.connection.flush()?;
-        packet::parse_header_only_response(self.connection)?;
+        request_header.write(&mut self.stream)?;
+        self.stream.write_u32::<BigEndian>(delay)?;
+        self.stream.flush()?;
+        packet::parse_header_only_response(&mut self.stream)?;
         return Ok(());
     }
 
-    fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+    pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -97,13 +94,13 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             total_body_length: key.len() as u32,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.write_all(key.as_bytes())?;
-        self.connection.flush()?;
-        return packet::parse_get_response(self.connection);
+        request_header.write(&mut self.stream)?;
+        self.stream.write_all(key.as_bytes())?;
+        self.stream.flush()?;
+        return packet::parse_get_response(&mut self.stream);
     }
 
-    fn gets<V: FromMemcacheValue>(
+    pub fn gets<V: FromMemcacheValue>(
         &mut self,
         keys: Vec<&str>,
     ) -> Result<HashMap<String, V>, MemcacheError> {
@@ -118,19 +115,19 @@ impl<'a> Protocol for BinaryProtocol<'a> {
                 total_body_length: key.len() as u32,
                 ..Default::default()
             };
-            request_header.write(self.connection)?;
-            self.connection.write_all(key.as_bytes())?;
+            request_header.write(&mut self.stream)?;
+            self.stream.write_all(key.as_bytes())?;
         }
         let noop_request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Noop as u8,
             ..Default::default()
         };
-        noop_request_header.write(self.connection)?;
-        return packet::parse_gets_response(self.connection);
+        noop_request_header.write(&mut self.stream)?;
+        return packet::parse_gets_response(&mut self.stream);
     }
 
-    fn set<V: ToMemcacheValue<Connection>>(
+    pub fn set<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
@@ -139,7 +136,7 @@ impl<'a> Protocol for BinaryProtocol<'a> {
         return self.store(Opcode::Set, key, value, expiration);
     }
 
-    fn add<V: ToMemcacheValue<Connection>>(
+    pub fn add<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
@@ -148,7 +145,7 @@ impl<'a> Protocol for BinaryProtocol<'a> {
         return self.store(Opcode::Add, key, value, expiration);
     }
 
-    fn replace<V: ToMemcacheValue<Connection>>(
+    pub fn replace<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
@@ -157,7 +154,7 @@ impl<'a> Protocol for BinaryProtocol<'a> {
         return self.store(Opcode::Replace, key, value, expiration);
     }
 
-    fn append<V: ToMemcacheValue<Connection>>(
+    pub fn append<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
@@ -172,14 +169,14 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             total_body_length: (key.len() + value.get_length()) as u32,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.write_all(key.as_bytes())?;
-        value.write_to(self.connection)?;
-        self.connection.flush()?;
-        return packet::parse_header_only_response(self.connection);
+        request_header.write(&mut self.stream)?;
+        self.stream.write_all(key.as_bytes())?;
+        value.write_to(&mut self.stream)?;
+        self.stream.flush()?;
+        return packet::parse_header_only_response(&mut self.stream);
     }
 
-    fn prepend<V: ToMemcacheValue<Connection>>(
+    pub fn prepend<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
@@ -194,14 +191,14 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             total_body_length: (key.len() + value.get_length()) as u32,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.write_all(key.as_bytes())?;
-        value.write_to(&mut self.connection)?;
-        self.connection.flush()?;
-        return packet::parse_header_only_response(self.connection);
+        request_header.write(&mut self.stream)?;
+        self.stream.write_all(key.as_bytes())?;
+        value.write_to(&mut self.stream)?;
+        self.stream.flush()?;
+        return packet::parse_header_only_response(&mut self.stream);
     }
 
-    fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
+    pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -212,13 +209,13 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             total_body_length: key.len() as u32,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.write_all(key.as_bytes())?;
-        self.connection.flush()?;
-        return packet::parse_delete_response(self.connection);
+        request_header.write(&mut self.stream)?;
+        self.stream.write_all(key.as_bytes())?;
+        self.stream.flush()?;
+        return packet::parse_delete_response(&mut self.stream);
     }
 
-    fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+    pub fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -235,22 +232,22 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             initial_value: 0,
             expiration: 0,
         };
-        request_header.write(self.connection)?;
-        self.connection.write_u64::<BigEndian>(
+        request_header.write(&mut self.stream)?;
+        self.stream.write_u64::<BigEndian>(
             extras.amount,
         )?;
-        self.connection.write_u64::<BigEndian>(
+        self.stream.write_u64::<BigEndian>(
             extras.initial_value,
         )?;
-        self.connection.write_u32::<BigEndian>(
+        self.stream.write_u32::<BigEndian>(
             extras.expiration,
         )?;
-        self.connection.write_all(key.as_bytes())?;
-        self.connection.flush()?;
-        return packet::parse_counter_response(self.connection);
+        self.stream.write_all(key.as_bytes())?;
+        self.stream.flush()?;
+        return packet::parse_counter_response(&mut self.stream);
     }
 
-    fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+    pub fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -267,22 +264,22 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             initial_value: 0,
             expiration: 0,
         };
-        request_header.write(self.connection)?;
-        self.connection.write_u64::<BigEndian>(
+        request_header.write(&mut self.stream)?;
+        self.stream.write_u64::<BigEndian>(
             extras.amount,
         )?;
-        self.connection.write_u64::<BigEndian>(
+        self.stream.write_u64::<BigEndian>(
             extras.initial_value,
         )?;
-        self.connection.write_u32::<BigEndian>(
+        self.stream.write_u32::<BigEndian>(
             extras.expiration,
         )?;
-        self.connection.write_all(key.as_bytes())?;
-        self.connection.flush()?;
-        return packet::parse_counter_response(self.connection);
+        self.stream.write_all(key.as_bytes())?;
+        self.stream.flush()?;
+        return packet::parse_counter_response(&mut self.stream);
     }
 
-    fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
+    pub fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -294,22 +291,22 @@ impl<'a> Protocol for BinaryProtocol<'a> {
             total_body_length: (key.len() as u32 + 4),
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.write_u32::<BigEndian>(expiration)?;
-        self.connection.write_all(key.as_bytes())?;
-        self.connection.flush()?;
-        return packet::parse_touch_response(self.connection);
+        request_header.write(&mut self.stream)?;
+        self.stream.write_u32::<BigEndian>(expiration)?;
+        self.stream.write_all(key.as_bytes())?;
+        self.stream.flush()?;
+        return packet::parse_touch_response(&mut self.stream);
     }
 
-    fn stats(&mut self) -> Result<Stats, MemcacheError> {
+    pub fn stats(&mut self) -> Result<Stats, MemcacheError> {
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Stat as u8,
             ..Default::default()
         };
-        request_header.write(self.connection)?;
-        self.connection.flush()?;
-        let stats_info = packet::parse_stats_response(self.connection)?;
+        request_header.write(&mut self.stream)?;
+        self.stream.flush()?;
+        let stats_info = packet::parse_stats_response(&mut self.stream)?;
         return Ok(stats_info);
     }
 }
