@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::time::Duration;
 
 use url::Url;
 
 use connection::Connection;
 use error::MemcacheError;
-use value::{ToMemcacheValue, FromMemcacheValue};
+use protocol::Protocol;
 use stream::Stream;
+use value::{ToMemcacheValue, FromMemcacheValue};
 
 pub type Stats = HashMap<String, String>;
 
@@ -101,35 +103,39 @@ impl Client {
         return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
     }
 
-    // /// Set the socket read timeout for tcp conections.
-    // ///
-    // /// Example:
-    // ///
-    // /// ```rust
-    // /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    // /// client.set_read_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
-    // /// ```
-    // pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-    //     for conn in self.connections.iter_mut() {
-    //         conn.set_read_timeout(timeout)?;
-    //     }
-    //     Ok(())
-    // }
+    /// Set the socket read timeout for tcp conections.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// client.set_read_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
+    /// ```
+    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        for conn in self.connections.iter_mut() {
+            match conn.protocol {
+                Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?
+            }
+        }
+        Ok(())
+    }
 
-    // /// Set the socket write timeout for tcp conections.
-    // ///
-    // /// Example:
-    // ///
-    // /// ```rust
-    // /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    // /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
-    // /// ```
-    // pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-    //     for conn in self.connections.iter_mut() {
-    //         conn.set_write_timeout(timeout)?;
-    //     }
-    //     Ok(())
-    // }
+    /// Set the socket write timeout for tcp conections.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
+    /// ```
+    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+       for conn in self.connections.iter_mut() {
+           match conn.protocol {
+               Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?
+           }
+        }
+        Ok(())
+    }
 
     /// Get the memcached server version.
     ///
