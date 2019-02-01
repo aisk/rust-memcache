@@ -114,7 +114,8 @@ impl Client {
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter_mut() {
             match conn.protocol {
-                Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?
+                Protocol::Ascii(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
+                Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
             }
         }
         Ok(())
@@ -131,7 +132,8 @@ impl Client {
     pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
        for conn in self.connections.iter_mut() {
            match conn.protocol {
-               Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?
+               Protocol::Ascii(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
+               Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
            }
         }
         Ok(())

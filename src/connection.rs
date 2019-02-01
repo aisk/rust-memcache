@@ -56,6 +56,7 @@ impl Connection {
         if !disable_tcp_nodelay {
             stream.set_nodelay(true)?;
         }
+
         let timeout = url.query_pairs()
             .find(|&(ref k, ref _v)| k == "timeout")
             .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
@@ -64,6 +65,7 @@ impl Connection {
             stream.set_read_timeout(timeout)?;
             stream.set_write_timeout(timeout)?;
         }
+
         return Ok(Connection {
             url: url.to_string(),
             protocol: Protocol::Binary(BinaryProtocol{stream: Stream::Tcp(stream)}),
