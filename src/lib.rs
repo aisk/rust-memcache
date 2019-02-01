@@ -65,7 +65,6 @@ extern crate rand;
 mod connection;
 mod error;
 mod value;
-mod packet;
 mod client;
 mod stream;
 mod protocol;
