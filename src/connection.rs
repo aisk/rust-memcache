@@ -1,5 +1,6 @@
 use std::net::TcpStream;
 use std::time::Duration;
+use std::io::BufReader;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 #[cfg(unix)]
@@ -9,7 +10,7 @@ use url::Url;
 use error::MemcacheError;
 use stream::Stream;
 use stream::UdpStream;
-use protocol::{Protocol, BinaryProtocol};
+use protocol::{Protocol, AsciiProtocol, BinaryProtocol};
 
 /// a connection to the memcached server
 pub struct Connection {
@@ -66,6 +67,16 @@ impl Connection {
             stream.set_write_timeout(timeout)?;
         }
 
+        let is_ascii = url
+            .query_pairs()
+            .any(|(ref k, ref v)| k == "protocol" && v == "ascii");
+
+        if is_ascii {
+            return Ok(Connection {
+                url: url.to_string(),
+                protocol: Protocol::Ascii(AsciiProtocol{ reader: BufReader::new( Stream::Tcp(stream) ) }),
+            });
+        }
         return Ok(Connection {
             url: url.to_string(),
             protocol: Protocol::Binary(BinaryProtocol{stream: Stream::Tcp(stream)}),
