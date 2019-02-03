@@ -114,7 +114,7 @@ impl Client {
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter_mut() {
             match conn.protocol {
-                Protocol::Ascii(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
+                Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
                 Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
             }
         }
@@ -126,13 +126,13 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let mut client = memcache::Client::connect("memcache://localhost:12345?protocol=ascii").unwrap();
     /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
     /// ```
     pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
        for conn in self.connections.iter_mut() {
            match conn.protocol {
-               Protocol::Ascii(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
+               Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
                Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
            }
         }
