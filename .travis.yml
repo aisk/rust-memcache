@@ -25,7 +25,7 @@ addons:
 services: memcache
 
 env:
-  - RUST_TEST_THREADS=1
+  - RUST_TEST_THREADS=1 RUST_BACKTRACE=1
 
 before_script:
   - memcached -p 12345 -d
