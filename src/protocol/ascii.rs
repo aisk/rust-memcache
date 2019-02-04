@@ -2,7 +2,6 @@ use std::fmt;
 use std::collections::HashMap;
 use std::io::{Read, Write, BufRead, BufReader};
 
-use protocol::binary_packet::Opcode;
 use client::Stats;
 use error::MemcacheError;
 use stream::Stream;
@@ -333,11 +332,48 @@ impl AsciiProtocol<Stream> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        unimplemented!();
+        write!(self.reader.get_mut(), "touch {} {}\r\n", key, expiration)?;
+        self.reader.get_mut().flush()?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
+        } else if s == "TOUCHED\r\n" {
+            return Ok(true);
+        } else if s == "NOT_FOUND\r\n" {
+            return Ok(false);
+        } else {
+            return Err(MemcacheError::ClientError(String::from("invalid server response")));
+        }
     }
 
     pub(super) fn stats(&mut self) -> Result<Stats, MemcacheError> {
-        unimplemented!();
+        self.reader.get_mut().write(b"stats\r\n")?;
+        self.reader.get_mut().flush()?;
+
+        let mut result: Stats = HashMap::new();
+        loop {
+            let mut s = String::new();
+            let _ = self.reader.read_line(&mut s)?;
+
+            if is_memcache_error(s.as_str()) {
+                return Err(MemcacheError::from(s));
+            } else if s.starts_with("END") {
+                break;
+            } else if !s.starts_with("STAT") {
+                return Err(MemcacheError::ClientError("invalid server response".into()));
+            }
+
+            let stat: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
+            if stat.len() != 3 {
+                return Err(MemcacheError::ClientError("invalid server response".into()));
+            }
+            let key = stat[1];
+            let value = stat[2];
+            result.insert(key.into(), value.into());
+        }
+
+        return Ok(result);
     }
 }
 
