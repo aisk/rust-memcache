@@ -25,14 +25,14 @@ impl Protocol {
 
     pub(super) fn flush(&mut self) -> Result<(), MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.flush(),
             Protocol::Binary(ref mut protocol) => protocol.flush(),
         }
     }
 
     pub(super) fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.flush_with_delay(delay),
             Protocol::Binary(ref mut protocol) => protocol.flush_with_delay(delay),
         }
     }

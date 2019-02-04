@@ -1,10 +1,15 @@
 extern crate memcache;
 
 use std::collections::HashMap;
+use std::{thread, time};
 
 #[test]
 fn test_ascii() {
     let mut client = memcache::Client::connect("memcache://localhost:12345?protocol=ascii").unwrap();
+
+    client.flush_with_delay(1).unwrap();
+    thread::sleep(time::Duration::from_secs(1));
+    client.flush().unwrap();
 
     client.set("ascii_foo", "bar", 0).unwrap();
     let value: Option<String> = client.get("ascii_foo").unwrap();
