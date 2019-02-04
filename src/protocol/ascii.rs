@@ -237,7 +237,7 @@ impl AsciiProtocol<Stream> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        unimplemented!();
+        return self.store(StoreCommand::Append, key, value, &Default::default());
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(
@@ -248,7 +248,7 @@ impl AsciiProtocol<Stream> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        unimplemented!();
+        return self.store(StoreCommand::Prepend, key, value, &Default::default());
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {

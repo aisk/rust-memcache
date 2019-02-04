@@ -18,4 +18,12 @@ fn test_ascii() {
 
     let value: Option<String> = client.get("not_exists_key").unwrap();
     assert_eq!(value, None);
+
+    client.set("ascii_pend", "y", 0).unwrap();
+    client.append("ascii_pend", "z").unwrap();
+    let value: Option<String> = client.get("ascii_pend").unwrap();
+    assert_eq!(value, Some("yz".into()));
+    client.prepend("ascii_pend", "x").unwrap();
+    let value: Option<String> = client.get("ascii_pend").unwrap();
+    assert_eq!(value, Some("xyz".into()));
 }
