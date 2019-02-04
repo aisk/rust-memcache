@@ -94,8 +94,8 @@ impl AsciiProtocol<Stream> {
         } else if !s.starts_with("VERSION") {
             return Err(MemcacheError::ServerError(0));
         }
-        let s = s.trim_left_matches("VERSION ");
-        let s = s.trim_right_matches("\r\n");
+        let s = s.trim_start_matches("VERSION ");
+        let s = s.trim_end_matches("\r\n");
 
         return Ok(s.to_string());
     }
@@ -122,7 +122,7 @@ impl AsciiProtocol<Stream> {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
 
-        let header: Vec<_> = s.trim_right_matches("\r\n").split(" ").collect();
+        let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
         if header.len() != 4 {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
@@ -171,7 +171,7 @@ impl AsciiProtocol<Stream> {
                 return Err(MemcacheError::ClientError("invalid server response".into()));
             }
 
-            let header: Vec<_> = s.trim_right_matches("\r\n").split(" ").collect();
+            let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
             if header.len() != 5 {
                 return Err(MemcacheError::ClientError("invalid server response".into()));
             }
