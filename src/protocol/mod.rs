@@ -74,14 +74,14 @@ impl Protocol {
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.append(key, value),
             Protocol::Binary(ref mut protocol) => protocol.append(key, value),
         }
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str,value: V) -> Result<(), MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.prepend(key, value),
             Protocol::Binary(ref mut protocol) => protocol.prepend(key, value),
         }
     }
