@@ -88,21 +88,21 @@ impl Protocol {
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.delete(key),
             Protocol::Binary(ref mut protocol) => protocol.delete(key),
         }
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.increment(key, amount),
             Protocol::Binary(ref mut protocol) => protocol.increment(key, amount),
         }
     }
 
     pub(super) fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.decrement(key, amount),
             Protocol::Binary(ref mut protocol) => protocol.decrement(key, amount),
         }
     }

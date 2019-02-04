@@ -276,21 +276,57 @@ impl AsciiProtocol<Stream> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        unimplemented!();
+        write!(self.reader.get_mut(), "delete {}\r\n", key)?;
+        self.reader.get_mut().flush()?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
+        } else if s == "DELETED\r\n" {
+            return Ok(true);
+        } else if s == "NOT_FOUND\r\n" {
+            return Ok(false);
+        } else {
+            return Err(MemcacheError::ClientError(String::from("invalid server response")));
+        }
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        unimplemented!();
+        write!(self.reader.get_mut(), "incr {} {}\r\n", key, amount)?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
+        } else if s == "NOT_FOUND\r\n" {
+            return Err(MemcacheError::from(1));
+        } else {
+            match s.trim_end_matches("\r\n").parse::<u64>() {
+                Ok(n) => return Ok(n),
+                Err(_) => return Err(MemcacheError::ClientError("invalid server response".into())),
+            }
+        }
     }
 
     pub(super) fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        unimplemented!();
+        write!(self.reader.get_mut(), "decr {} {}\r\n", key, amount)?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
+        } else if s == "NOT_FOUND\r\n" {
+            return Err(MemcacheError::from(1));
+        } else {
+            match s.trim_end_matches("\r\n").parse::<u64>() {
+                Ok(n) => return Ok(n),
+                Err(_) => return Err(MemcacheError::ClientError("invalid server response".into())),
+            }
+        }
     }
 
     pub(super) fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
