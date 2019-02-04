@@ -109,14 +109,14 @@ impl Protocol {
 
     pub(super) fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.touch(key, expiration),
             Protocol::Binary(ref mut protocol) => protocol.touch(key, expiration),
         }
     }
 
     pub(super) fn stats(&mut self) -> Result<Stats, MemcacheError> {
         match self {
-            Protocol::Ascii(ref mut protocol) => unimplemented!(),
+            Protocol::Ascii(ref mut protocol) => protocol.stats(),
             Protocol::Binary(ref mut protocol) => protocol.stats(),
         }
     }

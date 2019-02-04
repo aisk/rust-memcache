@@ -21,6 +21,8 @@ fn test_ascii() {
     assert_eq!(values.get("ascii_foo"), Some(&"bar".to_string()));
     assert_eq!(values.get("ascii_baz"), Some(&"qux".to_string()));
 
+    client.touch("ascii_foo", 1000).unwrap();
+
     let value: Option<String> = client.get("not_exists_key").unwrap();
     assert_eq!(value, None);
 
@@ -40,4 +42,6 @@ fn test_ascii() {
     client.set("ascii_counter", 3, 0).unwrap();
     assert_eq!(client.increment("ascii_counter", 100).unwrap(), 103);
     assert_eq!(client.decrement("ascii_counter", 3).unwrap(), 100);
+
+    client.stats().unwrap();
 }
