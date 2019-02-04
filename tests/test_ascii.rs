@@ -31,4 +31,13 @@ fn test_ascii() {
     client.prepend("ascii_pend", "x").unwrap();
     let value: Option<String> = client.get("ascii_pend").unwrap();
     assert_eq!(value, Some("xyz".into()));
+
+    client.delete("ascii_pend").unwrap();
+    let value: Option<String> = client.get("ascii_pend").unwrap();
+    assert_eq!(value, None);
+
+    assert!(client.increment("ascii_counter", 1).is_err());
+    client.set("ascii_counter", 3, 0).unwrap();
+    assert_eq!(client.increment("ascii_counter", 100).unwrap(), 103);
+    assert_eq!(client.decrement("ascii_counter", 3).unwrap(), 100);
 }
