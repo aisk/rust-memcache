@@ -101,11 +101,32 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn flush(&mut self) -> Result<(), MemcacheError> {
-        unimplemented!();
+        match self.reader.get_mut().write(b"flush_all\r\n") {
+            Ok(_) => {}
+            Err(err) => return Err(MemcacheError::from(err)),
+        }
+        self.reader.get_mut().flush()?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
+        } else if s != "OK\r\n" {
+            return Err(MemcacheError::ClientError("invalid server response".into()));
+        }
+        return Ok(());
     }
 
     pub(super) fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
-        unimplemented!();
+        write!(self.reader.get_mut(), "flush_all {}\r\n", delay)?;
+        self.reader.get_mut().flush()?;
+        let mut s = String::new();
+        let _ = self.reader.read_line(&mut s);
+        if is_memcache_error(s.as_str()) {
+            return Err(MemcacheError::from(s));
+        } else if s != "OK\r\n" {
+            return Err(MemcacheError::ClientError("invalid server response".into()));
+        }
+        return Ok(());
     }
 
     pub(super) fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
