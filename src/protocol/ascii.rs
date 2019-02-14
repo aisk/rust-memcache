@@ -365,11 +365,11 @@ impl AsciiProtocol<Stream> {
             }
 
             let stat: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
-            if stat.len() != 3 {
+            if stat.len() < 3 {
                 return Err(MemcacheError::ClientError("invalid server response".into()));
             }
             let key = stat[1];
-            let value = stat[2];
+            let value = s.trim_start_matches(format!("STAT {}", key).as_str());
             result.insert(key.into(), value.into());
         }
 
