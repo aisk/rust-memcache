@@ -12,7 +12,8 @@ memcache = "*"
 
 # Features:
 
-- <input type="checkbox"  disabled checked /> Binary protocal
+- <input type="checkbox"  disabled checked /> Binary protocol
+- <input type="checkbox"  disabled checked /> ASCII protocol
 - <input type="checkbox"  disabled checked /> TCP connection
 - <input type="checkbox"  disabled checked /> UDP connection
 - <input type="checkbox"  disabled checked/> UNIX Domain socket connection
@@ -20,7 +21,7 @@ memcache = "*"
 - <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
 - <input type="checkbox"  disabled checked /> Typed interface
 - <input type="checkbox"  disabled checked /> Mutiple server support with custom key hash algorithm
-- <inlut type="checkbox"  disabled checked /> SASL authority (plain)
+- <inlut type="checkbox"  disabled /> SASL authority (plain)
 
 # Basic usage:
 

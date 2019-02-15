@@ -20,7 +20,8 @@ memcache = "*"
 
 ## Features
 
-- [x] Binary protocal
+- [x] Binary protocol
+- [x] ASCII protocol
 - [x] TCP connection
 - [x] UDP connection
 - [x] UNIX Domain socket connection
@@ -28,7 +29,7 @@ memcache = "*"
 - [ ] Automatically serialize to JSON / msgpack etc.
 - [x] Typed interface
 - [x] Mutiple server support with custom key hash algorithm
-- [x] SASL authority (plain)
+- [ ] SASL authority (plain)
 
 ## Basic usage
 
