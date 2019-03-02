@@ -20,16 +20,20 @@ pub struct Connection {
 
 impl Connection {
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
-        if url.scheme() != "memcache" {
+        let parts: Vec<&str> = url.scheme().split("+").collect();
+        if parts.len() !=1 && parts.len() != 2 || parts[0] != "memcache" {
             return Err(MemcacheError::ClientError(
-                "memcache URL should start with 'memcache://'".into(),
+                "memcache URL'scheme should start with 'memcache'".into(),
             ));
         }
 
-        let is_udp = url
-            .query_pairs()
-            .any(|(ref k, ref v)| k == "udp" && v == "true");
-
+        let mut is_udp = false;
+        if url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true") {
+            is_udp = true;
+        }
+        if parts.len() == 2 && parts[1] == "udp" { // scheme specify have high priority.
+            is_udp = true;
+        }
         if is_udp {
             let udp_stream = Stream::Udp(UdpStream::new(url.clone())?);
             return Ok(Connection {
