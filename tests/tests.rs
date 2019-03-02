@@ -58,7 +58,7 @@ fn test() {
 
 #[test]
 fn udp_test() {
-    let urls = vec!["memcache://localhost:22345?udp=true"];
+    let urls = vec!["memcache+udp://localhost:22345"];
     let mut client = memcache::Client::connect(urls).unwrap();
 
     client.version().unwrap();
