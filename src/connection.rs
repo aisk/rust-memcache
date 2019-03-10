@@ -1,16 +1,16 @@
-use std::net::TcpStream;
-use std::time::Duration;
 use std::io::BufReader;
+use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+use std::time::Duration;
 #[cfg(unix)]
 use url::Host;
 use url::Url;
 
 use error::MemcacheError;
+use protocol::{AsciiProtocol, BinaryProtocol, Protocol};
 use stream::Stream;
 use stream::UdpStream;
-use protocol::{Protocol, AsciiProtocol, BinaryProtocol};
 
 /// a connection to the memcached server
 pub struct Connection {
@@ -21,7 +21,7 @@ pub struct Connection {
 impl Connection {
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
         let parts: Vec<&str> = url.scheme().split("+").collect();
-        if parts.len() !=1 && parts.len() != 2 || parts[0] != "memcache" {
+        if parts.len() != 1 && parts.len() != 2 || parts[0] != "memcache" {
             return Err(MemcacheError::ClientError(
                 "memcache URL's scheme should start with 'memcache'".into(),
             ));
@@ -36,14 +36,15 @@ impl Connection {
         if url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true") {
             is_udp = true;
         }
-        if parts.len() == 2 && parts[1] == "udp" { // scheme specify have high priority.
+        if parts.len() == 2 && parts[1] == "udp" {
+            // scheme specify have high priority.
             is_udp = true;
         }
         if is_udp {
             let udp_stream = Stream::Udp(UdpStream::new(url.clone())?);
             return Ok(Connection {
                 url: url.to_string(),
-                protocol: Protocol::Binary(BinaryProtocol{stream: udp_stream}),
+                protocol: Protocol::Binary(BinaryProtocol { stream: udp_stream }),
             });
         }
 
@@ -53,7 +54,9 @@ impl Connection {
                 let stream = UnixStream::connect(url.path())?;
                 return Ok(Connection {
                     url: url.to_string(),
-                    protocol: Protocol::Binary(BinaryProtocol{stream: Stream::Unix(stream)}),
+                    protocol: Protocol::Binary(BinaryProtocol {
+                        stream: Stream::Unix(stream),
+                    }),
                 });
             }
         }
@@ -67,7 +70,8 @@ impl Connection {
             stream.set_nodelay(true)?;
         }
 
-        let timeout = url.query_pairs()
+        let timeout = url
+            .query_pairs()
             .find(|&(ref k, ref _v)| k == "timeout")
             .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
             .map(Duration::from_secs);
@@ -76,20 +80,21 @@ impl Connection {
             stream.set_write_timeout(timeout)?;
         }
 
-        let is_ascii = url
-            .query_pairs()
-            .any(|(ref k, ref v)| k == "protocol" && v == "ascii");
+        let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
 
         if is_ascii {
             return Ok(Connection {
                 url: url.to_string(),
-                protocol: Protocol::Ascii(AsciiProtocol{ reader: BufReader::new( Stream::Tcp(stream) ) }),
+                protocol: Protocol::Ascii(AsciiProtocol {
+                    reader: BufReader::new(Stream::Tcp(stream)),
+                }),
             });
         }
         return Ok(Connection {
             url: url.to_string(),
-            protocol: Protocol::Binary(BinaryProtocol{stream: Stream::Tcp(stream)}),
+            protocol: Protocol::Binary(BinaryProtocol {
+                stream: Stream::Tcp(stream),
+            }),
         });
     }
-
 }

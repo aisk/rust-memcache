@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
@@ -9,7 +9,7 @@ use connection::Connection;
 use error::MemcacheError;
 use protocol::Protocol;
 use stream::Stream;
-use value::{ToMemcacheValue, FromMemcacheValue};
+use value::{FromMemcacheValue, ToMemcacheValue};
 
 pub type Stats = HashMap<String, String>;
 
@@ -57,7 +57,7 @@ fn default_hash_function(key: &str) -> u64 {
 }
 
 impl Client {
-    #[deprecated(since="0.10.0", note="please use `connect` instead")]
+    #[deprecated(since = "0.10.0", note = "please use `connect` instead")]
     pub fn new<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
         return Self::connect(target);
     }
@@ -130,11 +130,11 @@ impl Client {
     /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
     /// ```
     pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-       for conn in self.connections.iter_mut() {
-           match conn.protocol {
-               Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
-               Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
-           }
+        for conn in self.connections.iter_mut() {
+            match conn.protocol {
+                Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
+                Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
+            }
         }
         Ok(())
     }
@@ -208,19 +208,14 @@ impl Client {
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
     /// ```
-    pub fn gets<V: FromMemcacheValue>(
-        &mut self,
-        keys: Vec<&str>,
-    ) -> Result<HashMap<String, V>, MemcacheError> {
+    pub fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
         let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
         let connections_count = self.connections.len();
 
         for key in keys {
             let connection_index = (self.hash_function)(key) as usize % connections_count;
-            let array = con_keys
-                .entry(connection_index)
-                .or_insert_with(Vec::new);
+            let array = con_keys.entry(connection_index).or_insert_with(Vec::new);
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
@@ -244,7 +239,7 @@ impl Client {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.get_connection(key).protocol.set(key, value, expiration)
+        return self.get_connection(key).protocol.set(key, value, expiration);
     }
 
     /// Add a key with associate value into memcached server with expiration seconds.
@@ -263,7 +258,7 @@ impl Client {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.get_connection(key).protocol.add(key, value, expiration)
+        return self.get_connection(key).protocol.add(key, value, expiration);
     }
 
     /// Replace a key with associate value into memcached server with expiration seconds.
@@ -282,7 +277,7 @@ impl Client {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.get_connection(key).protocol.replace(key, value, expiration)
+        return self.get_connection(key).protocol.replace(key, value, expiration);
     }
 
     /// Append value to the key.
@@ -297,12 +292,8 @@ impl Client {
     /// let result: String = client.get(key).unwrap().unwrap();
     /// assert_eq!(result, "hello, world!");
     /// ```
-    pub fn append<V: ToMemcacheValue<Stream>>(
-        &mut self,
-        key: &str,
-        value: V,
-    ) -> Result<(), MemcacheError> {
-        return self.get_connection(key).protocol.append(key, value)
+    pub fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
+        return self.get_connection(key).protocol.append(key, value);
     }
 
     /// Prepend value to the key.
@@ -317,12 +308,8 @@ impl Client {
     /// let result: String = client.get(key).unwrap().unwrap();
     /// assert_eq!(result, "hello, world!");
     /// ```
-    pub fn prepend<V: ToMemcacheValue<Stream>>(
-        &mut self,
-        key: &str,
-        value: V,
-    ) -> Result<(), MemcacheError> {
-        return self.get_connection(key).protocol.prepend(key, value)
+    pub fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
+        return self.get_connection(key).protocol.prepend(key, value);
     }
 
     /// Delete a key from memcached server.
@@ -334,7 +321,7 @@ impl Client {
     /// client.delete("foo").unwrap();
     /// ```
     pub fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        return self.get_connection(key).protocol.delete(key)
+        return self.get_connection(key).protocol.delete(key);
     }
 
     /// Increment the value with amount.
@@ -346,7 +333,7 @@ impl Client {
     /// client.increment("counter", 42).unwrap();
     /// ```
     pub fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        return self.get_connection(key).protocol.increment(key, amount)
+        return self.get_connection(key).protocol.increment(key, amount);
     }
 
     /// Decrement the value with amount.
@@ -358,7 +345,7 @@ impl Client {
     /// client.decrement("counter", 42).unwrap();
     /// ```
     pub fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        return self.get_connection(key).protocol.decrement(key, amount)
+        return self.get_connection(key).protocol.decrement(key, amount);
     }
 
     /// Set a new expiration time for a exist key.
@@ -372,7 +359,7 @@ impl Client {
     /// assert_eq!(client.touch("foo", 12345).unwrap(), true);
     /// ```
     pub fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
-        return self.get_connection(key).protocol.touch(key, expiration)
+        return self.get_connection(key).protocol.touch(key, expiration);
     }
 
     /// Get all servers' statistics.

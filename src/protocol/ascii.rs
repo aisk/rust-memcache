@@ -1,11 +1,11 @@
-use std::fmt;
 use std::collections::HashMap;
-use std::io::{Read, Write, BufRead, BufReader};
+use std::fmt;
+use std::io::{BufRead, BufReader, Read, Write};
 
 use client::Stats;
 use error::MemcacheError;
 use stream::Stream;
-use value::{ToMemcacheValue, FromMemcacheValue};
+use value::{FromMemcacheValue, ToMemcacheValue};
 
 #[derive(Default)]
 pub struct Options {
@@ -172,10 +172,7 @@ impl AsciiProtocol<Stream> {
         return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
     }
 
-    pub(super) fn gets<V: FromMemcacheValue>(
-        &mut self,
-        keys: Vec<&str>,
-    ) -> Result<HashMap<String, V>, MemcacheError> {
+    pub(super) fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
         write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
 
         let mut result: HashMap<String, V> = HashMap::new();
@@ -225,7 +222,10 @@ impl AsciiProtocol<Stream> {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        let options = Options{exptime: expiration, ..Default::default()};
+        let options = Options {
+            exptime: expiration,
+            ..Default::default()
+        };
         return self.store(StoreCommand::Set, key, value, &options);
     }
 
@@ -235,7 +235,10 @@ impl AsciiProtocol<Stream> {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        let options = Options{exptime: expiration, ..Default::default()};
+        let options = Options {
+            exptime: expiration,
+            ..Default::default()
+        };
         return self.store(StoreCommand::Add, key, value, &options);
     }
 
@@ -245,26 +248,21 @@ impl AsciiProtocol<Stream> {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        let options = Options{exptime: expiration, ..Default::default()};
+        let options = Options {
+            exptime: expiration,
+            ..Default::default()
+        };
         return self.store(StoreCommand::Replace, key, value, &options);
     }
 
-    pub(super) fn append<V: ToMemcacheValue<Stream>>(
-        &mut self,
-        key: &str,
-        value: V,
-    ) -> Result<(), MemcacheError> {
+    pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
         return self.store(StoreCommand::Append, key, value, &Default::default());
     }
 
-    pub(super) fn prepend<V: ToMemcacheValue<Stream>>(
-        &mut self,
-        key: &str,
-        value: V,
-    ) -> Result<(), MemcacheError> {
+    pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -376,7 +374,6 @@ impl AsciiProtocol<Stream> {
         return Ok(result);
     }
 }
-
 
 fn is_memcache_error(s: &str) -> bool {
     return s == "ERROR\r\n" || s.starts_with("CIENT_ERROR") || s.starts_with("SERVER_ERROR");

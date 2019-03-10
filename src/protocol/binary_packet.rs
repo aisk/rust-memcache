@@ -1,7 +1,7 @@
-use std::io;
-use std::collections::HashMap;
-use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use error::MemcacheError;
+use std::collections::HashMap;
+use std::io;
 use value::FromMemcacheValue;
 
 #[allow(dead_code)]
@@ -82,9 +82,10 @@ impl PacketHeader {
     pub fn read<R: io::Read>(reader: &mut R) -> Result<PacketHeader, MemcacheError> {
         let magic = reader.read_u8()?;
         if magic != Magic::Response as u8 {
-            return Err(MemcacheError::ClientError(
-                format!("Bad magic number in response header: {}", magic),
-            ));
+            return Err(MemcacheError::ClientError(format!(
+                "Bad magic number in response header: {}",
+                magic
+            )));
         }
         let header = PacketHeader {
             magic,
@@ -119,9 +120,7 @@ pub fn parse_version_response<R: io::Read>(reader: &mut R) -> Result<String, Mem
     return Ok(String::from_utf8(buffer)?);
 }
 
-pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(
-    reader: &mut R,
-) -> Result<Option<V>, MemcacheError> {
+pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(reader: &mut R) -> Result<Option<V>, MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
         let mut buffer = vec![0; header.total_body_length as usize];
@@ -151,17 +150,13 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
         }
         let flags = reader.read_u32::<BigEndian>()?;
         let key_length = header.key_length;
-        let value_length = header.total_body_length - u32::from(key_length) -
-            u32::from(header.extras_length);
+        let value_length = header.total_body_length - u32::from(key_length) - u32::from(header.extras_length);
         let mut key_buffer = vec![0; key_length as usize];
         reader.read_exact(key_buffer.as_mut_slice())?;
         let key = String::from_utf8(key_buffer)?;
         let mut value_buffer = vec![0; value_length as usize];
         reader.read_exact(value_buffer.as_mut_slice())?;
-        result.insert(
-            key,
-            FromMemcacheValue::from_memcache_value(value_buffer, flags)?,
-        );
+        result.insert(key, FromMemcacheValue::from_memcache_value(value_buffer, flags)?);
     }
     return Ok(result);
 }
@@ -169,10 +164,7 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
 pub fn parse_delete_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.total_body_length != 0 {
-        reader.read_exact(
-            vec![0; header.total_body_length as usize]
-                .as_mut_slice(),
-        )?;
+        reader.read_exact(vec![0; header.total_body_length as usize].as_mut_slice())?;
     }
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
         return Ok(false);
@@ -193,10 +185,7 @@ pub fn parse_counter_response<R: io::Read>(reader: &mut R) -> Result<u64, Memcac
 pub fn parse_touch_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.total_body_length != 0 {
-        reader.read_exact(
-            vec![0; header.total_body_length as usize]
-                .as_mut_slice(),
-        )?;
+        reader.read_exact(vec![0; header.total_body_length as usize].as_mut_slice())?;
     }
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
         return Ok(false);
@@ -214,8 +203,7 @@ pub fn parse_stats_response<R: io::Read>(reader: &mut R) -> Result<HashMap<Strin
             return Err(MemcacheError::from(header.vbucket_id_or_status));
         }
         let key_length = header.key_length;
-        let value_length = header.total_body_length - u32::from(key_length) -
-            u32::from(header.extras_length);
+        let value_length = header.total_body_length - u32::from(key_length) - u32::from(header.extras_length);
         let mut key_buffer = vec![0; key_length as usize];
         reader.read_exact(key_buffer.as_mut_slice())?;
         let key = String::from_utf8(key_buffer)?;
@@ -233,10 +221,7 @@ pub fn parse_stats_response<R: io::Read>(reader: &mut R) -> Result<HashMap<Strin
 pub fn parse_start_auth_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.total_body_length != 0 {
-        reader.read_exact(
-            vec![0; header.total_body_length as usize]
-                .as_mut_slice(),
-        )?;
+        reader.read_exact(vec![0; header.total_body_length as usize].as_mut_slice())?;
     }
     if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
         return Err(MemcacheError::from(header.vbucket_id_or_status));

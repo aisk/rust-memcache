@@ -1,8 +1,8 @@
-use std::str;
-use std::str::FromStr;
+use error::MemcacheError;
 use std::io;
 use std::io::Write;
-use error::MemcacheError;
+use std::str;
+use std::str::FromStr;
 
 pub enum Flags {
     Bytes = 0,
@@ -66,7 +66,7 @@ impl<'a, W: Write> ToMemcacheValue<W> for &'a str {
     }
 }
 
-macro_rules! impl_to_memcache_value_for_number{
+macro_rules! impl_to_memcache_value_for_number {
     ($ty:ident) => {
         impl<W: Write> ToMemcacheValue<W> for $ty {
             fn get_flags(&self) -> u32 {
@@ -84,7 +84,7 @@ macro_rules! impl_to_memcache_value_for_number{
                 }
             }
         }
-    }
+    };
 }
 
 impl_to_memcache_value_for_number!(bool);
@@ -124,7 +124,7 @@ impl FromMemcacheValue for String {
     }
 }
 
-macro_rules! impl_from_memcache_value_for_number{
+macro_rules! impl_from_memcache_value_for_number {
     ($ty:ident) => {
         impl FromMemcacheValue for $ty {
             fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
@@ -135,7 +135,7 @@ macro_rules! impl_from_memcache_value_for_number{
                 }
             }
         }
-    }
+    };
 }
 
 impl_from_memcache_value_for_number!(bool);

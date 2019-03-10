@@ -1,12 +1,12 @@
-extern crate rand;
 extern crate memcache;
+extern crate rand;
 
-use std::thread;
-use std::time;
-use std::iter;
-use rand::{Rng, thread_rng};
 use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use std::iter;
+use std::thread;
 use std::thread::JoinHandle;
+use std::time;
 
 fn gen_random_key() -> String {
     return iter::repeat(())

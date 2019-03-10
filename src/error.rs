@@ -46,7 +46,7 @@ impl error::Error for MemcacheError {
         }
     }
 
-    fn source(&self)-> Option<&(error::Error + 'static)> {
+    fn source(&self) -> Option<&(error::Error + 'static)> {
         match *self {
             MemcacheError::Io(ref err) => err.source(),
             MemcacheError::FromUtf8(ref err) => err.source(),

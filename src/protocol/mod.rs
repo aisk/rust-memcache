@@ -2,13 +2,13 @@ mod ascii;
 mod binary;
 mod binary_packet;
 
-use std::collections::HashMap;
 use client::Stats;
-use stream::Stream;
 use error::MemcacheError;
-use value::{ToMemcacheValue, FromMemcacheValue};
 pub(crate) use protocol::ascii::AsciiProtocol;
 pub(crate) use protocol::binary::BinaryProtocol;
+use std::collections::HashMap;
+use stream::Stream;
+use value::{FromMemcacheValue, ToMemcacheValue};
 
 pub enum Protocol {
     Ascii(AsciiProtocol<Stream>),
@@ -51,21 +51,36 @@ impl Protocol {
         }
     }
 
-    pub(super) fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    pub(super) fn set<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.set(key, value, expiration),
             Protocol::Binary(ref mut protocol) => protocol.set(key, value, expiration),
         }
     }
 
-    pub(super) fn add<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    pub(super) fn add<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.add(key, value, expiration),
             Protocol::Binary(ref mut protocol) => protocol.add(key, value, expiration),
         }
     }
 
-    pub(super) fn replace<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    pub(super) fn replace<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.replace(key, value, expiration),
             Protocol::Binary(ref mut protocol) => protocol.replace(key, value, expiration),
@@ -79,7 +94,7 @@ impl Protocol {
         }
     }
 
-    pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str,value: V) -> Result<(), MemcacheError> {
+    pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.prepend(key, value),
             Protocol::Binary(ref mut protocol) => protocol.prepend(key, value),
