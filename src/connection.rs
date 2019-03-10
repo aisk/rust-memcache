@@ -23,7 +23,12 @@ impl Connection {
         let parts: Vec<&str> = url.scheme().split("+").collect();
         if parts.len() !=1 && parts.len() != 2 || parts[0] != "memcache" {
             return Err(MemcacheError::ClientError(
-                "memcache URL'scheme should start with 'memcache'".into(),
+                "memcache URL's scheme should start with 'memcache'".into(),
+            ));
+        }
+        if parts.len() == 2 && !(parts[1] != "tcp" || parts[1] != "udp" || parts[1] != "unix") {
+            return Err(MemcacheError::ClientError(
+                "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix'".into(),
             ));
         }
 
