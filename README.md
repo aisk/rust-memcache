@@ -7,7 +7,7 @@
 [![Docs](https://docs.rs/memcache/badge.svg)](https://docs.rs/memcache/)
 [![Gitter chat](https://badges.gitter.im/rust-memcache/Lobby.png)](https://gitter.im/rust-memcache/Lobby)
 
-rust-memcache is a [Memcached](https://memcached.org/) client written in pure rust.
+rust-memcache is a [memcached](https://memcached.org/) client written in pure rust.
 
 ## Install
 

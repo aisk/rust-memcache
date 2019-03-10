@@ -1,5 +1,5 @@
 /*!
-rust-memcache is a [Memcached](https://memcached.org/) client written in pure rust.
+rust-memcache is a [memcached](https://memcached.org/) client written in pure rust.
 
 # Install:
 
