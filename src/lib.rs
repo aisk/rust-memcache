@@ -60,16 +60,16 @@ assert_eq!(answer, 42);
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::needless_return))]
 
 extern crate byteorder;
-extern crate url;
 extern crate rand;
+extern crate url;
 
+mod client;
 mod connection;
 mod error;
-mod value;
-mod client;
-mod stream;
 mod protocol;
+mod stream;
+mod value;
 
-pub use error::MemcacheError;
-pub use value::{ToMemcacheValue, FromMemcacheValue};
 pub use client::{Client, Connectable};
+pub use error::MemcacheError;
+pub use value::{FromMemcacheValue, ToMemcacheValue};

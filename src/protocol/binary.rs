@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use byteorder::{WriteBytesExt, BigEndian};
+use byteorder::{BigEndian, WriteBytesExt};
 use client::Stats;
 use error::MemcacheError;
-use protocol::binary_packet::{self, Opcode, PacketHeader, Magic};
+use protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
 use stream::Stream;
-use value::{ToMemcacheValue, FromMemcacheValue};
+use value::{FromMemcacheValue, ToMemcacheValue};
 
 pub struct BinaryProtocol {
     pub stream: Stream,
@@ -100,10 +100,7 @@ impl BinaryProtocol {
         return binary_packet::parse_get_response(&mut self.stream);
     }
 
-    pub(super) fn gets<V: FromMemcacheValue>(
-        &mut self,
-        keys: Vec<&str>,
-    ) -> Result<HashMap<String, V>, MemcacheError> {
+    pub(super) fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
             if key.len() > 250 {
                 return Err(MemcacheError::ClientError(String::from("key is too long")));
@@ -154,11 +151,7 @@ impl BinaryProtocol {
         return self.store(Opcode::Replace, key, value, expiration);
     }
 
-    pub(super) fn append<V: ToMemcacheValue<Stream>>(
-        &mut self,
-        key: &str,
-        value: V,
-    ) -> Result<(), MemcacheError> {
+    pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -176,11 +169,7 @@ impl BinaryProtocol {
         return binary_packet::parse_header_only_response(&mut self.stream);
     }
 
-    pub(super) fn prepend<V: ToMemcacheValue<Stream>>(
-        &mut self,
-        key: &str,
-        value: V,
-    ) -> Result<(), MemcacheError> {
+    pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -233,15 +222,9 @@ impl BinaryProtocol {
             expiration: 0,
         };
         request_header.write(&mut self.stream)?;
-        self.stream.write_u64::<BigEndian>(
-            extras.amount,
-        )?;
-        self.stream.write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.stream.write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
+        self.stream.write_u64::<BigEndian>(extras.amount)?;
+        self.stream.write_u64::<BigEndian>(extras.initial_value)?;
+        self.stream.write_u32::<BigEndian>(extras.expiration)?;
         self.stream.write_all(key.as_bytes())?;
         self.stream.flush()?;
         return binary_packet::parse_counter_response(&mut self.stream);
@@ -265,15 +248,9 @@ impl BinaryProtocol {
             expiration: 0,
         };
         request_header.write(&mut self.stream)?;
-        self.stream.write_u64::<BigEndian>(
-            extras.amount,
-        )?;
-        self.stream.write_u64::<BigEndian>(
-            extras.initial_value,
-        )?;
-        self.stream.write_u32::<BigEndian>(
-            extras.expiration,
-        )?;
+        self.stream.write_u64::<BigEndian>(extras.amount)?;
+        self.stream.write_u64::<BigEndian>(extras.initial_value)?;
+        self.stream.write_u32::<BigEndian>(extras.expiration)?;
         self.stream.write_all(key.as_bytes())?;
         self.stream.flush()?;
         return binary_packet::parse_counter_response(&mut self.stream);

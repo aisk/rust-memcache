@@ -2,12 +2,12 @@ mod udp_stream;
 
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
-use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
-use error::MemcacheError;
 pub(crate) use self::udp_stream::UdpStream;
+use error::MemcacheError;
 
 pub enum Stream {
     Tcp(TcpStream),
@@ -18,14 +18,14 @@ pub enum Stream {
 
 impl Stream {
     pub(super) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        if  let Stream::Tcp(ref mut conn) =  self {
+        if let Stream::Tcp(ref mut conn) = self {
             conn.set_read_timeout(timeout)?;
         }
         Ok(())
     }
 
     pub(super) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        if  let Stream::Tcp(ref mut conn) =  self {
+        if let Stream::Tcp(ref mut conn) = self {
             conn.set_write_timeout(timeout)?;
         }
         Ok(())

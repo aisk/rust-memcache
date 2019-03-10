@@ -1,12 +1,12 @@
-use std::io;
-use std::io::{Read, Write, ErrorKind, Error};
-use std::net::UdpSocket;
+use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 use error::MemcacheError;
 use rand;
-use url::Url;
-use byteorder::{BigEndian, WriteBytesExt, ByteOrder};
 use std::collections::HashMap;
+use std::io;
+use std::io::{Error, ErrorKind, Read, Write};
+use std::net::UdpSocket;
 use std::u16;
+use url::Url;
 
 pub struct UdpStream {
     socket: UdpSocket,
@@ -20,11 +20,11 @@ impl UdpStream {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         socket.connect(addr)?;
         return Ok(UdpStream {
-                socket,
-                read_buf: Vec::new(),
-                write_buf: Vec::new(),
-                request_id:  rand::random::<u16>()
-            });
+            socket,
+            read_buf: Vec::new(),
+            write_buf: Vec::new(),
+            request_id: rand::random::<u16>(),
+        });
     }
 }
 
@@ -62,8 +62,9 @@ impl Write for UdpStream {
         let mut total_datagrams;
         let mut remaining_datagrams = 0;
         self.read_buf.clear();
-        loop { // for large values, response can span multiple datagrams, so gather them all
-            let mut buf: [u8 ; 1400] = [0 ; 1400]; // memcache udp response payload can not be longer than 1400 bytes
+        loop {
+            // for large values, response can span multiple datagrams, so gather them all
+            let mut buf: [u8; 1400] = [0; 1400]; // memcache udp response payload can not be longer than 1400 bytes
             let bytes_read = self.socket.recv(&mut buf)?;
             if bytes_read < 8 {
                 // make an error here to avoid panic below
@@ -71,7 +72,8 @@ impl Write for UdpStream {
             }
 
             let request_id = BigEndian::read_u16(&buf[0..]);
-            if self.request_id != request_id { // ideally this shouldn't happen as we wait to read out response before sending another request
+            if self.request_id != request_id {
+                // ideally this shouldn't happen as we wait to read out response before sending another request
                 continue;
             }
             let sequence_no = BigEndian::read_u16(&buf[2..]);
@@ -96,4 +98,3 @@ impl Write for UdpStream {
         Ok(())
     }
 }
-
