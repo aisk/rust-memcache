@@ -147,8 +147,7 @@ impl AsciiProtocol<Stream> {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
 
-        let key = header[1];
-        if key != key {
+        if key != header[1] {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
         let flags = header[2].parse()?;
@@ -194,9 +193,6 @@ impl AsciiProtocol<Stream> {
             }
 
             let key = header[1];
-            if key != key {
-                return Err(MemcacheError::ClientError("invalid server response".into()));
-            }
             let flags = header[2].parse()?;
             let length = header[3].parse()?;
 
