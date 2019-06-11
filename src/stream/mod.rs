@@ -18,15 +18,19 @@ pub enum Stream {
 
 impl Stream {
     pub(super) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        if let Stream::Tcp(ref mut conn) = self {
-            conn.set_read_timeout(timeout)?;
+        match self {
+            Stream::Tcp(ref mut conn) => conn.set_read_timeout(timeout)?,
+            Stream::Unix(ref mut conn) => conn.set_read_timeout(timeout)?,
+            _ => (),
         }
         Ok(())
     }
 
     pub(super) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        if let Stream::Tcp(ref mut conn) = self {
-            conn.set_write_timeout(timeout)?;
+        match self {
+            Stream::Tcp(ref mut conn) => conn.set_write_timeout(timeout)?,
+            Stream::Unix(ref mut conn) => conn.set_write_timeout(timeout)?,
+            _ => (),
         }
         Ok(())
     }
