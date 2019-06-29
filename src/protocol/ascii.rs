@@ -188,7 +188,7 @@ impl AsciiProtocol<Stream> {
             }
 
             let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
-            if header.len() != 5 {
+            if header.len() != 4 && header.len() != 5 {
                 return Err(MemcacheError::ClientError("invalid server response".into()));
             }
 
