@@ -32,42 +32,61 @@ impl Connection {
             ));
         }
 
-        let mut is_udp = false;
-        if url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true") {
-            is_udp = true;
-        }
+        let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
+
+        let mut is_udp = url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true");
+
         if parts.len() == 2 && parts[1] == "udp" {
             // scheme specify have high priority.
             is_udp = true;
         }
         if is_udp {
             let udp_stream = Stream::Udp(UdpStream::new(url.clone())?);
-            return Ok(Connection {
-                url: url.to_string(),
-                protocol: Protocol::Binary(BinaryProtocol { stream: udp_stream }),
-            });
+            if is_ascii {
+                return Ok(Connection {
+                    url: url.to_string(),
+                    protocol: Protocol::Ascii(AsciiProtocol {
+                        reader: BufReader::new(udp_stream)
+                    }),
+                });
+            } else {
+                return Ok(Connection {
+                    url: url.to_string(),
+                    protocol: Protocol::Binary(BinaryProtocol {
+                        stream: udp_stream }),
+                });
+            }
         }
 
         #[cfg(unix)]
         {
             if url.host() == Some(Host::Domain("")) && url.port() == None {
-                let stream = UnixStream::connect(url.path())?;
-                return Ok(Connection {
-                    url: url.to_string(),
-                    protocol: Protocol::Binary(BinaryProtocol {
-                        stream: Stream::Unix(stream),
-                    }),
-                });
+                let unix_stream = Stream::Unix(UnixStream::connect(url.path())?);
+                if is_ascii {
+                    return Ok(Connection {
+                        url: url.to_string(),
+                        protocol: Protocol::Ascii(AsciiProtocol {
+                            reader: BufReader::new(unix_stream),
+                        }),
+                    });
+                } else {
+                    return Ok(Connection {
+                        url: url.to_string(),
+                        protocol: Protocol::Binary(BinaryProtocol {
+                            stream: unix_stream,
+                        }),
+                    });
+                }
             }
         }
 
-        let stream = TcpStream::connect(url.clone())?;
+        let tcp_stream = TcpStream::connect(url.clone())?;
 
         let disable_tcp_nodelay = url
             .query_pairs()
             .any(|(ref k, ref v)| k == "tcp_nodelay" && v == "false");
         if !disable_tcp_nodelay {
-            stream.set_nodelay(true)?;
+            tcp_stream.set_nodelay(true)?;
         }
 
         let timeout = url
@@ -76,24 +95,22 @@ impl Connection {
             .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
             .map(Duration::from_secs);
         if timeout.is_some() {
-            stream.set_read_timeout(timeout)?;
-            stream.set_write_timeout(timeout)?;
+            tcp_stream.set_read_timeout(timeout)?;
+            tcp_stream.set_write_timeout(timeout)?;
         }
-
-        let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
 
         if is_ascii {
             return Ok(Connection {
                 url: url.to_string(),
                 protocol: Protocol::Ascii(AsciiProtocol {
-                    reader: BufReader::new(Stream::Tcp(stream)),
+                    reader: BufReader::new(Stream::Tcp(tcp_stream)),
                 }),
             });
         }
         return Ok(Connection {
             url: url.to_string(),
             protocol: Protocol::Binary(BinaryProtocol {
-                stream: Stream::Tcp(stream),
+                stream: Stream::Tcp(tcp_stream),
             }),
         });
     }
