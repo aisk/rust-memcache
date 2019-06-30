@@ -20,8 +20,8 @@ fn test() {
     let mut urls = vec![
         "memcache://localhost:12346?tcp_nodelay=true",
         "memcache://localhost:12347?timeout=10",
-        "memcache://localhost:12348",
-        "memcache://localhost:12349",
+        "memcache://localhost:12348?protocol=ascii",
+        "memcache://localhost:12349?",
     ];
     if cfg!(unix) {
         urls.push("memcache:///tmp/memcached2.sock");
