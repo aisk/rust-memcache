@@ -9,6 +9,8 @@
 
 rust-memcache is a [memcached](https://memcached.org/) client written in pure rust.
 
+![logo](https://cloudflare-ipfs.com/ipfs/QmY2otmZFbrLfCQZ2JG8bsEsMGegHrh8WgupcyTcyoShiS)
+
 ## Install
 
 The crate is called `memcache` and you can depend on it via cargo:
