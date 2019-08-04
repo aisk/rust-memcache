@@ -71,7 +71,7 @@ impl Client {
                 Err(_) => return Err(MemcacheError::ClientError("Invalid memcache URL".into())),
             };
 
-            let mut connection = Connection::connect(&parsed)?;
+            let connection = Connection::connect(&parsed)?;
 
             // if parsed.has_authority() && parsed.username() != "" && parsed.password().is_some() {
             //     let key = "PLAIN";
