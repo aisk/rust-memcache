@@ -46,14 +46,13 @@ impl Connection {
                 return Ok(Connection {
                     url: url.to_string(),
                     protocol: Protocol::Ascii(AsciiProtocol {
-                        reader: BufReader::new(udp_stream)
+                        reader: BufReader::new(udp_stream),
                     }),
                 });
             } else {
                 return Ok(Connection {
                     url: url.to_string(),
-                    protocol: Protocol::Binary(BinaryProtocol {
-                        stream: udp_stream }),
+                    protocol: Protocol::Binary(BinaryProtocol { stream: udp_stream }),
                 });
             }
         }
@@ -72,9 +71,7 @@ impl Connection {
                 } else {
                     return Ok(Connection {
                         url: url.to_string(),
-                        protocol: Protocol::Binary(BinaryProtocol {
-                            stream: unix_stream,
-                        }),
+                        protocol: Protocol::Binary(BinaryProtocol { stream: unix_stream }),
                     });
                 }
             }
