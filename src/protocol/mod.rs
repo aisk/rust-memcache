@@ -16,6 +16,13 @@ pub enum Protocol {
 }
 
 impl Protocol {
+    pub(super) fn auth(&mut self, username: &str, password: &str) -> Result<(), MemcacheError> {
+        match self {
+            Protocol::Ascii(ref mut protocol) => protocol.auth(username, password),
+            Protocol::Binary(ref mut protocol) => protocol.auth(username, password),
+        }
+    }
+
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.version(),
