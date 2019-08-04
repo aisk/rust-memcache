@@ -92,7 +92,7 @@ impl Client {
         return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
     }
 
-    /// Set the socket read timeout for tcp conections.
+    /// Set the socket read timeout for TCP connections.
     ///
     /// Example:
     ///
@@ -110,7 +110,7 @@ impl Client {
         Ok(())
     }
 
-    /// Set the socket write timeout for tcp conections.
+    /// Set the socket write timeout for TCP connections.
     ///
     /// Example:
     ///
