@@ -29,7 +29,9 @@ memcache = "*"
 - [ ] Automatically serialize to JSON / msgpack etc.
 - [x] Typed interface
 - [x] Mutiple server support with custom key hash algorithm
-- [ ] SASL authority (plain)
+- [ ] Authority
+  - [x] Binary protocol (SASL authority (plain))
+  - [ ] ASCII protocol
 
 ## Basic usage
 

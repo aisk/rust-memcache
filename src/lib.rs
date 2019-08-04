@@ -21,7 +21,9 @@ memcache = "*"
 - <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
 - <input type="checkbox"  disabled checked /> Typed interface
 - <input type="checkbox"  disabled checked /> Mutiple server support with custom key hash algorithm
-- <inlut type="checkbox"  disabled /> SASL authority (plain)
+- <input type="checkbox"  disabled /> Authority
+  - <input type="checkbox"  disabled checked /> Binary protocol (SASL authority (plain))
+  - <input type="checkbox"  disabled /> ASCII protocol
 
 # Basic usage:
 
