@@ -23,13 +23,6 @@ impl Protocol {
         }
     }
 
-    pub(super) fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
-        match self {
-            Protocol::Ascii(ref mut protocol) => protocol.flush_with_delay(delay),
-            Protocol::Binary(ref mut protocol) => protocol.flush_with_delay(delay),
-        }
-    }
-
     pub(super) fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.get(key),
@@ -109,6 +102,7 @@ impl Protocol {
     }
 
     pub(super) fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        println!("{}", 1);
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.decrement(key, amount),
             Protocol::Binary(ref mut protocol) => protocol.decrement(key, amount),
@@ -123,19 +117,20 @@ impl Protocol {
     }
 }
 
-macro_rules! dispatch_method{
-    ($fn:ident; $return:ty) => {
+macro_rules! dispatch_method {
+    ($fn:ident; $($param:ident: $ptype:ty)* => $rtype:ty) => {
         impl Protocol {
-            pub(super) fn $fn(&mut self) -> Result<$return, MemcacheError> {
+            pub(super) fn $fn(&mut self, $($param: $ptype)*) -> Result<$rtype, MemcacheError> {
                 match self {
-                    Protocol::Ascii(ref mut protocol) => protocol.$fn(),
-                    Protocol::Binary(ref mut protocol) => protocol.$fn(),
+                    Protocol::Ascii(ref mut protocol) => protocol.$fn($($param)*),
+                    Protocol::Binary(ref mut protocol) => protocol.$fn($($param)*),
                 }
             }
         }
    };
 }
 
-dispatch_method!(version; String);
-dispatch_method!(flush; ());
-dispatch_method!(stats; Stats);
+dispatch_method!(version; => String);
+dispatch_method!(flush; => ());
+dispatch_method!(flush_with_delay; delay: u32 => ());
+dispatch_method!(stats; => Stats);
