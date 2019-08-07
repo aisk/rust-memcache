@@ -23,20 +23,6 @@ impl Protocol {
         }
     }
 
-    pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
-        match self {
-            Protocol::Ascii(ref mut protocol) => protocol.version(),
-            Protocol::Binary(ref mut protocol) => protocol.version(),
-        }
-    }
-
-    pub(super) fn flush(&mut self) -> Result<(), MemcacheError> {
-        match self {
-            Protocol::Ascii(ref mut protocol) => protocol.flush(),
-            Protocol::Binary(ref mut protocol) => protocol.flush(),
-        }
-    }
-
     pub(super) fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
         match self {
             Protocol::Ascii(ref mut protocol) => protocol.flush_with_delay(delay),
@@ -135,11 +121,21 @@ impl Protocol {
             Protocol::Binary(ref mut protocol) => protocol.touch(key, expiration),
         }
     }
-
-    pub(super) fn stats(&mut self) -> Result<Stats, MemcacheError> {
-        match self {
-            Protocol::Ascii(ref mut protocol) => protocol.stats(),
-            Protocol::Binary(ref mut protocol) => protocol.stats(),
-        }
-    }
 }
+
+macro_rules! dispatch_method{
+    ($fn:ident; $return:ty) => {
+        impl Protocol {
+            pub(super) fn $fn(&mut self) -> Result<$return, MemcacheError> {
+                match self {
+                    Protocol::Ascii(ref mut protocol) => protocol.$fn(),
+                    Protocol::Binary(ref mut protocol) => protocol.$fn(),
+                }
+            }
+        }
+   };
+}
+
+dispatch_method!(version; String);
+dispatch_method!(flush; ());
+dispatch_method!(stats; Stats);
