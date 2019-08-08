@@ -12,3 +12,4 @@ keywords = ["memcache", "memcached", "driver", "cache", "database"]
 byteorder = "1"
 url = "1"
 rand = "0.6"
+enum_dispatch = "0.1"
