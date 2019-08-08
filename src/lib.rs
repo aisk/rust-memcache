@@ -62,6 +62,7 @@ assert_eq!(answer, 42);
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::needless_return))]
 
 extern crate byteorder;
+extern crate enum_dispatch;
 extern crate rand;
 extern crate url;
 

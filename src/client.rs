@@ -7,7 +7,7 @@ use url::Url;
 
 use connection::Connection;
 use error::MemcacheError;
-use protocol::Protocol;
+use protocol::{Protocol, ProtocolTrait};
 use stream::Stream;
 use value::{FromMemcacheValue, ToMemcacheValue};
 
