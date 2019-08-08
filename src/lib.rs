@@ -12,17 +12,20 @@ memcache = "*"
 
 # Features:
 
-- <input type="checkbox"  disabled checked /> Binary protocol
-- <input type="checkbox"  disabled checked /> ASCII protocol
-- <input type="checkbox"  disabled checked /> TCP connection
-- <input type="checkbox"  disabled checked /> UDP connection
-- <input type="checkbox"  disabled checked/> UNIX Domain socket connection
-- <input type="checkbox"  disabled /> Automatically compress
-- <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc.
-- <input type="checkbox"  disabled checked /> Typed interface
+- <input type="checkbox"  disabled checked /> All memcached supported protocols
+  - <input type="checkbox"  disabled checked /> Binary protocol
+  - <input type="checkbox"  disabled checked /> ASCII protocol
+- <input type="checkbox"  disabled checked /> All memcached supported connections
+  - <input type="checkbox"  disabled checked /> TCP connection
+  - <input type="checkbox"  disabled checked /> UDP connection
+  - <input type="checkbox"  disabled checked/> UNIX Domain socket connection
+- <input type="checkbox"  disabled /> Encodings
+  - <input type="checkbox"  disabled checked /> Typed interface
+  - <input type="checkbox"  disabled /> Automatically compress
+  - <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc
 - <input type="checkbox"  disabled checked /> Mutiple server support with custom key hash algorithm
 - <input type="checkbox"  disabled /> Authority
-  - <input type="checkbox"  disabled checked /> Binary protocol (SASL authority (plain))
+  - <input type="checkbox"  disabled checked /> Binary protocol (plain SASL authority)
   - <input type="checkbox"  disabled /> ASCII protocol
 
 # Basic usage:

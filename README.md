@@ -22,17 +22,20 @@ memcache = "*"
 
 ## Features
 
-- [x] Binary protocol
-- [x] ASCII protocol
-- [x] TCP connection
-- [x] UDP connection
-- [x] UNIX Domain socket connection
-- [ ] Automatically compress
-- [ ] Automatically serialize to JSON / msgpack etc.
-- [x] Typed interface
-- [x] Mutiple server support with custom key hash algorithm
+- [x] All memcached supported protocols
+  - [x] Binary protocol
+  - [x] ASCII protocol
+- [x] All memcached supported connections
+  - [x] TCP connection
+  - [x] UDP connection
+  - [x] UNIX Domain socket connection
+- [ ] Encodings
+  - [x] Typed interface
+  - [ ] Automatically compress
+  - [ ] Automatically serialize to JSON / msgpack etc
+- [x] Memcached cluster support with custom key hash algorithm
 - [ ] Authority
-  - [x] Binary protocol (SASL authority (plain))
+  - [x] Binary protocol (plain SASL authority plain)
   - [ ] ASCII protocol
 
 ## Basic usage
