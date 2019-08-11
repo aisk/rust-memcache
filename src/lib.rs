@@ -24,7 +24,7 @@ memcache = "*"
   - <input type="checkbox"  disabled /> Automatically compress
   - <input type="checkbox"  disabled /> Automatically serialize to JSON / msgpack etc
 - <input type="checkbox"  disabled checked /> Mutiple server support with custom key hash algorithm
-- <input type="checkbox"  disabled /> Authority
+- <input type="checkbox"  disabled checked /> Authority
   - <input type="checkbox"  disabled checked /> Binary protocol (plain SASL authority)
   - <input type="checkbox"  disabled checked /> ASCII protocol
 

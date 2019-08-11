@@ -34,7 +34,7 @@ memcache = "*"
   - [ ] Automatically compress
   - [ ] Automatically serialize to JSON / msgpack etc
 - [x] Memcached cluster support with custom key hash algorithm
-- [ ] Authority
+- [x] Authority
   - [x] Binary protocol (plain SASL authority plain)
   - [x] ASCII protocol
 
