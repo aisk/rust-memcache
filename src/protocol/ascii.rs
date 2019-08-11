@@ -39,7 +39,7 @@ pub struct AsciiProtocol<C: Read + Write + Sized> {
 
 impl AsciiProtocol<Stream> {
     pub(super) fn auth(&mut self, username: &str, password: &str) -> Result<(), MemcacheError> {
-        return Ok(());
+        return self.set("auth", format!("{} {}", username, password), 0);
     }
 
     fn store<V: ToMemcacheValue<Stream>>(

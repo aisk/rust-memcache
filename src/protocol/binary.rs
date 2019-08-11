@@ -14,7 +14,6 @@ pub struct BinaryProtocol {
 
 impl BinaryProtocol {
     pub(super) fn auth(&mut self, username: &str, password: &str) -> Result<(), MemcacheError> {
-        println!("username: {}, password: {}", username, password);
         let key = "PLAIN";
         let value = format!("\x00{}\x00{}", username, password);
         let request_header = PacketHeader {
