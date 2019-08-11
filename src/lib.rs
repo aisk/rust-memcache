@@ -26,7 +26,7 @@ memcache = "*"
 - <input type="checkbox"  disabled checked /> Mutiple server support with custom key hash algorithm
 - <input type="checkbox"  disabled /> Authority
   - <input type="checkbox"  disabled checked /> Binary protocol (plain SASL authority)
-  - <input type="checkbox"  disabled /> ASCII protocol
+  - <input type="checkbox"  disabled checked /> ASCII protocol
 
 # Basic usage:
 

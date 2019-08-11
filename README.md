@@ -36,7 +36,7 @@ memcache = "*"
 - [x] Memcached cluster support with custom key hash algorithm
 - [ ] Authority
   - [x] Binary protocol (plain SASL authority plain)
-  - [ ] ASCII protocol
+  - [x] ASCII protocol
 
 ## Basic usage
 
