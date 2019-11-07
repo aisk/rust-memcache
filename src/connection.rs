@@ -18,97 +18,110 @@ pub struct Connection {
     pub url: String,
 }
 
-impl Connection {
-    pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
+enum Transport {
+    TCP(TCPOptions),
+    UDP,
+    #[cfg(unix)]
+    Unix,
+}
+
+struct TCPOptions {
+    timeout: Option<Duration>,
+    nodelay: bool,
+}
+
+impl TCPOptions {
+    fn from_url(url: &Url) -> Self {
+        let nodelay = !url
+            .query_pairs()
+            .any(|(ref k, ref v)| k == "tcp_nodelay" && v == "false");
+        let timeout = url
+            .query_pairs()
+            .find(|&(ref k, ref _v)| k == "timeout")
+            .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
+            .map(Duration::from_secs);
+        TCPOptions {
+            nodelay: nodelay,
+            timeout: timeout,
+        }
+    }
+}
+
+impl Transport {
+    fn from_url(url: &Url) -> Result<Self, MemcacheError> {
         let parts: Vec<&str> = url.scheme().split("+").collect();
         if parts.len() != 1 && parts.len() != 2 || parts[0] != "memcache" {
             return Err(MemcacheError::ClientError(
                 "memcache URL's scheme should start with 'memcache'".into(),
             ));
         }
-        if parts.len() == 2 && !(parts[1] != "tcp" || parts[1] != "udp" || parts[1] != "unix") {
-            return Err(MemcacheError::ClientError(
-                "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix'".into(),
-            ));
+
+        // scheme has highest priority
+        if parts.len() == 2 {
+            return match parts[1] {
+                "tcp" => Ok(Transport::TCP(TCPOptions::from_url(url))),
+                "udp" => Ok(Transport::UDP),
+                #[cfg(unix)]
+                "unix" => Ok(Transport::Unix),
+                // "tls" => Ok(Transport::TLS),
+                _ => Err(MemcacheError::ClientError(
+                    "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix' or 'memcache+tls'".into(),
+                )),
+            };
         }
 
-        let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
-
-        let mut is_udp = url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true");
-
-        if parts.len() == 2 && parts[1] == "udp" {
-            // scheme specify have high priority.
-            is_udp = true;
-        }
+        let is_udp = url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true");
         if is_udp {
-            let udp_stream = Stream::Udp(UdpStream::new(url.clone())?);
-            if is_ascii {
-                return Ok(Connection {
-                    url: url.to_string(),
-                    protocol: Protocol::Ascii(AsciiProtocol {
-                        reader: BufReader::new(udp_stream),
-                    }),
-                });
-            } else {
-                return Ok(Connection {
-                    url: url.to_string(),
-                    protocol: Protocol::Binary(BinaryProtocol { stream: udp_stream }),
-                });
-            }
+            return Ok(Transport::UDP)
         }
 
         #[cfg(unix)]
         {
             if url.host() == Some(Host::Domain("")) && url.port() == None {
-                let unix_stream = Stream::Unix(UnixStream::connect(url.path())?);
-                if is_ascii {
-                    return Ok(Connection {
-                        url: url.to_string(),
-                        protocol: Protocol::Ascii(AsciiProtocol {
-                            reader: BufReader::new(unix_stream),
-                        }),
-                    });
-                } else {
-                    return Ok(Connection {
-                        url: url.to_string(),
-                        protocol: Protocol::Binary(BinaryProtocol { stream: unix_stream }),
-                    });
-                }
+                return Ok(Transport::Unix)
             }
         }
 
-        let tcp_stream = TcpStream::connect(url.clone())?;
+        Ok(Transport::TCP(TCPOptions::from_url(url)))
+    }
+}
 
-        let disable_tcp_nodelay = url
-            .query_pairs()
-            .any(|(ref k, ref v)| k == "tcp_nodelay" && v == "false");
-        if !disable_tcp_nodelay {
-            tcp_stream.set_nodelay(true)?;
-        }
+impl Connection {
+    pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
+        let transport = Transport::from_url(url)?;
+        let is_ascii =  url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
+        let stream: Stream = match transport {
+            Transport::TCP(options) => {
+                let tcp_stream = TcpStream::connect(url.clone())?;
+                if options.timeout.is_some() {
+                    tcp_stream.set_read_timeout(options.timeout)?;
+                    tcp_stream.set_write_timeout(options.timeout)?;
+                }
+                tcp_stream.set_nodelay(options.nodelay)?;
+                Stream::Tcp(tcp_stream)
+            },
+            Transport::UDP => {
+                Stream::Udp(UdpStream::new(url.clone())?)
+            },
+            #[cfg(unix)]
+            Transport::Unix => {
+                Stream::Unix(UnixStream::connect(url.path())?)
+            },
+        };
 
-        let timeout = url
-            .query_pairs()
-            .find(|&(ref k, ref _v)| k == "timeout")
-            .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
-            .map(Duration::from_secs);
-        if timeout.is_some() {
-            tcp_stream.set_read_timeout(timeout)?;
-            tcp_stream.set_write_timeout(timeout)?;
-        }
+        let protocol = if is_ascii {
+            Protocol::Ascii(AsciiProtocol {
+                reader: BufReader::new(stream),
+            })
+        } else {
+            Protocol::Binary(BinaryProtocol {
+                stream: stream,
+            })
+        };
 
-        if is_ascii {
-            return Ok(Connection {
-                url: url.to_string(),
-                protocol: Protocol::Ascii(AsciiProtocol {
-                    reader: BufReader::new(Stream::Tcp(tcp_stream)),
-                }),
-            });
-        }
-        return Ok(Connection {
+        Ok(Connection {
             url: url.to_string(),
-            protocol: Protocol::Binary(BinaryProtocol {
-                stream: Stream::Tcp(tcp_stream),
-            }),
-        });
+            protocol: protocol,
+        })
     }
 }
