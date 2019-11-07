@@ -68,6 +68,7 @@ extern crate byteorder;
 extern crate enum_dispatch;
 extern crate rand;
 extern crate url;
+extern crate openssl;
 
 mod client;
 mod connection;

@@ -9,11 +9,14 @@ use std::time::Duration;
 pub(crate) use self::udp_stream::UdpStream;
 use error::MemcacheError;
 
+use openssl::ssl::SslStream;
+
 pub enum Stream {
     Tcp(TcpStream),
     Udp(UdpStream),
     #[cfg(unix)]
     Unix(UnixStream),
+    Tls(SslStream<TcpStream>),
 }
 
 impl Stream {
@@ -21,6 +24,7 @@ impl Stream {
         match self {
             Stream::Tcp(ref mut conn) => conn.set_read_timeout(timeout)?,
             Stream::Unix(ref mut conn) => conn.set_read_timeout(timeout)?,
+            Stream::Tls(ref mut stream) => stream.get_ref().set_read_timeout(timeout)?,
             _ => (),
         }
         Ok(())
@@ -30,6 +34,7 @@ impl Stream {
         match self {
             Stream::Tcp(ref mut conn) => conn.set_write_timeout(timeout)?,
             Stream::Unix(ref mut conn) => conn.set_write_timeout(timeout)?,
+            Stream::Tls(ref mut stream) => stream.get_ref().set_write_timeout(timeout)?,
             _ => (),
         }
         Ok(())
@@ -43,6 +48,7 @@ impl Read for Stream {
             Stream::Udp(ref mut stream) => stream.read(buf),
             #[cfg(unix)]
             Stream::Unix(ref mut stream) => stream.read(buf),
+            Stream::Tls(ref mut stream) => stream.read(buf),
         }
     }
 }
@@ -54,6 +60,7 @@ impl Write for Stream {
             Stream::Udp(ref mut stream) => stream.write(buf),
             #[cfg(unix)]
             Stream::Unix(ref mut stream) => stream.write(buf),
+            Stream::Tls(ref mut stream) => stream.write(buf),
         }
     }
 
@@ -63,6 +70,7 @@ impl Write for Stream {
             Stream::Udp(ref mut stream) => stream.flush(),
             #[cfg(unix)]
             Stream::Unix(ref mut stream) => stream.flush(),
+            Stream::Tls(ref mut stream) => stream.flush(),
         }
     }
 }

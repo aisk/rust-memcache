@@ -11,6 +11,7 @@ use error::MemcacheError;
 use protocol::{AsciiProtocol, BinaryProtocol, Protocol};
 use stream::Stream;
 use stream::UdpStream;
+use openssl::ssl::{SslConnector, SslMethod, SslFiletype, SslVerifyMode};
 
 /// a connection to the memcached server
 pub struct Connection {
@@ -23,11 +24,55 @@ enum Transport {
     UDP,
     #[cfg(unix)]
     Unix,
+    TLS(TLSOptions),
+}
+
+struct TLSOptions {
+    tcp_options: TCPOptions,
+    ca_path: Option<String>,
+    key_path: Option<String>,
+    cert_path: Option<String>,
+    verify_mode: SslVerifyMode,
 }
 
 struct TCPOptions {
     timeout: Option<Duration>,
     nodelay: bool,
+}
+
+fn get_param(url: &Url, key: &str) -> Option<String> {
+    return url.query_pairs().find(|&(ref k, ref _v)| k == key).map(|(_k,v)| v.to_string() )
+}
+
+impl TLSOptions {
+    fn from_url(url: &Url) -> Result<Self, MemcacheError> {
+        let verify_mode = match get_param(url, "verify_mode").as_ref().map(String::as_str) {
+            Some("none") => SslVerifyMode::NONE,
+            Some("peer") => SslVerifyMode::PEER,
+            Some(_) => {
+                return Err(MemcacheError::BadURL("unknown verify_mode, expected 'none' or 'peer'".into()))
+            }
+            None => SslVerifyMode::PEER
+        };
+
+        let ca_path = get_param(url, "ca_path");
+        let key_path = get_param(url, "key_path");
+        let cert_path = get_param(url, "cert_path");
+
+        if key_path.is_some() && cert_path.is_none() {
+            return Err(MemcacheError::BadURL("cert_path must be specified when key_path is specified".into()))
+        } else if key_path.is_none() && cert_path.is_some() {
+            return Err(MemcacheError::BadURL("key_path must be specified when cert_path is specified".into()))
+        }
+
+        Ok(TLSOptions {
+            tcp_options: TCPOptions::from_url(url),
+            ca_path: ca_path,
+            key_path: key_path,
+            cert_path: cert_path,
+            verify_mode: verify_mode,
+        })
+    }
 }
 
 impl TCPOptions {
@@ -51,7 +96,7 @@ impl Transport {
     fn from_url(url: &Url) -> Result<Self, MemcacheError> {
         let parts: Vec<&str> = url.scheme().split("+").collect();
         if parts.len() != 1 && parts.len() != 2 || parts[0] != "memcache" {
-            return Err(MemcacheError::ClientError(
+            return Err(MemcacheError::BadURL(
                 "memcache URL's scheme should start with 'memcache'".into(),
             ));
         }
@@ -63,8 +108,8 @@ impl Transport {
                 "udp" => Ok(Transport::UDP),
                 #[cfg(unix)]
                 "unix" => Ok(Transport::Unix),
-                // "tls" => Ok(Transport::TLS),
-                _ => Err(MemcacheError::ClientError(
+                "tls" => Ok(Transport::TLS(TLSOptions::from_url(url)?)),
+                _ => Err(MemcacheError::BadURL(
                     "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix' or 'memcache+tls'".into(),
                 )),
             };
@@ -86,27 +131,48 @@ impl Transport {
     }
 }
 
+fn tcp_stream(url: &Url, opts: &TCPOptions) -> Result<TcpStream, MemcacheError> {
+    let tcp_stream = TcpStream::connect(url.clone())?;
+    if opts.timeout.is_some() {
+        tcp_stream.set_read_timeout(opts.timeout)?;
+        tcp_stream.set_write_timeout(opts.timeout)?;
+    }
+    tcp_stream.set_nodelay(opts.nodelay)?;
+    Ok(tcp_stream)
+}
+
 impl Connection {
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
         let transport = Transport::from_url(url)?;
         let is_ascii =  url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
         let stream: Stream = match transport {
-            Transport::TCP(options) => {
-                let tcp_stream = TcpStream::connect(url.clone())?;
-                if options.timeout.is_some() {
-                    tcp_stream.set_read_timeout(options.timeout)?;
-                    tcp_stream.set_write_timeout(options.timeout)?;
-                }
-                tcp_stream.set_nodelay(options.nodelay)?;
-                Stream::Tcp(tcp_stream)
-            },
-            Transport::UDP => {
-                Stream::Udp(UdpStream::new(url.clone())?)
-            },
+            Transport::TCP(options) => Stream::Tcp(tcp_stream(url, &options)?),
+            Transport::UDP => Stream::Udp(UdpStream::new(url.clone())?),
             #[cfg(unix)]
-            Transport::Unix => {
-                Stream::Unix(UnixStream::connect(url.path())?)
-            },
+            Transport::Unix => Stream::Unix(UnixStream::connect(url.path())?),
+            Transport::TLS(options) => {
+                let host = url.host_str().ok_or(MemcacheError::BadURL("host required for TLS connection".into()))?;
+
+                let mut builder = SslConnector::builder(SslMethod::tls())?;
+                builder.set_verify(options.verify_mode);
+
+                if options.ca_path.is_some() {
+                    builder.set_ca_file(&options.ca_path.unwrap())?;
+                }
+
+                if options.key_path.is_some() {
+                    builder.set_private_key_file(options.key_path.unwrap(), SslFiletype::PEM)?;
+                }
+
+                if options.cert_path.is_some() {
+                    builder.set_certificate_chain_file(options.cert_path.unwrap())?;
+                }
+
+                let tls_conn = builder.build();
+                let tcp_stream = tcp_stream(url, &options.tcp_options)?;
+                let tls_stream = tls_conn.connect(host, tcp_stream)?;
+                Stream::Tls(tls_stream)
+            }
         };
 
         let protocol = if is_ascii {

@@ -13,3 +13,6 @@ byteorder = "1"
 url = "1"
 rand = "0.7"
 enum_dispatch = "0.1"
+# If we don't want to depend on the system openssl, we could do:
+# openssl = {version = "*", features = ["vendored"]}
+openssl = "*"
