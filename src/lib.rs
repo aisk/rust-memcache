@@ -66,9 +66,9 @@ assert_eq!(answer, 42);
 
 extern crate byteorder;
 extern crate enum_dispatch;
+extern crate openssl;
 extern crate rand;
 extern crate url;
-extern crate openssl;
 
 mod client;
 mod connection;
