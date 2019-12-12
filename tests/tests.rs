@@ -22,6 +22,7 @@ fn test() {
         "memcache://localhost:12347?timeout=10",
         "memcache://localhost:12348?protocol=ascii",
         "memcache://localhost:12349?",
+        "memcache+tls://localhost:12350?verify_mode=none",
     ];
     if cfg!(unix) {
         urls.push("memcache:///tmp/memcached2.sock");

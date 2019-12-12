@@ -8,6 +8,8 @@ use url::Host;
 use url::Url;
 
 use error::MemcacheError;
+
+#[cfg(feature = "tls")]
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod, SslVerifyMode};
 use protocol::{AsciiProtocol, BinaryProtocol, Protocol};
 use stream::Stream;
@@ -24,9 +26,11 @@ enum Transport {
     Udp,
     #[cfg(unix)]
     Unix,
+    #[cfg(feature = "tls")]
     Tls(TlsOptions),
 }
 
+#[cfg(feature = "tls")]
 struct TlsOptions {
     tcp_options: TcpOptions,
     ca_path: Option<String>,
@@ -40,6 +44,7 @@ struct TcpOptions {
     nodelay: bool,
 }
 
+#[cfg(feature = "tls")]
 fn get_param(url: &Url, key: &str) -> Option<String> {
     return url
         .query_pairs()
@@ -47,6 +52,7 @@ fn get_param(url: &Url, key: &str) -> Option<String> {
         .map(|(_k, v)| v.to_string());
 }
 
+#[cfg(feature = "tls")]
 impl TlsOptions {
     fn from_url(url: &Url) -> Result<Self, MemcacheError> {
         let verify_mode = match get_param(url, "verify_mode").as_ref().map(String::as_str) {
@@ -117,6 +123,7 @@ impl Transport {
                 "udp" => Ok(Transport::Udp),
                 #[cfg(unix)]
                 "unix" => Ok(Transport::Unix),
+                #[cfg(feature = "tls")]
                 "tls" => Ok(Transport::Tls(TlsOptions::from_url(url)?)),
                 _ => Err(MemcacheError::BadURL(
                     "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix' or 'memcache+tls'".into(),
@@ -159,6 +166,7 @@ impl Connection {
             Transport::Udp => Stream::Udp(UdpStream::new(url.clone())?),
             #[cfg(unix)]
             Transport::Unix => Stream::Unix(UnixStream::connect(url.path())?),
+            #[cfg(feature = "tls")]
             Transport::Tls(options) => {
                 let host = url
                     .host_str()
