@@ -103,23 +103,29 @@ type MemcacheValue<T> = Result<T, MemcacheError>;
 
 /// determine how the value is unserialize to memcache
 pub trait FromMemcacheValue: Sized {
-    fn from_memcache_value(Vec<u8>, u32) -> MemcacheValue<Self>;
+    fn from_memcache_value(Vec<u8>, u32, Option<u64>) -> MemcacheValue<Self>;
+}
+
+impl FromMemcacheValue for (Vec<u8>, u32, Option<u64>) {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self> {
+        return Ok((value, flags, cas));
+    }
 }
 
 impl FromMemcacheValue for (Vec<u8>, u32) {
-    fn from_memcache_value(value: Vec<u8>, flags: u32) -> MemcacheValue<Self> {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, _cas: Option<u64>) -> MemcacheValue<Self> {
         return Ok((value, flags));
     }
 }
 
 impl FromMemcacheValue for Vec<u8> {
-    fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
+    fn from_memcache_value(value: Vec<u8>, _: u32, _cas: Option<u64>) -> MemcacheValue<Self> {
         return Ok(value);
     }
 }
 
 impl FromMemcacheValue for String {
-    fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
+    fn from_memcache_value(value: Vec<u8>, _: u32, _: Option<u64>) -> MemcacheValue<Self> {
         return Ok(String::from_utf8(value)?);
     }
 }
@@ -127,8 +133,8 @@ impl FromMemcacheValue for String {
 macro_rules! impl_from_memcache_value_for_number {
     ($ty:ident) => {
         impl FromMemcacheValue for $ty {
-            fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
-                let s: String = String::from_memcache_value(value, 0)?;
+            fn from_memcache_value(value: Vec<u8>, _: u32, cas: Option<u64>) -> MemcacheValue<Self> {
+                let s: String = String::from_memcache_value(value, 0, cas)?;
                 match Self::from_str(s.as_str()) {
                     Ok(v) => return Ok(v),
                     Err(e) => Err(MemcacheError::from(e)),

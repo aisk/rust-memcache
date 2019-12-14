@@ -185,7 +185,7 @@ impl AsciiProtocol<Stream> {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
 
-        return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
+        return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags, None)?));
     }
 
     pub(super) fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
@@ -205,18 +205,22 @@ impl AsciiProtocol<Stream> {
             }
 
             let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
-            if header.len() != 4 && header.len() != 5 {
+            if header.len() != 5 {
                 return Err(MemcacheError::ClientError("invalid server response".into()));
             }
 
             let key = header[1];
             let flags = header[2].parse()?;
             let length = header[3].parse()?;
+            let cas = header[4].parse()?;
 
             let mut buffer = vec![0; length];
             self.reader.read_exact(buffer.as_mut_slice())?;
 
-            result.insert(key.to_string(), FromMemcacheValue::from_memcache_value(buffer, flags)?);
+            result.insert(
+                key.to_string(),
+                FromMemcacheValue::from_memcache_value(buffer, flags, Some(cas))?,
+            );
 
             // read the rest \r\n
             let mut s = String::new();

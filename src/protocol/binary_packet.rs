@@ -133,7 +133,11 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(reader: &mut R) -> 
     let value_length = header.total_body_length - u32::from(header.extras_length);
     let mut buffer = vec![0; value_length as usize];
     reader.read_exact(buffer.as_mut_slice())?;
-    return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
+    return Ok(Some(FromMemcacheValue::from_memcache_value(
+        buffer,
+        flags,
+        Some(header.cas),
+    )?));
 }
 
 pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
@@ -156,7 +160,10 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
         let key = String::from_utf8(key_buffer)?;
         let mut value_buffer = vec![0; value_length as usize];
         reader.read_exact(value_buffer.as_mut_slice())?;
-        result.insert(key, FromMemcacheValue::from_memcache_value(value_buffer, flags)?);
+        result.insert(
+            key,
+            FromMemcacheValue::from_memcache_value(value_buffer, flags, Some(header.cas))?,
+        );
     }
     return Ok(result);
 }
