@@ -26,6 +26,13 @@ pub trait ProtocolTrait {
     fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError>;
     fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError>;
     fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError>;
+    fn cas<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: u64,
+    ) -> Result<(), MemcacheError>;
     fn add<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError>;
     fn replace<V: ToMemcacheValue<Stream>>(
         &mut self,

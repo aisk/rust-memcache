@@ -37,6 +37,7 @@ impl BinaryProtocol {
         key: &str,
         value: V,
         expiration: u32,
+        cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
@@ -47,6 +48,7 @@ impl BinaryProtocol {
             key_length: key.len() as u16,
             extras_length: 8,
             total_body_length: (8 + key.len() + value.get_length()) as u32,
+            cas: cas.unwrap_or(0),
             ..Default::default()
         };
         let extras = binary_packet::StoreExtras {
@@ -142,13 +144,23 @@ impl BinaryProtocol {
         return binary_packet::parse_gets_response(&mut self.stream);
     }
 
+    pub(super) fn cas<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: u64,
+    ) -> Result<(), MemcacheError> {
+        self.store(Opcode::Set, key, value, expiration, Some(cas))
+    }
+
     pub(super) fn set<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Set, key, value, expiration);
+        return self.store(Opcode::Set, key, value, expiration, None);
     }
 
     pub(super) fn add<V: ToMemcacheValue<Stream>>(
@@ -157,7 +169,7 @@ impl BinaryProtocol {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Add, key, value, expiration);
+        return self.store(Opcode::Add, key, value, expiration, None);
     }
 
     pub(super) fn replace<V: ToMemcacheValue<Stream>>(
@@ -166,7 +178,7 @@ impl BinaryProtocol {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Replace, key, value, expiration);
+        return self.store(Opcode::Replace, key, value, expiration, None);
     }
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {

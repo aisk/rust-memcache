@@ -12,9 +12,12 @@ pub struct Options {
     pub noreply: bool,
     pub exptime: u32,
     pub flags: u32,
+    pub cas: Option<u64>,
 }
 
+#[derive(PartialEq)]
 enum StoreCommand {
+    Cas,
     Set,
     Add,
     Replace,
@@ -30,6 +33,7 @@ impl fmt::Display for StoreCommand {
             StoreCommand::Replace => write!(f, "replace"),
             StoreCommand::Append => write!(f, "append"),
             StoreCommand::Prepend => write!(f, "prepend"),
+            StoreCommand::Cas => write!(f, "cas"),
         }
     }
 }
@@ -61,6 +65,15 @@ impl AsciiProtocol<Stream> {
             options.exptime,
             value.get_length()
         );
+        if command == StoreCommand::Cas {
+            if options.cas.is_none() {
+                return Err(MemcacheError::ClientError(String::from(
+                    "cas command should have a casid",
+                )));
+            }
+            let cas = options.cas.unwrap();
+            header += &format!(" {}", cas);
+        }
         if options.noreply {
             header += " noreply";
         }
@@ -214,6 +227,21 @@ impl AsciiProtocol<Stream> {
         }
 
         return Ok(result);
+    }
+
+    pub(super) fn cas<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: u64,
+    ) -> Result<(), MemcacheError> {
+        let options = Options {
+            exptime: expiration,
+            cas: Some(cas),
+            ..Default::default()
+        };
+        self.store(StoreCommand::Cas, key, value, &options)
     }
 
     pub(super) fn set<V: ToMemcacheValue<Stream>>(
