@@ -376,5 +376,5 @@ impl AsciiProtocol<Stream> {
 }
 
 fn is_memcache_error(s: &str) -> bool {
-    return s == "ERROR\r\n" || s.starts_with("CIENT_ERROR") || s.starts_with("SERVER_ERROR");
+    return s == "ERROR\r\n" || s.starts_with("CLIENT_ERROR") || s.starts_with("SERVER_ERROR");
 }
