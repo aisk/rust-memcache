@@ -6,7 +6,7 @@ use client::Stats;
 use error::MemcacheError;
 use protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
 use stream::Stream;
-use value::{FromMemcacheValue, ToMemcacheValue};
+use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 pub struct BinaryProtocol {
     pub stream: Stream,
@@ -103,7 +103,7 @@ impl BinaryProtocol {
         return Ok(());
     }
 
-    pub(super) fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+    pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -120,7 +120,10 @@ impl BinaryProtocol {
         return binary_packet::parse_get_response(&mut self.stream);
     }
 
-    pub(super) fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
+    pub(super) fn gets<V: FromMemcacheValueExt>(
+        &mut self,
+        keys: Vec<&str>,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
             if key.len() > 250 {
                 return Err(MemcacheError::ClientError(String::from("key is too long")));

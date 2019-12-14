@@ -80,4 +80,4 @@ mod value;
 
 pub use client::{Client, Connectable};
 pub use error::MemcacheError;
-pub use value::{FromMemcacheValue, ToMemcacheValue};
+pub use value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};

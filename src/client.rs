@@ -9,7 +9,7 @@ use connection::Connection;
 use error::MemcacheError;
 use protocol::{Protocol, ProtocolTrait};
 use stream::Stream;
-use value::{FromMemcacheValue, ToMemcacheValue};
+use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 pub type Stats = HashMap<String, String>;
 
@@ -182,7 +182,7 @@ impl Client {
     /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
-    pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+    pub fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         return self.get_connection(key).protocol.get(key);
     }
 
@@ -197,7 +197,7 @@ impl Client {
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
     /// ```
-    pub fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
+    pub fn gets<V: FromMemcacheValueExt>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
         let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
         let connections_count = self.connections.len();

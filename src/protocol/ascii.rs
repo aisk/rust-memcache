@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use client::Stats;
 use error::MemcacheError;
 use stream::Stream;
-use value::{FromMemcacheValue, ToMemcacheValue};
+use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 #[derive(Default)]
 pub struct Options {
@@ -145,7 +145,7 @@ impl AsciiProtocol<Stream> {
         return Ok(());
     }
 
-    pub(super) fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+    pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         write!(self.reader.get_mut(), "get {}\r\n", key)?;
 
         let mut s = String::new();
@@ -185,10 +185,15 @@ impl AsciiProtocol<Stream> {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
 
-        return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags, None)?));
+        return Ok(Some(FromMemcacheValueExt::from_memcache_value(
+            buffer, flags, None,
+        )?));
     }
 
-    pub(super) fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
+    pub(super) fn gets<V: FromMemcacheValueExt>(
+        &mut self,
+        keys: Vec<&str>,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
         write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
 
         let mut result: HashMap<String, V> = HashMap::new();
@@ -219,7 +224,7 @@ impl AsciiProtocol<Stream> {
 
             result.insert(
                 key.to_string(),
-                FromMemcacheValue::from_memcache_value(buffer, flags, Some(cas))?,
+                FromMemcacheValueExt::from_memcache_value(buffer, flags, Some(cas))?,
             );
 
             // read the rest \r\n

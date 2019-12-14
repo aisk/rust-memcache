@@ -2,7 +2,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use error::MemcacheError;
 use std::collections::HashMap;
 use std::io;
-use value::FromMemcacheValue;
+use value::FromMemcacheValueExt;
 
 #[allow(dead_code)]
 pub enum Opcode {
@@ -120,7 +120,7 @@ pub fn parse_version_response<R: io::Read>(reader: &mut R) -> Result<String, Mem
     return Ok(String::from_utf8(buffer)?);
 }
 
-pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(reader: &mut R) -> Result<Option<V>, MemcacheError> {
+pub fn parse_get_response<R: io::Read, V: FromMemcacheValueExt>(reader: &mut R) -> Result<Option<V>, MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status == ResponseStatus::KeyNotFound as u16 {
         let mut buffer = vec![0; header.total_body_length as usize];
@@ -133,14 +133,14 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValue>(reader: &mut R) -> 
     let value_length = header.total_body_length - u32::from(header.extras_length);
     let mut buffer = vec![0; value_length as usize];
     reader.read_exact(buffer.as_mut_slice())?;
-    return Ok(Some(FromMemcacheValue::from_memcache_value(
+    return Ok(Some(FromMemcacheValueExt::from_memcache_value(
         buffer,
         flags,
         Some(header.cas),
     )?));
 }
 
-pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
+pub fn parse_gets_response<R: io::Read, V: FromMemcacheValueExt>(
     reader: &mut R,
 ) -> Result<HashMap<String, V>, MemcacheError> {
     let mut result = HashMap::new();
@@ -162,7 +162,7 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValue>(
         reader.read_exact(value_buffer.as_mut_slice())?;
         result.insert(
             key,
-            FromMemcacheValue::from_memcache_value(value_buffer, flags, Some(header.cas))?,
+            FromMemcacheValueExt::from_memcache_value(value_buffer, flags, Some(header.cas))?,
         );
     }
     return Ok(result);
