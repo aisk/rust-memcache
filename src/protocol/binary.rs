@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::io::Write;
 
+use super::CasId;
 use byteorder::{BigEndian, WriteBytesExt};
 use client::Stats;
 use error::MemcacheError;
-use protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
+use protocol::binary_packet::{self, Magic, Opcode, PacketHeader, ResponseStatus};
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
 
@@ -152,9 +153,13 @@ impl BinaryProtocol {
         key: &str,
         value: V,
         expiration: u32,
-        cas: u64,
-    ) -> Result<(), MemcacheError> {
-        self.store(Opcode::Set, key, value, expiration, Some(cas))
+        cas: CasId,
+    ) -> Result<bool, MemcacheError> {
+        match self.store(Opcode::Set, key, value, expiration, Some(cas)) {
+            Err(MemcacheError::ServerError(code)) if code == ResponseStatus::KeyExists as u16 => Ok(false),
+            Err(e) => Err(e),
+            _ => Ok(true),
+        }
     }
 
     pub(super) fn set<V: ToMemcacheValue<Stream>>(

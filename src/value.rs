@@ -1,3 +1,4 @@
+use super::CasId;
 use error::MemcacheError;
 use std::io;
 use std::io::Write;
@@ -107,17 +108,17 @@ pub trait FromMemcacheValue: Sized {
 }
 
 pub trait FromMemcacheValueExt: Sized {
-    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self>;
+    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<CasId>) -> MemcacheValue<Self>;
 }
 
 impl<V: FromMemcacheValue> FromMemcacheValueExt for V {
-    fn from_memcache_value(value: Vec<u8>, flags: u32, _cas: Option<u64>) -> MemcacheValue<Self> {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, _cas: Option<CasId>) -> MemcacheValue<Self> {
         FromMemcacheValue::from_memcache_value(value, flags)
     }
 }
 
-impl FromMemcacheValueExt for (Vec<u8>, u32, Option<u64>) {
-    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self> {
+impl FromMemcacheValueExt for (Vec<u8>, u32, Option<CasId>) {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<CasId>) -> MemcacheValue<Self> {
         return Ok((value, flags, cas));
     }
 }

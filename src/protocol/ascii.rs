@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
 
+use super::CasId;
 use client::Stats;
 use error::MemcacheError;
 use stream::Stream;
@@ -12,7 +13,7 @@ pub struct Options {
     pub noreply: bool,
     pub exptime: u32,
     pub flags: u32,
-    pub cas: Option<u64>,
+    pub cas: Option<CasId>,
 }
 
 #[derive(PartialEq)]
@@ -52,7 +53,7 @@ impl AsciiProtocol<Stream> {
         key: &str,
         value: V,
         options: &Options,
-    ) -> Result<(), MemcacheError> {
+    ) -> Result<bool, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -84,7 +85,7 @@ impl AsciiProtocol<Stream> {
         self.reader.get_mut().flush()?;
 
         if options.noreply {
-            return Ok(());
+            return Ok(true);
         }
 
         let mut s = String::new();
@@ -92,9 +93,11 @@ impl AsciiProtocol<Stream> {
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s == "STORED\r\n" {
-            return Ok(());
+            return Ok(true);
         } else if s == "NOT_STORED\r\n" {
-            return Ok(());
+            return Ok(false);
+        } else if command == StoreCommand::Cas && s == "EXISTS\r\n" {
+            return Ok(false);
         } else {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
@@ -185,9 +188,7 @@ impl AsciiProtocol<Stream> {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
 
-        return Ok(Some(FromMemcacheValueExt::from_memcache_value(
-            buffer, flags, None,
-        )?));
+        return Ok(Some(FromMemcacheValueExt::from_memcache_value(buffer, flags, None)?));
     }
 
     pub(super) fn gets<V: FromMemcacheValueExt>(
@@ -243,8 +244,8 @@ impl AsciiProtocol<Stream> {
         key: &str,
         value: V,
         expiration: u32,
-        cas: u64,
-    ) -> Result<(), MemcacheError> {
+        cas: CasId,
+    ) -> Result<bool, MemcacheError> {
         let options = Options {
             exptime: expiration,
             cas: Some(cas),
@@ -263,7 +264,7 @@ impl AsciiProtocol<Stream> {
             exptime: expiration,
             ..Default::default()
         };
-        return self.store(StoreCommand::Set, key, value, &options);
+        self.store(StoreCommand::Set, key, value, &options).map(|_| ())
     }
 
     pub(super) fn add<V: ToMemcacheValue<Stream>>(
@@ -276,7 +277,7 @@ impl AsciiProtocol<Stream> {
             exptime: expiration,
             ..Default::default()
         };
-        return self.store(StoreCommand::Add, key, value, &options);
+        self.store(StoreCommand::Add, key, value, &options).map(|_| ())
     }
 
     pub(super) fn replace<V: ToMemcacheValue<Stream>>(
@@ -289,21 +290,23 @@ impl AsciiProtocol<Stream> {
             exptime: expiration,
             ..Default::default()
         };
-        return self.store(StoreCommand::Replace, key, value, &options);
+        self.store(StoreCommand::Replace, key, value, &options).map(|_| ())
     }
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        return self.store(StoreCommand::Append, key, value, &Default::default());
+        self.store(StoreCommand::Append, key, value, &Default::default())
+            .map(|_| ())
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        return self.store(StoreCommand::Prepend, key, value, &Default::default());
+        self.store(StoreCommand::Prepend, key, value, &Default::default())
+            .map(|_| ())
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {

@@ -33,7 +33,7 @@ pub enum Magic {
 pub enum ResponseStatus {
     NoError = 0x00,
     KeyNotFound = 0x01,
-    KeyExits = 0x02,
+    KeyExists = 0x02,
     ValueTooLarge = 0x03,
     InvalidArguments = 0x04,
     AuthenticationRequired = 0x20,
