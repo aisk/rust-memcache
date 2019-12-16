@@ -11,6 +11,8 @@ matrix:
   allow_failures:
     - rust: nightly
 
+dist: bionic
+
 addons:
   apt:
     packages:
@@ -21,8 +23,8 @@ addons:
       - gcc
       - binutils-dev
       - libiberty-dev
-
-services: memcache
+      - libevent-dev
+      - libssl-dev
 
 env:
   - RUST_TEST_THREADS=1 RUST_BACKTRACE=1
