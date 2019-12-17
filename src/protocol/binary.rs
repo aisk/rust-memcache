@@ -156,7 +156,11 @@ impl BinaryProtocol {
         cas: CasId,
     ) -> Result<bool, MemcacheError> {
         match self.store(Opcode::Set, key, value, expiration, Some(cas)) {
-            Err(MemcacheError::ServerError(code)) if code == ResponseStatus::KeyExists as u16 => Ok(false),
+            Err(MemcacheError::ServerError(code))
+                if code == ResponseStatus::KeyExists as u16 || code == ResponseStatus::KeyNotFound as u16 =>
+            {
+                Ok(false)
+            }
             Err(e) => Err(e),
             _ => Ok(true),
         }

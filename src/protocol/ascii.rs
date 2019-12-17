@@ -96,7 +96,7 @@ impl AsciiProtocol<Stream> {
             return Ok(true);
         } else if s == "NOT_STORED\r\n" {
             return Ok(false);
-        } else if command == StoreCommand::Cas && s == "EXISTS\r\n" {
+        } else if command == StoreCommand::Cas && (s == "EXISTS\r\n" || s == "NOT_FOUND\r\n") {
             return Ok(false);
         } else {
             return Err(MemcacheError::ClientError("invalid server response".into()));
