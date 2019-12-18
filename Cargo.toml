@@ -8,8 +8,14 @@ license = "MIT"
 description = "memcached client for rust"
 keywords = ["memcache", "memcached", "driver", "cache", "database"]
 
+[features]
+default = ["tls"]
+
+tls = ["openssl"]
+
 [dependencies]
 byteorder = "1"
 url = "1"
 rand = "0.7"
 enum_dispatch = "0.1"
+openssl = { version = "*", optional = true }

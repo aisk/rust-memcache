@@ -378,6 +378,29 @@ mod tests {
         assert!(client.version().unwrap()[0].1 != "");
     }
 
+    #[cfg(feature = "tls")]
+    #[test]
+    fn ssl_noverify() {
+        let mut client = super::Client::connect("memcache+tls://localhost:12350?verify_mode=none").unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn ssl_verify() {
+        let mut client =
+            super::Client::connect("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+                .unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn ssl_client_certs() {
+        let mut client = super::Client::connect("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt").unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+    }
+
     #[test]
     fn delete() {
         let mut client = super::Client::connect("memcache://localhost:12345").unwrap();

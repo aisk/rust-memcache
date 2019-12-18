@@ -11,6 +11,8 @@ matrix:
   allow_failures:
     - rust: nightly
 
+dist: bionic
+
 addons:
   apt:
     packages:
@@ -21,21 +23,14 @@ addons:
       - gcc
       - binutils-dev
       - libiberty-dev
-
-services: memcache
+      - libevent-dev
+      - libssl-dev
 
 env:
   - RUST_TEST_THREADS=1 RUST_BACKTRACE=1
 
 before_script:
-  - memcached -p 12345 -d
-  - memcached -p 12346 -d
-  - memcached -p 12347 -d
-  - memcached -p 12348 -d
-  - memcached -p 12349 -d
-  - memcached -U 22345 -d
-  - memcached -s /tmp/memcached.sock -d
-  - memcached -s /tmp/memcached2.sock -d
+  - tests/setup_tests.sh
 
 after_success: |
   wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
