@@ -102,6 +102,22 @@ impl PacketHeader {
     }
 }
 
+pub fn parse_cas_response<R: io::Read>(stream: &mut R) -> Result<bool, MemcacheError> {
+    let header = PacketHeader::read(stream)?;
+    let status = header.vbucket_id_or_status;
+    // In case of KeyExists and KeyNotFound errors, there is also an error string
+    let value_len = header.total_body_length - u32::from(header.extras_length);
+    let mut err_message = vec![0x0; value_len as usize];
+    stream.read_exact(err_message.as_mut_slice())?;
+    if status == ResponseStatus::KeyExists as u16 || status == ResponseStatus::KeyNotFound as u16 {
+        Ok(false)
+    } else if status == ResponseStatus::NoError as u16 {
+        Ok(true)
+    } else {
+        Err(MemcacheError::from(header.vbucket_id_or_status))
+    }
+}
+
 pub fn parse_header_only_response<R: io::Read>(reader: &mut R) -> Result<(), MemcacheError> {
     let header = PacketHeader::read(reader)?;
     if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {

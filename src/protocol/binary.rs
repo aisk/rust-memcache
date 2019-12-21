@@ -5,7 +5,7 @@ use super::CasId;
 use byteorder::{BigEndian, WriteBytesExt};
 use client::Stats;
 use error::MemcacheError;
-use protocol::binary_packet::{self, Magic, Opcode, PacketHeader, ResponseStatus};
+use protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
 
@@ -32,13 +32,13 @@ impl BinaryProtocol {
         return Ok(());
     }
 
-    fn store<V: ToMemcacheValue<Stream>>(
+    fn send_request<V: ToMemcacheValue<Stream>>(
         &mut self,
         opcode: Opcode,
         key: &str,
         value: V,
         expiration: u32,
-        cas: Option<u64>,
+        cas: Option<CasId>,
     ) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
@@ -61,7 +61,18 @@ impl BinaryProtocol {
         self.stream.write_u32::<BigEndian>(extras.expiration)?;
         self.stream.write_all(key.as_bytes())?;
         value.write_to(&mut self.stream)?;
-        self.stream.flush()?;
+        self.stream.flush().map_err(Into::into)
+    }
+
+    fn store<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        opcode: Opcode,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: Option<CasId>,
+    ) -> Result<(), MemcacheError> {
+        self.send_request(opcode, key, value, expiration, cas)?;
         return binary_packet::parse_header_only_response(&mut self.stream);
     }
 
@@ -155,15 +166,8 @@ impl BinaryProtocol {
         expiration: u32,
         cas: CasId,
     ) -> Result<bool, MemcacheError> {
-        match self.store(Opcode::Set, key, value, expiration, Some(cas)) {
-            Err(MemcacheError::ServerError(code))
-                if code == ResponseStatus::KeyExists as u16 || code == ResponseStatus::KeyNotFound as u16 =>
-            {
-                Ok(false)
-            }
-            Err(e) => Err(e),
-            _ => Ok(true),
-        }
+        self.send_request(Opcode::Set, key, value, expiration, Some(cas))?;
+        binary_packet::parse_cas_response(&mut self.stream)
     }
 
     pub(super) fn set<V: ToMemcacheValue<Stream>>(
