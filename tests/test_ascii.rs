@@ -25,17 +25,6 @@ fn test_ascii() {
     assert_eq!(String::from_utf8(ascii_foo_value.0.clone()).unwrap(), "bar".to_string());
     assert_eq!(String::from_utf8(ascii_baz_value.0.clone()).unwrap(), "qux".to_string());
 
-    assert!(ascii_foo_value.2.is_some());
-    assert!(ascii_baz_value.2.is_some());
-    assert_eq!(
-        true,
-        client.cas("ascii_foo", "bar2", 0, ascii_foo_value.2.unwrap()).unwrap()
-    );
-    assert_eq!(
-        false,
-        client.cas("ascii_foo", "bar3", 0, ascii_foo_value.2.unwrap()).unwrap()
-    );
-
     client.touch("ascii_foo", 1000).unwrap();
 
     let value: Option<String> = client.get("not_exists_key").unwrap();
