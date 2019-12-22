@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
 
-use super::CasId;
 use client::Stats;
 use error::MemcacheError;
 use stream::Stream;
@@ -13,7 +12,7 @@ pub struct Options {
     pub noreply: bool,
     pub exptime: u32,
     pub flags: u32,
-    pub cas: Option<CasId>,
+    pub cas: Option<u64>,
 }
 
 #[derive(PartialEq)]
@@ -244,7 +243,7 @@ impl AsciiProtocol<Stream> {
         key: &str,
         value: V,
         expiration: u32,
-        cas: CasId,
+        cas: u64,
     ) -> Result<bool, MemcacheError> {
         let options = Options {
             exptime: expiration,

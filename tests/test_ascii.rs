@@ -1,6 +1,5 @@
 extern crate memcache;
 
-use memcache::CasId;
 use std::collections::HashMap;
 use std::{thread, time};
 
@@ -17,7 +16,7 @@ fn test_ascii() {
     assert_eq!(value, Some("bar".into()));
 
     client.set("ascii_baz", "qux", 0).unwrap();
-    let values: HashMap<String, (Vec<u8>, u32, Option<CasId>)> =
+    let values: HashMap<String, (Vec<u8>, u32)> =
         client.gets(vec!["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
     assert_eq!(values.len(), 2);
     let ascii_foo_value = values.get("ascii_foo").unwrap();

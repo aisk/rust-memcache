@@ -11,8 +11,6 @@ use std::collections::HashMap;
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
 
-pub type CasId = u64;
-
 #[enum_dispatch]
 pub enum Protocol {
     Ascii(AsciiProtocol<Stream>),
@@ -33,7 +31,7 @@ pub trait ProtocolTrait {
         key: &str,
         value: V,
         expiration: u32,
-        cas: CasId,
+        cas: u64,
     ) -> Result<bool, MemcacheError>;
     fn add<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError>;
     fn replace<V: ToMemcacheValue<Stream>>(

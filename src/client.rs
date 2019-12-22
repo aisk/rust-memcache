@@ -7,7 +7,6 @@ use url::Url;
 
 use connection::Connection;
 use error::MemcacheError;
-use protocol::CasId;
 use protocol::{Protocol, ProtocolTrait};
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
@@ -233,16 +232,15 @@ impl Client {
     }
 
     /// Compare and swap a key with the associate value into memcached server with expiration seconds.
-    /// `CasId` should be obtained from a previous `gets` call.
+    /// `cas_id` should be obtained from a previous `gets` call.
     ///
     /// Example:
     ///
     /// ```rust
     /// use std::collections::HashMap;
-    /// use memcache::CasId;
     /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar", 10).unwrap();
-    /// let result: HashMap<String, (Vec<u8>, u32, Option<CasId>)> = client.gets(vec!["foo"]).unwrap();
+    /// let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(vec!["foo"]).unwrap();
     /// let (_, _, cas) = result.get("foo").unwrap();
     /// let cas = cas.unwrap();
     /// assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());
@@ -252,7 +250,7 @@ impl Client {
         key: &str,
         value: V,
         expiration: u32,
-        cas_id: CasId,
+        cas_id: u64,
     ) -> Result<bool, MemcacheError> {
         self.get_connection(key).protocol.cas(key, value, expiration, cas_id)
     }

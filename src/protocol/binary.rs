@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use super::CasId;
 use byteorder::{BigEndian, WriteBytesExt};
 use client::Stats;
 use error::MemcacheError;
@@ -38,7 +37,7 @@ impl BinaryProtocol {
         key: &str,
         value: V,
         expiration: u32,
-        cas: Option<CasId>,
+        cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
@@ -70,7 +69,7 @@ impl BinaryProtocol {
         key: &str,
         value: V,
         expiration: u32,
-        cas: Option<CasId>,
+        cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         self.send_request(opcode, key, value, expiration, cas)?;
         return binary_packet::parse_header_only_response(&mut self.stream);
@@ -164,7 +163,7 @@ impl BinaryProtocol {
         key: &str,
         value: V,
         expiration: u32,
-        cas: CasId,
+        cas: u64,
     ) -> Result<bool, MemcacheError> {
         self.send_request(Opcode::Set, key, value, expiration, Some(cas))?;
         binary_packet::parse_cas_response(&mut self.stream)

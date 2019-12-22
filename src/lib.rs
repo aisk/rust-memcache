@@ -80,5 +80,4 @@ mod value;
 
 pub use client::{Client, Connectable};
 pub use error::MemcacheError;
-pub use protocol::CasId;
 pub use value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};

@@ -176,7 +176,6 @@ fn udp_test() {
 
 #[test]
 fn test_cas() {
-    use memcache::CasId;
     use memcache::Client;
     use std::collections::HashMap;
     let clients = vec![
@@ -192,7 +191,7 @@ fn test_cas() {
 
         client.set("ascii_baz", "qux", 0).unwrap();
 
-        let values: HashMap<String, (Vec<u8>, u32, Option<CasId>)> =
+        let values: HashMap<String, (Vec<u8>, u32, Option<u64>)> =
             client.gets(vec!["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
         assert_eq!(values.len(), 2);
         let ascii_foo_value = values.get("ascii_foo").unwrap();
