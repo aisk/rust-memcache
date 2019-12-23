@@ -16,10 +16,13 @@ fn test_ascii() {
     assert_eq!(value, Some("bar".into()));
 
     client.set("ascii_baz", "qux", 0).unwrap();
-    let values: HashMap<String, String> = client.gets(vec!["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
+    let values: HashMap<String, (Vec<u8>, u32)> =
+        client.gets(vec!["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
     assert_eq!(values.len(), 2);
-    assert_eq!(values.get("ascii_foo"), Some(&"bar".to_string()));
-    assert_eq!(values.get("ascii_baz"), Some(&"qux".to_string()));
+    let ascii_foo_value = values.get("ascii_foo").unwrap();
+    let ascii_baz_value = values.get("ascii_baz").unwrap();
+    assert_eq!(String::from_utf8(ascii_foo_value.0.clone()).unwrap(), "bar".to_string());
+    assert_eq!(String::from_utf8(ascii_baz_value.0.clone()).unwrap(), "qux".to_string());
 
     client.touch("ascii_foo", 1000).unwrap();
 

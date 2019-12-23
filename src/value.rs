@@ -106,6 +106,22 @@ pub trait FromMemcacheValue: Sized {
     fn from_memcache_value(Vec<u8>, u32) -> MemcacheValue<Self>;
 }
 
+pub trait FromMemcacheValueExt: Sized {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self>;
+}
+
+impl<V: FromMemcacheValue> FromMemcacheValueExt for V {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, _cas: Option<u64>) -> MemcacheValue<Self> {
+        FromMemcacheValue::from_memcache_value(value, flags)
+    }
+}
+
+impl FromMemcacheValueExt for (Vec<u8>, u32, Option<u64>) {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self> {
+        return Ok((value, flags, cas));
+    }
+}
+
 impl FromMemcacheValue for (Vec<u8>, u32) {
     fn from_memcache_value(value: Vec<u8>, flags: u32) -> MemcacheValue<Self> {
         return Ok((value, flags));
@@ -128,7 +144,7 @@ macro_rules! impl_from_memcache_value_for_number {
     ($ty:ident) => {
         impl FromMemcacheValue for $ty {
             fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
-                let s: String = String::from_memcache_value(value, 0)?;
+                let s: String = FromMemcacheValue::from_memcache_value(value, 0)?;
                 match Self::from_str(s.as_str()) {
                     Ok(v) => return Ok(v),
                     Err(e) => Err(MemcacheError::from(e)),

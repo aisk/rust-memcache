@@ -9,7 +9,7 @@ use connection::Connection;
 use error::MemcacheError;
 use protocol::{Protocol, ProtocolTrait};
 use stream::Stream;
-use value::{FromMemcacheValue, ToMemcacheValue};
+use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 pub type Stats = HashMap<String, String>;
 
@@ -182,7 +182,7 @@ impl Client {
     /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
-    pub fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+    pub fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         return self.get_connection(key).protocol.get(key);
     }
 
@@ -197,7 +197,7 @@ impl Client {
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
     /// ```
-    pub fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
+    pub fn gets<V: FromMemcacheValueExt>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
         let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
         let connections_count = self.connections.len();
@@ -229,6 +229,30 @@ impl Client {
         expiration: u32,
     ) -> Result<(), MemcacheError> {
         return self.get_connection(key).protocol.set(key, value, expiration);
+    }
+
+    /// Compare and swap a key with the associate value into memcached server with expiration seconds.
+    /// `cas_id` should be obtained from a previous `gets` call.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// use std::collections::HashMap;
+    /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// client.set("foo", "bar", 10).unwrap();
+    /// let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(vec!["foo"]).unwrap();
+    /// let (_, _, cas) = result.get("foo").unwrap();
+    /// let cas = cas.unwrap();
+    /// assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());
+    /// ```
+    pub fn cas<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas_id: u64,
+    ) -> Result<bool, MemcacheError> {
+        self.get_connection(key).protocol.cas(key, value, expiration, cas_id)
     }
 
     /// Add a key with associate value into memcached server with expiration seconds.

@@ -6,7 +6,7 @@ use client::Stats;
 use error::MemcacheError;
 use protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
 use stream::Stream;
-use value::{FromMemcacheValue, ToMemcacheValue};
+use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 pub struct BinaryProtocol {
     pub stream: Stream,
@@ -31,12 +31,13 @@ impl BinaryProtocol {
         return Ok(());
     }
 
-    fn store<V: ToMemcacheValue<Stream>>(
+    fn send_request<V: ToMemcacheValue<Stream>>(
         &mut self,
         opcode: Opcode,
         key: &str,
         value: V,
         expiration: u32,
+        cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
@@ -47,6 +48,7 @@ impl BinaryProtocol {
             key_length: key.len() as u16,
             extras_length: 8,
             total_body_length: (8 + key.len() + value.get_length()) as u32,
+            cas: cas.unwrap_or(0),
             ..Default::default()
         };
         let extras = binary_packet::StoreExtras {
@@ -58,7 +60,18 @@ impl BinaryProtocol {
         self.stream.write_u32::<BigEndian>(extras.expiration)?;
         self.stream.write_all(key.as_bytes())?;
         value.write_to(&mut self.stream)?;
-        self.stream.flush()?;
+        self.stream.flush().map_err(Into::into)
+    }
+
+    fn store<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        opcode: Opcode,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: Option<u64>,
+    ) -> Result<(), MemcacheError> {
+        self.send_request(opcode, key, value, expiration, cas)?;
         return binary_packet::parse_header_only_response(&mut self.stream);
     }
 
@@ -101,7 +114,7 @@ impl BinaryProtocol {
         return Ok(());
     }
 
-    pub(super) fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+    pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -118,7 +131,10 @@ impl BinaryProtocol {
         return binary_packet::parse_get_response(&mut self.stream);
     }
 
-    pub(super) fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
+    pub(super) fn gets<V: FromMemcacheValueExt>(
+        &mut self,
+        keys: Vec<&str>,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
             if key.len() > 250 {
                 return Err(MemcacheError::ClientError(String::from("key is too long")));
@@ -142,13 +158,24 @@ impl BinaryProtocol {
         return binary_packet::parse_gets_response(&mut self.stream);
     }
 
+    pub(super) fn cas<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: u64,
+    ) -> Result<bool, MemcacheError> {
+        self.send_request(Opcode::Set, key, value, expiration, Some(cas))?;
+        binary_packet::parse_cas_response(&mut self.stream)
+    }
+
     pub(super) fn set<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Set, key, value, expiration);
+        return self.store(Opcode::Set, key, value, expiration, None);
     }
 
     pub(super) fn add<V: ToMemcacheValue<Stream>>(
@@ -157,7 +184,7 @@ impl BinaryProtocol {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Add, key, value, expiration);
+        return self.store(Opcode::Add, key, value, expiration, None);
     }
 
     pub(super) fn replace<V: ToMemcacheValue<Stream>>(
@@ -166,7 +193,7 @@ impl BinaryProtocol {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self.store(Opcode::Replace, key, value, expiration);
+        return self.store(Opcode::Replace, key, value, expiration, None);
     }
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {

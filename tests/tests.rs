@@ -173,3 +173,47 @@ fn udp_test() {
         handles[i].take().unwrap().join().unwrap();
     }
 }
+
+#[test]
+fn test_cas() {
+    use memcache::Client;
+    use std::collections::HashMap;
+    let clients = vec![
+        Client::connect("memcache://localhost:12345").unwrap(),
+        Client::connect("memcache://localhost:12345?protocol=ascii").unwrap(),
+    ];
+    for mut client in clients {
+        client.flush().unwrap();
+
+        client.set("ascii_foo", "bar", 0).unwrap();
+        let value: Option<String> = client.get("ascii_foo").unwrap();
+        assert_eq!(value, Some("bar".into()));
+
+        client.set("ascii_baz", "qux", 0).unwrap();
+
+        let values: HashMap<String, (Vec<u8>, u32, Option<u64>)> =
+            client.gets(vec!["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
+        assert_eq!(values.len(), 2);
+        let ascii_foo_value = values.get("ascii_foo").unwrap();
+        let ascii_baz_value = values.get("ascii_baz").unwrap();
+
+        assert!(ascii_foo_value.2.is_some());
+        assert!(ascii_baz_value.2.is_some());
+        assert_eq!(
+            true,
+            client.cas("ascii_foo", "bar2", 0, ascii_foo_value.2.unwrap()).unwrap()
+        );
+        assert_eq!(
+            false,
+            client.cas("ascii_foo", "bar3", 0, ascii_foo_value.2.unwrap()).unwrap()
+        );
+
+        assert_eq!(
+            false,
+            client
+                .cas("not_exists_key", "bar", 0, ascii_foo_value.2.unwrap())
+                .unwrap()
+        );
+        client.flush().unwrap();
+    }
+}

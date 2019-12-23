@@ -5,16 +5,19 @@ use std::io::{BufRead, BufReader, Read, Write};
 use client::Stats;
 use error::MemcacheError;
 use stream::Stream;
-use value::{FromMemcacheValue, ToMemcacheValue};
+use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 #[derive(Default)]
 pub struct Options {
     pub noreply: bool,
     pub exptime: u32,
     pub flags: u32,
+    pub cas: Option<u64>,
 }
 
+#[derive(PartialEq)]
 enum StoreCommand {
+    Cas,
     Set,
     Add,
     Replace,
@@ -30,6 +33,7 @@ impl fmt::Display for StoreCommand {
             StoreCommand::Replace => write!(f, "replace"),
             StoreCommand::Append => write!(f, "append"),
             StoreCommand::Prepend => write!(f, "prepend"),
+            StoreCommand::Cas => write!(f, "cas"),
         }
     }
 }
@@ -48,7 +52,7 @@ impl AsciiProtocol<Stream> {
         key: &str,
         value: V,
         options: &Options,
-    ) -> Result<(), MemcacheError> {
+    ) -> Result<bool, MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
@@ -61,6 +65,15 @@ impl AsciiProtocol<Stream> {
             options.exptime,
             value.get_length()
         );
+        if command == StoreCommand::Cas {
+            if options.cas.is_none() {
+                return Err(MemcacheError::ClientError(String::from(
+                    "cas command should have a casid",
+                )));
+            }
+            let cas = options.cas.unwrap();
+            header += &format!(" {}", cas);
+        }
         if options.noreply {
             header += " noreply";
         }
@@ -71,7 +84,7 @@ impl AsciiProtocol<Stream> {
         self.reader.get_mut().flush()?;
 
         if options.noreply {
-            return Ok(());
+            return Ok(true);
         }
 
         let mut s = String::new();
@@ -79,9 +92,11 @@ impl AsciiProtocol<Stream> {
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s == "STORED\r\n" {
-            return Ok(());
+            return Ok(true);
         } else if s == "NOT_STORED\r\n" {
-            return Ok(());
+            return Ok(false);
+        } else if command == StoreCommand::Cas && (s == "EXISTS\r\n" || s == "NOT_FOUND\r\n") {
+            return Ok(false);
         } else {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
@@ -132,7 +147,7 @@ impl AsciiProtocol<Stream> {
         return Ok(());
     }
 
-    pub(super) fn get<V: FromMemcacheValue>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+    pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         write!(self.reader.get_mut(), "get {}\r\n", key)?;
 
         let mut s = String::new();
@@ -172,10 +187,13 @@ impl AsciiProtocol<Stream> {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
 
-        return Ok(Some(FromMemcacheValue::from_memcache_value(buffer, flags)?));
+        return Ok(Some(FromMemcacheValueExt::from_memcache_value(buffer, flags, None)?));
     }
 
-    pub(super) fn gets<V: FromMemcacheValue>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
+    pub(super) fn gets<V: FromMemcacheValueExt>(
+        &mut self,
+        keys: Vec<&str>,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
         write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
 
         let mut result: HashMap<String, V> = HashMap::new();
@@ -192,18 +210,22 @@ impl AsciiProtocol<Stream> {
             }
 
             let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
-            if header.len() != 4 && header.len() != 5 {
+            if header.len() != 5 {
                 return Err(MemcacheError::ClientError("invalid server response".into()));
             }
 
             let key = header[1];
             let flags = header[2].parse()?;
             let length = header[3].parse()?;
+            let cas = header[4].parse()?;
 
             let mut buffer = vec![0; length];
             self.reader.read_exact(buffer.as_mut_slice())?;
 
-            result.insert(key.to_string(), FromMemcacheValue::from_memcache_value(buffer, flags)?);
+            result.insert(
+                key.to_string(),
+                FromMemcacheValueExt::from_memcache_value(buffer, flags, Some(cas))?,
+            );
 
             // read the rest \r\n
             let mut s = String::new();
@@ -216,6 +238,21 @@ impl AsciiProtocol<Stream> {
         return Ok(result);
     }
 
+    pub(super) fn cas<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: u64,
+    ) -> Result<bool, MemcacheError> {
+        let options = Options {
+            exptime: expiration,
+            cas: Some(cas),
+            ..Default::default()
+        };
+        self.store(StoreCommand::Cas, key, value, &options)
+    }
+
     pub(super) fn set<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
@@ -226,7 +263,7 @@ impl AsciiProtocol<Stream> {
             exptime: expiration,
             ..Default::default()
         };
-        return self.store(StoreCommand::Set, key, value, &options);
+        self.store(StoreCommand::Set, key, value, &options).map(|_| ())
     }
 
     pub(super) fn add<V: ToMemcacheValue<Stream>>(
@@ -239,7 +276,7 @@ impl AsciiProtocol<Stream> {
             exptime: expiration,
             ..Default::default()
         };
-        return self.store(StoreCommand::Add, key, value, &options);
+        self.store(StoreCommand::Add, key, value, &options).map(|_| ())
     }
 
     pub(super) fn replace<V: ToMemcacheValue<Stream>>(
@@ -252,21 +289,23 @@ impl AsciiProtocol<Stream> {
             exptime: expiration,
             ..Default::default()
         };
-        return self.store(StoreCommand::Replace, key, value, &options);
+        self.store(StoreCommand::Replace, key, value, &options).map(|_| ())
     }
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        return self.store(StoreCommand::Append, key, value, &Default::default());
+        self.store(StoreCommand::Append, key, value, &Default::default())
+            .map(|_| ())
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
         if key.len() > 250 {
             return Err(MemcacheError::ClientError(String::from("key is too long")));
         }
-        return self.store(StoreCommand::Prepend, key, value, &Default::default());
+        self.store(StoreCommand::Prepend, key, value, &Default::default())
+            .map(|_| ())
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
