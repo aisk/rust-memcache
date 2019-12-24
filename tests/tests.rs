@@ -58,6 +58,38 @@ fn test() {
 }
 
 #[test]
+fn issue74() {
+    let mut client = memcache::Client::connect("memcache://localhost:12346?tcp_nodelay=true").unwrap();
+    client.delete("issue74").unwrap();
+    client.add("issue74", 1, 0).unwrap();
+
+    match client.add("issue74", 1, 0) {
+        Ok(_) => panic!("Should got an error!"),
+        Err(e) => match e {
+            memcache::MemcacheError::ServerError(e) => assert!(e == 2),
+            _ => panic!("Unexpected error!"),
+        }
+    }
+
+    match client.add("issue74", 1, 0) {
+        Ok(_) => panic!("Should got an error!"),
+        Err(e) => match e {
+            memcache::MemcacheError::ServerError(e) => assert!(e == 2),
+            _ => panic!("Unexpected error!"),
+        }
+    }
+
+    match client.add("issue74", 1, 0) {
+        Ok(_) => panic!("Should got an error!"),
+        Err(e) => match e {
+            memcache::MemcacheError::ServerError(e) => assert!(e == 2),
+            _ => panic!("Unexpected error!"),
+        }
+    }
+}
+
+
+#[test]
 fn udp_test() {
     let urls = vec!["memcache+udp://localhost:22345"];
     let mut client = memcache::Client::connect(urls).unwrap();
