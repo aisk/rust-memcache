@@ -118,8 +118,10 @@ pub fn parse_cas_response<R: io::Read>(stream: &mut R) -> Result<bool, MemcacheE
     }
 }
 
-pub fn parse_header_only_response<R: io::Read>(reader: &mut R) -> Result<(), MemcacheError> {
+pub fn parse_response<R: io::Read>(reader: &mut R) -> Result<(), MemcacheError> {
     let header = PacketHeader::read(reader)?;
+    let mut buffer = vec![0; header.total_body_length as usize];
+    reader.read_exact(buffer.as_mut_slice())?;
     if header.vbucket_id_or_status != ResponseStatus::NoError as u16 {
         return Err(MemcacheError::from(header.vbucket_id_or_status));
     }

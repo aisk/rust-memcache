@@ -72,7 +72,7 @@ impl BinaryProtocol {
         cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         self.send_request(opcode, key, value, expiration, cas)?;
-        return binary_packet::parse_header_only_response(&mut self.stream);
+        return binary_packet::parse_response(&mut self.stream);
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
@@ -95,7 +95,7 @@ impl BinaryProtocol {
         };
         request_header.write(&mut self.stream)?;
         self.stream.flush()?;
-        binary_packet::parse_header_only_response(&mut self.stream)?;
+        binary_packet::parse_response(&mut self.stream)?;
         return Ok(());
     }
 
@@ -110,7 +110,7 @@ impl BinaryProtocol {
         request_header.write(&mut self.stream)?;
         self.stream.write_u32::<BigEndian>(delay)?;
         self.stream.flush()?;
-        binary_packet::parse_header_only_response(&mut self.stream)?;
+        binary_packet::parse_response(&mut self.stream)?;
         return Ok(());
     }
 
@@ -211,7 +211,7 @@ impl BinaryProtocol {
         self.stream.write_all(key.as_bytes())?;
         value.write_to(&mut self.stream)?;
         self.stream.flush()?;
-        return binary_packet::parse_header_only_response(&mut self.stream);
+        return binary_packet::parse_response(&mut self.stream);
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
@@ -229,7 +229,7 @@ impl BinaryProtocol {
         self.stream.write_all(key.as_bytes())?;
         value.write_to(&mut self.stream)?;
         self.stream.flush()?;
-        return binary_packet::parse_header_only_response(&mut self.stream);
+        return binary_packet::parse_response(&mut self.stream);
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
