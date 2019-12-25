@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
 
+use super::ResponseStatus;
 use client::Stats;
 use error::MemcacheError;
 use stream::Stream;
@@ -95,8 +96,10 @@ impl AsciiProtocol<Stream> {
             return Ok(true);
         } else if s == "NOT_STORED\r\n" {
             return Ok(false);
-        } else if command == StoreCommand::Cas && (s == "EXISTS\r\n" || s == "NOT_FOUND\r\n") {
-            return Ok(false);
+        } else if s == "EXISTS\r\n" {
+            return Err(MemcacheError::from(ResponseStatus::KeyExists as u16));
+        } else if s == "NOT_FOUND\r\n" {
+            return Err(MemcacheError::from(ResponseStatus::KeyNotFound as u16));
         } else {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
@@ -250,7 +253,15 @@ impl AsciiProtocol<Stream> {
             cas: Some(cas),
             ..Default::default()
         };
-        self.store(StoreCommand::Cas, key, value, &options)
+        match self.store(StoreCommand::Cas, key, value, &options) {
+            Ok(t) => Ok(t),
+            Err(MemcacheError::ServerError(e))
+                if e == ResponseStatus::KeyExists as u16 || e == ResponseStatus::KeyNotFound as u16 =>
+            {
+                Ok(false)
+            }
+            e => e,
+        }
     }
 
     pub(super) fn set<V: ToMemcacheValue<Stream>>(
