@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::io::Write;
 
+use super::check_key_len;
 use byteorder::{BigEndian, WriteBytesExt};
 use client::Stats;
 use error::MemcacheError;
 use protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
-use super::check_key_len;
 
 pub struct BinaryProtocol {
     pub stream: Stream,
