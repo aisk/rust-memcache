@@ -19,6 +19,7 @@ memcache = "*"
   - <input type="checkbox"  disabled checked /> TCP connection
   - <input type="checkbox"  disabled checked /> UDP connection
   - <input type="checkbox"  disabled checked/> UNIX Domain socket connection
+  - <input type="checkbox"  disabled checked/> TLS connection
 - <input type="checkbox"  disabled /> Encodings
   - <input type="checkbox"  disabled checked /> Typed interface
   - <input type="checkbox"  disabled /> Automatically compress

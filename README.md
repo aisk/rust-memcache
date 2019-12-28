@@ -29,6 +29,7 @@ memcache = "*"
   - [x] TCP connection
   - [x] UDP connection
   - [x] UNIX Domain socket connection
+  - [x] TLS connection
 - [ ] Encodings
   - [x] Typed interface
   - [ ] Automatically compress

@@ -1,6 +1,6 @@
 [package]
 name = "memcache"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["An Long <aisk1988@gmail.com>"]
 repository = "https://github.com/aisk/rust-memcache"
 readme = "README.md"
@@ -18,4 +18,4 @@ byteorder = "1"
 url = "^2.1"
 rand = "0.7"
 enum_dispatch = "0.2"
-openssl = { version = "*", optional = true }
+openssl = { version = "^0.10", optional = true }
