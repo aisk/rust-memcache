@@ -131,10 +131,7 @@ impl BinaryProtocol {
         return binary_packet::parse_get_response(&mut self.stream);
     }
 
-    pub(super) fn gets<V: FromMemcacheValueExt>(
-        &mut self,
-        keys: &[&str],
-    ) -> Result<HashMap<String, V>, MemcacheError> {
+    pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
             if key.len() > 250 {
                 return Err(MemcacheError::ClientError(String::from("key is too long")));
