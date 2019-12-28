@@ -146,7 +146,7 @@ fn udp_test() {
     assert_eq!(client.touch("fooo", 12345).unwrap(), true);
 
     // gets is not supported for udp
-    let value: Result<std::collections::HashMap<String, String>, _> = client.gets(vec!["foo", "fooo"]);
+    let value: Result<std::collections::HashMap<String, String>, _> = client.gets(&["foo", "fooo"]);
     assert_eq!(value.is_ok(), false);
 
     let mut keys: Vec<String> = Vec::new();
@@ -171,30 +171,30 @@ fn udp_test() {
             let mut client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
             for j in 0..50 {
                 let value = format!("{}{}", value, j);
-                client.set(key.as_str(), value.clone(), 0).unwrap();
+                client.set(key.as_str(), &value, 0).unwrap();
                 let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result, Some(value.clone()));
+                assert_eq!(result.as_ref(), Some(&value));
 
-                let result = client.add(key.as_str(), value.clone(), 0);
+                let result = client.add(key.as_str(), &value, 0);
                 assert_eq!(result.is_err(), true);
 
                 client.delete(key.as_str()).unwrap();
                 let result: Option<String> = client.get(key.as_str()).unwrap();
                 assert_eq!(result, None);
 
-                client.add(key.as_str(), value.clone(), 0).unwrap();
+                client.add(key.as_str(), &value, 0).unwrap();
                 let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result, Some(value.clone()));
+                assert_eq!(result.as_ref(), Some(&value));
 
-                client.replace(key.as_str(), value.clone(), 0).unwrap();
+                client.replace(key.as_str(), &value, 0).unwrap();
                 let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result, Some(value.clone()));
+                assert_eq!(result.as_ref(), Some(&value));
 
-                client.append(key.as_str(), value.clone()).unwrap();
+                client.append(key.as_str(), &value).unwrap();
                 let result: Option<String> = client.get(key.as_str()).unwrap();
                 assert_eq!(result, Some(format!("{}{}", value, value)));
 
-                client.prepend(key.as_str(), value.clone()).unwrap();
+                client.prepend(key.as_str(), &value).unwrap();
                 let result: Option<String> = client.get(key.as_str()).unwrap();
                 assert_eq!(result, Some(format!("{}{}{}", value, value, value)));
             }
@@ -224,7 +224,7 @@ fn test_cas() {
         client.set("ascii_baz", "qux", 0).unwrap();
 
         let values: HashMap<String, (Vec<u8>, u32, Option<u64>)> =
-            client.gets(vec!["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
+            client.gets(&["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
         assert_eq!(values.len(), 2);
         let ascii_foo_value = values.get("ascii_foo").unwrap();
         let ascii_baz_value = values.get("ascii_baz").unwrap();

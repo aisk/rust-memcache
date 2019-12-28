@@ -32,6 +32,20 @@ impl<'a, W: Write> ToMemcacheValue<W> for &'a [u8] {
     }
 }
 
+impl<'a, W: Write> ToMemcacheValue<W> for &'a String {
+    fn get_flags(&self) -> u32 {
+        ToMemcacheValue::<W>::get_flags(*self)
+    }
+
+    fn get_length(&self) -> usize {
+        ToMemcacheValue::<W>::get_length(*self)
+    }
+
+    fn write_to(&self, stream: &mut W) -> io::Result<()> {
+        ToMemcacheValue::<W>::write_to(*self, stream)
+    }
+}
+
 impl<W: Write> ToMemcacheValue<W> for String {
     fn get_flags(&self) -> u32 {
         return Flags::Bytes as u32;
