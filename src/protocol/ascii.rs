@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
 
-use super::ResponseStatus;
+use super::check_key_len;
 use client::Stats;
-use error::MemcacheError;
+use error::{CommandError, MemcacheError, ServerError};
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
 
@@ -54,9 +54,7 @@ impl AsciiProtocol<Stream> {
         value: V,
         options: &Options,
     ) -> Result<bool, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
+        check_key_len(key)?;
 
         let mut header = format!(
             "{} {} {} {} {}",
@@ -68,9 +66,7 @@ impl AsciiProtocol<Stream> {
         );
         if command == StoreCommand::Cas {
             if options.cas.is_none() {
-                return Err(MemcacheError::ClientError(String::from(
-                    "cas command should have a casid",
-                )));
+                panic!("cas value should be present");
             }
             let cas = options.cas.unwrap();
             header += &format!(" {}", cas);
@@ -90,18 +86,19 @@ impl AsciiProtocol<Stream> {
 
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s == "STORED\r\n" {
-            return Ok(true);
-        } else if s == "NOT_STORED\r\n" {
-            return Ok(false);
-        } else if s == "EXISTS\r\n" {
-            return Err(MemcacheError::from(ResponseStatus::KeyExists as u16));
-        } else if s == "NOT_FOUND\r\n" {
-            return Err(MemcacheError::from(ResponseStatus::KeyNotFound as u16));
-        } else {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+        match MemcacheError::try_from(s) {
+            Ok(s) if s == "STORED\r\n" => Ok(true),
+            Ok(s) if s == "NOT_STORED\r\n" => Ok(false),
+            Ok(s) => {
+                if s == "EXISTS\r\n" {
+                    Err(CommandError::KeyExists)?
+                } else if s == "NOT_FOUND\r\n" {
+                    Err(CommandError::KeyNotFound)?
+                } else {
+                    Err(ServerError::BadResponse(s))?
+                }
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -110,10 +107,9 @@ impl AsciiProtocol<Stream> {
         self.reader.get_mut().flush()?;
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if !s.starts_with("VERSION") {
-            return Err(MemcacheError::ServerError(0));
+        let s = MemcacheError::try_from(s)?;
+        if !s.starts_with("VERSION") {
+            return Err(ServerError::BadResponse(s).into());
         }
         let s = s.trim_start_matches("VERSION ");
         let s = s.trim_end_matches("\r\n");
@@ -129,10 +125,9 @@ impl AsciiProtocol<Stream> {
         self.reader.get_mut().flush()?;
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s != "OK\r\n" {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+        let s = MemcacheError::try_from(s)?;
+        if s != "OK\r\n" {
+            return Err(ServerError::BadResponse(s).into());
         }
         return Ok(());
     }
@@ -142,10 +137,9 @@ impl AsciiProtocol<Stream> {
         self.reader.get_mut().flush()?;
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s != "OK\r\n" {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+        let s = MemcacheError::try_from(s)?;
+        if s != "OK\r\n" {
+            return Err(ServerError::BadResponse(s).into());
         }
         return Ok(());
     }
@@ -156,21 +150,20 @@ impl AsciiProtocol<Stream> {
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
 
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s.starts_with("END") {
+        let s = MemcacheError::try_from(s)?;
+        if s.starts_with("END") {
             return Ok(None);
         } else if !s.starts_with("VALUE") {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+            return Err(ServerError::BadResponse(s).into());
         }
 
         let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
         if header.len() != 4 {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+            return Err(ServerError::BadResponse(s).into());
         }
 
         if key != header[1] {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+            return Err(ServerError::BadResponse(s).into());
         }
         let flags = header[2].parse()?;
         let length = header[3].parse()?;
@@ -182,12 +175,12 @@ impl AsciiProtocol<Stream> {
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
         if s != "\r\n" {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+            return Err(ServerError::BadResponse(s).into());
         }
         s = String::new();
         self.reader.read_line(&mut s)?;
         if s != "END\r\n" {
-            return Err(MemcacheError::ClientError("invalid server response".into()));
+            return Err(ServerError::BadResponse(s).into());
         }
 
         return Ok(Some(FromMemcacheValueExt::from_memcache_value(buffer, flags, None)?));
@@ -201,17 +194,16 @@ impl AsciiProtocol<Stream> {
             let mut s = String::new();
             self.reader.read_line(&mut s)?;
 
-            if is_memcache_error(s.as_str()) {
-                return Err(MemcacheError::from(s));
-            } else if s.starts_with("END") {
+            let s = MemcacheError::try_from(s)?;
+            if s.starts_with("END") {
                 break;
             } else if !s.starts_with("VALUE") {
-                return Err(MemcacheError::ClientError("invalid server response".into()));
+                return Err(ServerError::BadResponse(s).into());
             }
 
             let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
             if header.len() != 5 {
-                return Err(MemcacheError::ClientError("invalid server response".into()));
+                return Err(ServerError::BadResponse(s).into());
             }
 
             let key = header[1];
@@ -231,7 +223,7 @@ impl AsciiProtocol<Stream> {
             let mut s = String::new();
             self.reader.read_line(&mut s)?;
             if s != "\r\n" {
-                return Err(MemcacheError::ClientError("invalid server response".into()));
+                return Err(ServerError::BadResponse(s).into());
             }
         }
 
@@ -301,94 +293,70 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
+        check_key_len(key)?;
         self.store(StoreCommand::Append, key, value, &Default::default())
             .map(|_| ())
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
+        check_key_len(key)?;
         self.store(StoreCommand::Prepend, key, value, &Default::default())
             .map(|_| ())
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
+        check_key_len(key)?;
         write!(self.reader.get_mut(), "delete {}\r\n", key)?;
         self.reader.get_mut().flush()?;
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s == "DELETED\r\n" {
-            return Ok(true);
-        } else if s == "NOT_FOUND\r\n" {
-            return Ok(false);
-        } else {
-            return Err(MemcacheError::ClientError(String::from("invalid server response")));
+        match MemcacheError::try_from(s) {
+            Ok(s) => {
+                if s == "DELETED\r\n" {
+                    Ok(true)
+                } else {
+                    Err(ServerError::BadResponse(s))?
+                }
+            }
+            Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
+            Err(e) => Err(e),
         }
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
+        check_key_len(key)?;
         write!(self.reader.get_mut(), "incr {} {}\r\n", key, amount)?;
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s == "NOT_FOUND\r\n" {
-            return Err(MemcacheError::from(1));
-        } else {
-            match s.trim_end_matches("\r\n").parse::<u64>() {
-                Ok(n) => return Ok(n),
-                Err(_) => return Err(MemcacheError::ClientError("invalid server response".into())),
-            }
-        }
+        let s = MemcacheError::try_from(s)?;
+        Ok(s.trim_end_matches("\r\n").parse::<u64>()?)
     }
 
     pub(super) fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
+        check_key_len(key)?;
         write!(self.reader.get_mut(), "decr {} {}\r\n", key, amount)?;
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s == "NOT_FOUND\r\n" {
-            return Err(MemcacheError::from(1));
-        } else {
-            match s.trim_end_matches("\r\n").parse::<u64>() {
-                Ok(n) => return Ok(n),
-                Err(_) => return Err(MemcacheError::ClientError("invalid server response".into())),
-            }
-        }
+        let s = MemcacheError::try_from(s)?;
+        Ok(s.trim_end_matches("\r\n").parse::<u64>()?)
     }
 
     pub(super) fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
-        if key.len() > 250 {
-            return Err(MemcacheError::ClientError(String::from("key is too long")));
-        }
+        check_key_len(key)?;
         write!(self.reader.get_mut(), "touch {} {}\r\n", key, expiration)?;
         self.reader.get_mut().flush()?;
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
-        if is_memcache_error(s.as_str()) {
-            return Err(MemcacheError::from(s));
-        } else if s == "TOUCHED\r\n" {
-            return Ok(true);
-        } else if s == "NOT_FOUND\r\n" {
-            return Ok(false);
-        } else {
-            return Err(MemcacheError::ClientError(String::from("invalid server response")));
+        match MemcacheError::try_from(s) {
+            Ok(s) => {
+                if s == "TOUCHED\r\n" {
+                    Ok(true)
+                } else {
+                    Err(ServerError::BadResponse(s))?
+                }
+            }
+            Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
+            Err(e) => Err(e),
         }
     }
 
@@ -401,17 +369,17 @@ impl AsciiProtocol<Stream> {
             let mut s = String::new();
             self.reader.read_line(&mut s)?;
 
-            if is_memcache_error(s.as_str()) {
-                return Err(MemcacheError::from(s));
-            } else if s.starts_with("END") {
+            let s = MemcacheError::try_from(s)?;
+            // FIXME: what if a stat starts with END?
+            if s.starts_with("END") {
                 break;
             } else if !s.starts_with("STAT") {
-                return Err(MemcacheError::ClientError("invalid server response".into()));
+                return Err(ServerError::BadResponse(s).into());
             }
 
             let stat: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
             if stat.len() < 3 {
-                return Err(MemcacheError::ClientError("invalid server response".into()));
+                return Err(ServerError::BadResponse(s).into());
             }
             let key = stat[1];
             let value = s.trim_start_matches(format!("STAT {}", key).as_str());
@@ -420,8 +388,4 @@ impl AsciiProtocol<Stream> {
 
         return Ok(result);
     }
-}
-
-fn is_memcache_error(s: &str) -> bool {
-    return s == "ERROR\r\n" || s.starts_with("CLIENT_ERROR") || s.starts_with("SERVER_ERROR");
 }

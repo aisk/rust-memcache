@@ -51,12 +51,30 @@ pub enum CommandError {
     InvalidArguments,
     AuthenticationRequired,
     Unknown(u16),
-    Error(String)
+    InvalidCommand,
 }
+
+impl MemcacheError {
+    pub(crate) fn try_from(s: String) -> Result<String, MemcacheError> {
+        if s == "ERROR\r\n" {
+            Err(CommandError::InvalidCommand)?
+        } else if s.starts_with("CLIENT_ERROR") {
+            Err(ClientError::from(s))?
+        } else if s.starts_with("SERVER_ERROR") {
+            Err(ServerError::from(s))?
+        } else if s == "NOT_FOUND\r\n" {
+            Err(CommandError::KeyNotFound)?
+        } else if s == "EXISTS\r\n" {
+            Err(CommandError::KeyExists)?
+        }
+        Ok(s)
+    }
+}
+
 
 impl From<String> for CommandError {
     fn from(s: String) -> Self {
-        CommandError::Error(s)
+        CommandError::InvalidCommand
     }
 }
 
@@ -82,7 +100,7 @@ impl fmt::Display for CommandError {
             CommandError::InvalidArguments => write!(f, "Invalid arguments provided."),
             CommandError::AuthenticationRequired => write!(f, "Authentication required."),
             CommandError::Unknown(code) => write!(f, "Unknown error occurred with code: {}.", code),
-            CommandError::Error(msg) => write!(f, "{}", msg),
+            CommandError::InvalidCommand => write!(f, "Invalid command sent to the server.")
         }
     }
 }
@@ -93,7 +111,7 @@ impl From<String> for MemcacheError {
             ClientError::from(s).into()
         } else if s.starts_with("SERVER_ERROR") {
             ServerError::from(s).into()
-        } else if s.starts_with("ERROR") {
+        } else if s == "ERROR\r\n" {
             CommandError::from(s).into()
         } else {
             unreachable!("shouldn't reach here")
