@@ -1,3 +1,4 @@
+use super::ResponseStatus;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use error::MemcacheError;
 use std::collections::HashMap;
@@ -27,16 +28,6 @@ pub enum Opcode {
 pub enum Magic {
     Request = 0x80,
     Response = 0x81,
-}
-
-#[allow(dead_code)]
-pub enum ResponseStatus {
-    NoError = 0x00,
-    KeyNotFound = 0x01,
-    KeyExists = 0x02,
-    ValueTooLarge = 0x03,
-    InvalidArguments = 0x04,
-    AuthenticationRequired = 0x20,
 }
 
 #[derive(Debug, Default)]
