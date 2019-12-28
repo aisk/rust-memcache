@@ -4,11 +4,12 @@ use std::io;
 use std::num;
 use std::str;
 use std::string;
+use url;
 
 #[derive(Debug, PartialEq)]
 pub enum ClientError {
     KeyTooLong,
-    Error(String)
+    Error(String),
 }
 
 impl fmt::Display for ClientError {
@@ -66,15 +67,9 @@ impl MemcacheError {
             Err(CommandError::KeyNotFound)?
         } else if s == "EXISTS\r\n" {
             Err(CommandError::KeyExists)?
+        } else {
+            Ok(s)
         }
-        Ok(s)
-    }
-}
-
-
-impl From<String> for CommandError {
-    fn from(s: String) -> Self {
-        CommandError::InvalidCommand
     }
 }
 
@@ -90,7 +85,6 @@ impl From<String> for ServerError {
     }
 }
 
-
 impl fmt::Display for CommandError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -100,25 +94,10 @@ impl fmt::Display for CommandError {
             CommandError::InvalidArguments => write!(f, "Invalid arguments provided."),
             CommandError::AuthenticationRequired => write!(f, "Authentication required."),
             CommandError::Unknown(code) => write!(f, "Unknown error occurred with code: {}.", code),
-            CommandError::InvalidCommand => write!(f, "Invalid command sent to the server.")
+            CommandError::InvalidCommand => write!(f, "Invalid command sent to the server."),
         }
     }
 }
-
-impl From<String> for MemcacheError {
-    fn from(s: String) -> Self {
-        if s.starts_with("CLIENT_ERROR") {
-            ClientError::from(s).into()
-        } else if s.starts_with("SERVER_ERROR") {
-            ServerError::from(s).into()
-        } else if s == "ERROR\r\n" {
-            CommandError::from(s).into()
-        } else {
-            unreachable!("shouldn't reach here")
-        }
-    }
-}
-
 
 impl From<u16> for CommandError {
     fn from(status: u16) -> CommandError {
@@ -129,7 +108,7 @@ impl From<u16> for CommandError {
             0x3 => CommandError::ValueTooLarge,
             0x4 => CommandError::InvalidArguments,
             0x20 => CommandError::AuthenticationRequired,
-            e => CommandError::Unknown(e)
+            e => CommandError::Unknown(e),
         }
     }
 }
@@ -148,17 +127,21 @@ impl From<ServerError> for MemcacheError {
 
 #[derive(Debug)]
 pub enum ParseError {
+    Bool(str::ParseBoolError),
     Int(num::ParseIntError),
     Float(num::ParseFloatError),
     String(string::FromUtf8Error),
+    Url(url::ParseError),
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            ParseError::Bool(ref e) => e.fmt(f),
             ParseError::Int(ref e) => e.fmt(f),
             ParseError::Float(ref e) => e.fmt(f),
             ParseError::String(ref e) => e.fmt(f),
+            ParseError::Url(ref e) => e.fmt(f),
         }
     }
 }
@@ -186,11 +169,24 @@ impl From<num::ParseFloatError> for MemcacheError {
     }
 }
 
+impl From<url::ParseError> for MemcacheError {
+    fn from(err: url::ParseError) -> MemcacheError {
+        ParseError::Url(err).into()
+    }
+}
+
+impl From<str::ParseBoolError> for MemcacheError {
+    fn from(err: str::ParseBoolError) -> MemcacheError {
+        ParseError::Bool(err).into()
+    }
+}
+
 /// Stands for errors raised from rust-memcache
 // TODO: implement From<String> for the new version
 #[derive(Debug)]
 pub enum MemcacheError {
     /// Error raised when the provided memcache URL is invalid
+    #[cfg(feature = "tls")]
     BadURL(String),
     /// `std::io` related errors.
     IOError(io::Error),
@@ -202,10 +198,9 @@ pub enum MemcacheError {
     CommandError(CommandError),
     #[cfg(feature = "tls")]
     OpensslError(openssl::ssl::HandshakeError<std::net::TcpStream>),
-    /// Parse errors occurred when 
+    /// Parse errors
     ParseError(ParseError),
 }
-
 
 impl fmt::Display for MemcacheError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -217,6 +212,7 @@ impl fmt::Display for MemcacheError {
             MemcacheError::ParseError(ref err) => err.fmt(f),
             MemcacheError::ClientError(ref err) => err.fmt(f),
             MemcacheError::ServerError(ref err) => err.fmt(f),
+            MemcacheError::CommandError(ref err) => err.fmt(f),
         }
     }
 }
@@ -224,6 +220,7 @@ impl fmt::Display for MemcacheError {
 impl error::Error for MemcacheError {
     fn description(&self) -> &str {
         match *self {
+            #[cfg(feature = "tls")]
             MemcacheError::BadURL(ref s) => s.as_str(),
             MemcacheError::IOError(ref err) => err.description(),
             #[cfg(feature = "tls")]
@@ -232,11 +229,13 @@ impl error::Error for MemcacheError {
             MemcacheError::ClientError(_) => "Client error",
             MemcacheError::ServerError(_) => "Server error",
             MemcacheError::ParseError(_) => "Parse error",
+            MemcacheError::CommandError(_) => "Command error",
         }
     }
 
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
+            #[cfg(feature = "tls")]
             MemcacheError::BadURL(_) => None,
             MemcacheError::IOError(ref err) => err.source(),
             #[cfg(feature = "tls")]
@@ -245,6 +244,7 @@ impl error::Error for MemcacheError {
             MemcacheError::ParseError(_) => None,
             MemcacheError::ClientError(_) => None,
             MemcacheError::ServerError(_) => None,
+            MemcacheError::CommandError(_) => None,
         }
     }
 }
@@ -254,8 +254,6 @@ impl From<io::Error> for MemcacheError {
         MemcacheError::IOError(err)
     }
 }
-
-
 
 #[cfg(feature = "tls")]
 impl From<openssl::error::ErrorStack> for MemcacheError {

@@ -80,5 +80,5 @@ mod stream;
 mod value;
 
 pub use client::{Client, Connectable};
-pub use error::MemcacheError;
+pub use error::{ClientError, CommandError, MemcacheError, ServerError};
 pub use value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};
