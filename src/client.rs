@@ -193,11 +193,11 @@ impl Client {
     /// ```rust
     /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "42", 0).unwrap();
-    /// let result: std::collections::HashMap<String, String> = client.gets(vec!["foo", "bar", "baz"]).unwrap();
+    /// let result: std::collections::HashMap<String, String> = client.gets(&["foo", "bar", "baz"]).unwrap();
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
     /// ```
-    pub fn gets<V: FromMemcacheValueExt>(&mut self, keys: Vec<&str>) -> Result<HashMap<String, V>, MemcacheError> {
+    pub fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
         let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
         let connections_count = self.connections.len();
@@ -209,7 +209,7 @@ impl Client {
         }
         for (&connection_index, keys) in con_keys.iter() {
             let connection = &mut self.connections[connection_index];
-            result.extend(connection.protocol.gets(keys.to_vec())?);
+            result.extend(connection.protocol.gets(keys)?);
         }
         return Ok(result);
     }
@@ -240,7 +240,7 @@ impl Client {
     /// use std::collections::HashMap;
     /// let mut client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar", 10).unwrap();
-    /// let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(vec!["foo"]).unwrap();
+    /// let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(&["foo"]).unwrap();
     /// let (_, _, cas) = result.get("foo").unwrap();
     /// let cas = cas.unwrap();
     /// assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());

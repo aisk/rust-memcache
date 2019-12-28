@@ -133,7 +133,7 @@ impl BinaryProtocol {
 
     pub(super) fn gets<V: FromMemcacheValueExt>(
         &mut self,
-        keys: Vec<&str>,
+        keys: &[&str],
     ) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
             if key.len() > 250 {
