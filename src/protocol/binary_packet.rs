@@ -110,7 +110,7 @@ pub fn parse_response<R: io::Read>(reader: &mut R) -> Result<Response, MemcacheE
         let mut key = vec![0x0; header.key_length as usize];
         reader.read_exact(key.as_mut_slice())?;
 
-        // TODO: return error if total_body_length > extras_length + key_length
+        // TODO: return error if total_body_length < extras_length + key_length
         let mut value = vec![
             0x0;
             (header.total_body_length - u32::from(header.key_length) - u32::from(header.extras_length))
