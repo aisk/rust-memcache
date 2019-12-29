@@ -6,9 +6,12 @@ use std::str;
 use std::string;
 use url;
 
+/// Client-side errors
 #[derive(Debug, PartialEq)]
 pub enum ClientError {
+    /// The key provided was longer than 250 bytes.
     KeyTooLong,
+    /// The server returned an error prefixed with CLIENT_ERROR in response to a command.
     Error(String),
 }
 
@@ -27,10 +30,15 @@ impl From<ClientError> for MemcacheError {
     }
 }
 
+/// Server-side errors
 #[derive(Debug)]
 pub enum ServerError {
+    /// When using binary protocol, the server returned magic byte other
+    /// than 0x81 in the response packet.
     BadMagic(u8),
+    /// The client did not expect this response from the server.
     BadResponse(String),
+    /// The server returned an error prefixed with SERVER_ERROR in response to a command.
     Error(String),
 }
 
@@ -44,14 +52,22 @@ impl fmt::Display for ServerError {
     }
 }
 
+/// Command specific errors.
 #[derive(Debug, PartialEq)]
 pub enum CommandError {
+    /// The client tried to set a key which already existed in the server.
     KeyExists,
+    /// The client tried to set a key which does not exist in the server.
     KeyNotFound,
+    /// The value for a key was too large. The limit is usually 1MB.
     ValueTooLarge,
+    /// Invalid arguments were passed to the command.
     InvalidArguments,
+    /// The server requires authentication.
     AuthenticationRequired,
+    /// When using binary protocol, the server returned an unknown response status.
     Unknown(u16),
+    /// The client sent an invalid command to the server.
     InvalidCommand,
 }
 
@@ -134,6 +150,18 @@ pub enum ParseError {
     Url(url::ParseError),
 }
 
+impl error::Error for ParseError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            ParseError::Bool(ref e) => e.source(),
+            ParseError::Int(ref e) => e.source(),
+            ParseError::Float(ref e) => e.source(),
+            ParseError::String(ref e) => e.source(),
+            ParseError::Url(ref e) => e.source(),
+        }
+    }
+}
+
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -182,10 +210,9 @@ impl From<str::ParseBoolError> for MemcacheError {
 }
 
 /// Stands for errors raised from rust-memcache
-// TODO: implement From<String> for the new version
 #[derive(Debug)]
 pub enum MemcacheError {
-    /// Error raised when the provided memcache URL is invalid
+    /// Error raised when the provided memcache URL doesn't have a host name
     #[cfg(feature = "tls")]
     BadURL(String),
     /// `std::io` related errors.
@@ -218,21 +245,6 @@ impl fmt::Display for MemcacheError {
 }
 
 impl error::Error for MemcacheError {
-    fn description(&self) -> &str {
-        match *self {
-            #[cfg(feature = "tls")]
-            MemcacheError::BadURL(ref s) => s.as_str(),
-            MemcacheError::IOError(ref err) => err.description(),
-            #[cfg(feature = "tls")]
-            MemcacheError::OpensslError(ref err) => err.description(),
-            // TODO: implement these.
-            MemcacheError::ClientError(_) => "Client error",
-            MemcacheError::ServerError(_) => "Server error",
-            MemcacheError::ParseError(_) => "Parse error",
-            MemcacheError::CommandError(_) => "Command error",
-        }
-    }
-
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             #[cfg(feature = "tls")]
@@ -240,8 +252,7 @@ impl error::Error for MemcacheError {
             MemcacheError::IOError(ref err) => err.source(),
             #[cfg(feature = "tls")]
             MemcacheError::OpensslError(ref err) => err.source(),
-            // TODO: implement these.
-            MemcacheError::ParseError(_) => None,
+            MemcacheError::ParseError(ref p) => p.source(),
             MemcacheError::ClientError(_) => None,
             MemcacheError::ServerError(_) => None,
             MemcacheError::CommandError(_) => None,
