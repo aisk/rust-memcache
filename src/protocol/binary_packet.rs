@@ -98,37 +98,43 @@ pub struct Response {
     value: Vec<u8>,
 }
 
-pub fn parse_response<R: io::Read>(reader: &mut R) -> Result<Response, MemcacheError> {
-    let header = PacketHeader::read(reader)?;
-    let status = header.vbucket_id_or_status;
-    if status != OK_STATUS {
-        Err(CommandError::from(status))?
-    } else {
-        let mut extras = vec![0x0; header.extras_length as usize];
-        reader.read_exact(extras.as_mut_slice())?;
-
-        let mut key = vec![0x0; header.key_length as usize];
-        reader.read_exact(key.as_mut_slice())?;
-
-        // TODO: return error if total_body_length < extras_length + key_length
-        let mut value = vec![
-            0x0;
-            (header.total_body_length - u32::from(header.key_length) - u32::from(header.extras_length))
-                as usize
-        ];
-        reader.read_exact(value.as_mut_slice())?;
-
-        Ok(Response {
-            header,
-            key,
-            extras,
-            value,
-        })
+impl Response {
+    pub(crate) fn err(self) -> Result<Self, MemcacheError> {
+        let status = self.header.vbucket_id_or_status;
+        if status == OK_STATUS {
+            Ok(self)
+        } else {
+            Err(CommandError::from(status))?
+        }
     }
 }
 
+pub fn parse_response<R: io::Read>(reader: &mut R) -> Result<Response, MemcacheError> {
+    let header = PacketHeader::read(reader)?;
+    let mut extras = vec![0x0; header.extras_length as usize];
+    reader.read_exact(extras.as_mut_slice())?;
+
+    let mut key = vec![0x0; header.key_length as usize];
+    reader.read_exact(key.as_mut_slice())?;
+
+    // TODO: return error if total_body_length < extras_length + key_length
+    let mut value = vec![
+        0x0;
+    (header.total_body_length - u32::from(header.key_length) - u32::from(header.extras_length))
+        as usize
+    ];
+    reader.read_exact(value.as_mut_slice())?;
+
+    Ok(Response {
+        header,
+        key,
+        extras,
+        value,
+    })
+}
+
 pub fn parse_cas_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
-    match parse_response(reader) {
+    match parse_response(reader)?.err() {
         Err(MemcacheError::CommandError(e)) if e == CommandError::KeyNotFound || e == CommandError::KeyExists => {
             Ok(false)
         }
@@ -138,12 +144,12 @@ pub fn parse_cas_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheE
 }
 
 pub fn parse_version_response<R: io::Read>(reader: &mut R) -> Result<String, MemcacheError> {
-    let Response { value, .. } = parse_response(reader)?;
+    let Response { value, .. } = parse_response(reader)?.err()?;
     Ok(String::from_utf8(value)?)
 }
 
 pub fn parse_get_response<R: io::Read, V: FromMemcacheValueExt>(reader: &mut R) -> Result<Option<V>, MemcacheError> {
-    match parse_response(reader) {
+    match parse_response(reader)?.err() {
         Ok(Response {
             header, extras, value, ..
         }) => {
@@ -169,7 +175,7 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValueExt>(
             key,
             extras,
             value,
-        } = parse_response(reader)?;
+        } = parse_response(reader)?.err()?;
         if header.opcode == Opcode::Noop as u8 {
             break;
         }
@@ -184,7 +190,7 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValueExt>(
 }
 
 pub fn parse_delete_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
-    match parse_response(reader) {
+    match parse_response(reader)?.err() {
         Ok(_) => Ok(true),
         Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
         Err(e) => Err(e),
@@ -192,12 +198,12 @@ pub fn parse_delete_response<R: io::Read>(reader: &mut R) -> Result<bool, Memcac
 }
 
 pub fn parse_counter_response<R: io::Read>(reader: &mut R) -> Result<u64, MemcacheError> {
-    let Response { extras, .. } = parse_response(reader)?;
-    Ok(Cursor::new(extras).read_u64::<BigEndian>()?)
+    let Response { value, .. } = parse_response(reader)?.err()?;
+    Ok(Cursor::new(value).read_u64::<BigEndian>()?)
 }
 
 pub fn parse_touch_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
-    match parse_response(reader) {
+    match parse_response(reader)?.err() {
         Ok(_) => Ok(true),
         Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
         Err(e) => Err(e),
@@ -207,7 +213,7 @@ pub fn parse_touch_response<R: io::Read>(reader: &mut R) -> Result<bool, Memcach
 pub fn parse_stats_response<R: io::Read>(reader: &mut R) -> Result<HashMap<String, String>, MemcacheError> {
     let mut result = HashMap::new();
     loop {
-        let Response { key, value, .. } = parse_response(reader)?;
+        let Response { key, value, .. } = parse_response(reader)?.err()?;
         let key = String::from_utf8(key)?;
         let value = String::from_utf8(value)?;
         if key.is_empty() && value.is_empty() {
@@ -219,5 +225,5 @@ pub fn parse_stats_response<R: io::Read>(reader: &mut R) -> Result<HashMap<Strin
 }
 
 pub fn parse_start_auth_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
-    parse_response(reader).map(|_| true)
+    parse_response(reader)?.err().map(|_| true)
 }

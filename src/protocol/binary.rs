@@ -70,7 +70,7 @@ impl BinaryProtocol {
         cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         self.send_request(opcode, key, value, expiration, cas)?;
-        binary_packet::parse_response(&mut self.stream).map(|_| ())
+        binary_packet::parse_response(&mut self.stream)?.err().map(|_| ())
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
@@ -93,8 +93,7 @@ impl BinaryProtocol {
         };
         request_header.write(&mut self.stream)?;
         self.stream.flush()?;
-        binary_packet::parse_response(&mut self.stream)?;
-        return Ok(());
+        binary_packet::parse_response(&mut self.stream)?.err().map(|_| ())
     }
 
     pub(super) fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
@@ -108,8 +107,7 @@ impl BinaryProtocol {
         request_header.write(&mut self.stream)?;
         self.stream.write_u32::<BigEndian>(delay)?;
         self.stream.flush()?;
-        binary_packet::parse_response(&mut self.stream)?;
-        return Ok(());
+        binary_packet::parse_response(&mut self.stream)?.err().map(|_| ())
     }
 
     pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
@@ -200,7 +198,7 @@ impl BinaryProtocol {
         self.stream.write_all(key.as_bytes())?;
         value.write_to(&mut self.stream)?;
         self.stream.flush()?;
-        binary_packet::parse_response(&mut self.stream).map(|_| ())
+        binary_packet::parse_response(&mut self.stream)?.err().map(|_| ())
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
