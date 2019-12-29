@@ -1,4 +1,3 @@
-use super::ResponseStatus;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use error::{CommandError, MemcacheError, ServerError};
 use std::collections::HashMap;

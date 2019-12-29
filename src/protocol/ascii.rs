@@ -244,9 +244,7 @@ impl AsciiProtocol<Stream> {
         };
         match self.store(StoreCommand::Cas, key, value, &options) {
             Ok(t) => Ok(t),
-            Err(MemcacheError::ServerError(e))
-                if e == ResponseStatus::KeyExists as u16 || e == ResponseStatus::KeyNotFound as u16 =>
-            {
+            Err(MemcacheError::CommandError(e)) if e == CommandError::KeyExists || e == CommandError::KeyNotFound => {
                 Ok(false)
             }
             e => e,
