@@ -89,7 +89,7 @@ impl AsciiProtocol<Stream> {
         }
 
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s == "STORED\r\n" {
@@ -109,7 +109,7 @@ impl AsciiProtocol<Stream> {
         self.reader.get_mut().write(b"version\r\n")?;
         self.reader.get_mut().flush()?;
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if !s.starts_with("VERSION") {
@@ -128,7 +128,7 @@ impl AsciiProtocol<Stream> {
         }
         self.reader.get_mut().flush()?;
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s != "OK\r\n" {
@@ -141,7 +141,7 @@ impl AsciiProtocol<Stream> {
         write!(self.reader.get_mut(), "flush_all {}\r\n", delay)?;
         self.reader.get_mut().flush()?;
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s != "OK\r\n" {
@@ -154,7 +154,7 @@ impl AsciiProtocol<Stream> {
         write!(self.reader.get_mut(), "get {}\r\n", key)?;
 
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s)?;
+        self.reader.read_line(&mut s)?;
 
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
@@ -180,12 +180,12 @@ impl AsciiProtocol<Stream> {
 
         // read the rest \r\n and END\r\n
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s)?;
+        self.reader.read_line(&mut s)?;
         if s != "\r\n" {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
         s = String::new();
-        let _ = self.reader.read_line(&mut s)?;
+        self.reader.read_line(&mut s)?;
         if s != "END\r\n" {
             return Err(MemcacheError::ClientError("invalid server response".into()));
         }
@@ -199,7 +199,7 @@ impl AsciiProtocol<Stream> {
         let mut result: HashMap<String, V> = HashMap::new();
         loop {
             let mut s = String::new();
-            let _ = self.reader.read_line(&mut s)?;
+            self.reader.read_line(&mut s)?;
 
             if is_memcache_error(s.as_str()) {
                 return Err(MemcacheError::from(s));
@@ -229,7 +229,7 @@ impl AsciiProtocol<Stream> {
 
             // read the rest \r\n
             let mut s = String::new();
-            let _ = self.reader.read_line(&mut s)?;
+            self.reader.read_line(&mut s)?;
             if s != "\r\n" {
                 return Err(MemcacheError::ClientError("invalid server response".into()));
             }
@@ -323,7 +323,7 @@ impl AsciiProtocol<Stream> {
         write!(self.reader.get_mut(), "delete {}\r\n", key)?;
         self.reader.get_mut().flush()?;
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s == "DELETED\r\n" {
@@ -341,7 +341,7 @@ impl AsciiProtocol<Stream> {
         }
         write!(self.reader.get_mut(), "incr {} {}\r\n", key, amount)?;
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s == "NOT_FOUND\r\n" {
@@ -360,7 +360,7 @@ impl AsciiProtocol<Stream> {
         }
         write!(self.reader.get_mut(), "decr {} {}\r\n", key, amount)?;
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s == "NOT_FOUND\r\n" {
@@ -380,7 +380,7 @@ impl AsciiProtocol<Stream> {
         write!(self.reader.get_mut(), "touch {} {}\r\n", key, expiration)?;
         self.reader.get_mut().flush()?;
         let mut s = String::new();
-        let _ = self.reader.read_line(&mut s);
+        self.reader.read_line(&mut s)?;
         if is_memcache_error(s.as_str()) {
             return Err(MemcacheError::from(s));
         } else if s == "TOUCHED\r\n" {
@@ -399,7 +399,7 @@ impl AsciiProtocol<Stream> {
         let mut result: Stats = HashMap::new();
         loop {
             let mut s = String::new();
-            let _ = self.reader.read_line(&mut s)?;
+            self.reader.read_line(&mut s)?;
 
             if is_memcache_error(s.as_str()) {
                 return Err(MemcacheError::from(s));
