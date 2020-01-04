@@ -4,7 +4,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 
 use super::check_key_len;
 use client::Stats;
-use error::{CommandError, MemcacheError, ServerError};
+use error::{ClientError, CommandError, MemcacheError, ServerError};
+use std::borrow::Cow;
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
 
@@ -66,7 +67,9 @@ impl AsciiProtocol<Stream> {
         );
         if command == StoreCommand::Cas {
             if options.cas.is_none() {
-                panic!("cas value should be present");
+                Err(ClientError::Error(Cow::Borrowed(
+                    "cas_id should be present when using cas command",
+                )))?;
             }
             let cas = options.cas.unwrap();
             header += &format!(" {}", cas);

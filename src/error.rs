@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::error;
 use std::fmt;
 use std::io;
@@ -12,7 +13,7 @@ pub enum ClientError {
     /// The key provided was longer than 250 bytes.
     KeyTooLong,
     /// The server returned an error prefixed with CLIENT_ERROR in response to a command.
-    Error(String),
+    Error(Cow<'static, str>),
 }
 
 impl fmt::Display for ClientError {
@@ -91,7 +92,7 @@ impl MemcacheError {
 
 impl From<String> for ClientError {
     fn from(s: String) -> Self {
-        ClientError::Error(s)
+        ClientError::Error(Cow::Owned(s))
     }
 }
 
@@ -118,7 +119,6 @@ impl fmt::Display for CommandError {
 impl From<u16> for CommandError {
     fn from(status: u16) -> CommandError {
         match status {
-            0x0 => panic!("shouldn't reach here"),
             0x1 => CommandError::KeyNotFound,
             0x2 => CommandError::KeyExists,
             0x3 => CommandError::ValueTooLarge,
