@@ -2,6 +2,7 @@ mod ascii;
 mod binary;
 mod binary_packet;
 
+use crate::error::ClientError;
 use client::Stats;
 use enum_dispatch::enum_dispatch;
 use error::MemcacheError;
@@ -11,20 +12,17 @@ use std::collections::HashMap;
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
 
+pub(crate) fn check_key_len(key: &str) -> Result<(), MemcacheError> {
+    if key.len() > 250 {
+        Err(ClientError::KeyTooLong)?
+    }
+    Ok(())
+}
+
 #[enum_dispatch]
 pub enum Protocol {
     Ascii(AsciiProtocol<Stream>),
     Binary(BinaryProtocol),
-}
-
-#[allow(dead_code)]
-pub enum ResponseStatus {
-    NoError = 0x00,
-    KeyNotFound = 0x01,
-    KeyExists = 0x02,
-    ValueTooLarge = 0x03,
-    InvalidArguments = 0x04,
-    AuthenticationRequired = 0x20,
 }
 
 #[enum_dispatch(Protocol)]

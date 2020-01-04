@@ -66,11 +66,7 @@ impl Client {
         let urls = target.get_urls();
         let mut connections = vec![];
         for url in urls {
-            let parsed = match Url::parse(url.as_str()) {
-                Ok(v) => v,
-                Err(_) => return Err(MemcacheError::ClientError("Invalid memcache URL".into())),
-            };
-
+            let parsed = Url::parse(url.as_str())?;
             let mut connection = Connection::connect(&parsed)?;
 
             if parsed.has_authority() && parsed.username() != "" && parsed.password().is_some() {

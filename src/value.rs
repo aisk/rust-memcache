@@ -159,10 +159,7 @@ macro_rules! impl_from_memcache_value_for_number {
         impl FromMemcacheValue for $ty {
             fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
                 let s: String = FromMemcacheValue::from_memcache_value(value, 0)?;
-                match Self::from_str(s.as_str()) {
-                    Ok(v) => return Ok(v),
-                    Err(e) => Err(MemcacheError::from(e)),
-                }
+                Ok(Self::from_str(s.as_str())?)
             }
         }
     };
