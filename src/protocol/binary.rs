@@ -16,17 +16,16 @@ pub struct BinaryProtocol {
 impl BinaryProtocol {
     pub(super) fn auth(&mut self, username: &str, password: &str) -> Result<(), MemcacheError> {
         let key = "PLAIN";
-        let value = format!("\x00{}\x00{}", username, password);
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::StartAuth as u8,
             key_length: key.len() as u16,
-            total_body_length: (key.len() + value.len()) as u32,
+            total_body_length: (key.len() + username.len() + password.len() + 2) as u32,
             ..Default::default()
         };
         request_header.write(&mut self.stream)?;
         self.stream.write_all(key.as_bytes())?;
-        value.write_to(&mut self.stream)?;
+        write!(&mut self.stream, "\x00{}\x00{}", username, password)?;
         self.stream.flush()?;
         binary_packet::parse_start_auth_response(&mut self.stream).map(|_| ())
     }
