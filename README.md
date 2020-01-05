@@ -86,6 +86,14 @@ client.hash_function = |key: &str| -> u64 {
 };
 ```
 
+## Contributors
+
+<a href="https://github.com/aisk/rust-memcache/graphs/contributors">
+  <img src="https://contributors-img.firebaseapp.com/image?repo=aisk/rust-memcache" />
+</a>
+
+Made with [contributors-img](https://contributors-img.firebaseapp.com).
+
 ## License
 
 MIT
