@@ -132,31 +132,26 @@ impl AsciiProtocol<Stream> {
         return Ok(s.to_string());
     }
 
-    pub(super) fn flush(&mut self) -> Result<(), MemcacheError> {
-        match self.reader.get_mut().write(b"flush_all\r\n") {
-            Ok(_) => {}
-            Err(err) => return Err(MemcacheError::from(err)),
-        }
-        self.reader.get_mut().flush()?;
+    fn parse_ok_response(&mut self) -> Result<(), MemcacheError> {
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
         let s = MemcacheError::try_from(s)?;
-        if s != "OK\r\n" {
-            return Err(ServerError::BadResponse(Cow::Owned(s)).into());
+        if s == "OK\r\n" {
+            Ok(())
+        } else {
+            Err(ServerError::BadResponse(Cow::Owned(s)))?
         }
-        return Ok(());
+    }
+
+    pub(super) fn flush(&mut self) -> Result<(), MemcacheError> {
+        write!(self.reader.get_mut(), "flush_all\r\n")?;
+        self.parse_ok_response()
     }
 
     pub(super) fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
         write!(self.reader.get_mut(), "flush_all {}\r\n", delay)?;
         self.reader.get_mut().flush()?;
-        let mut s = String::new();
-        self.reader.read_line(&mut s)?;
-        let s = MemcacheError::try_from(s)?;
-        if s != "OK\r\n" {
-            return Err(ServerError::BadResponse(Cow::Owned(s)).into());
-        }
-        return Ok(());
+        self.parse_ok_response()
     }
 
     pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
