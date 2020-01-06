@@ -27,6 +27,8 @@ enum StoreCommand {
     Prepend,
 }
 
+const END: &'static str = "END\r\n";
+
 impl fmt::Display for StoreCommand {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -160,43 +162,53 @@ impl AsciiProtocol<Stream> {
     pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
         write!(self.reader.get_mut(), "get {}\r\n", key)?;
 
-        let mut s = String::new();
-        self.reader.read_line(&mut s)?;
+        if let Some((k, v)) = self.parse_get_response(false)? {
+            if k != key {
+                Err(ServerError::BadResponse(Cow::Borrowed(
+                    "key doesn't match in the response",
+                )))?
+            } else if self.parse_get_response::<V>(false)?.is_none() {
+                Ok(Some(v))
+            } else {
+                Err(ServerError::BadResponse(Cow::Borrowed("Expected end of get response")))?
+            }
+        } else {
+            Ok(None)
+        }
+    }
 
-        let s = MemcacheError::try_from(s)?;
-        if s.starts_with("END") {
+    fn parse_get_response<V: FromMemcacheValueExt>(
+        &mut self,
+        has_cas: bool,
+    ) -> Result<Option<(String, V)>, MemcacheError> {
+        let mut buf = String::new();
+        self.reader.read_line(&mut buf)?;
+        buf = MemcacheError::try_from(buf)?;
+        if buf == END {
             return Ok(None);
-        } else if !s.starts_with("VALUE") {
-            return Err(ServerError::BadResponse(s).into());
         }
-
-        let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
-        if header.len() != 4 {
-            return Err(ServerError::BadResponse(s).into());
+        if !buf.starts_with("VALUE") {
+            return Err(ServerError::BadResponse(buf.clone()))?;
         }
-
-        if key != header[1] {
-            return Err(ServerError::BadResponse(s).into());
+        let mut header = buf.trim_end_matches("\r\n").split(" ");
+        let mut next_or_err = || header.next().ok_or_else(|| ServerError::BadResponse(buf.clone()));
+        let _ = next_or_err()?;
+        let key = next_or_err()?;
+        let flags = next_or_err()?.parse()?;
+        let length = next_or_err()?.parse()?;
+        let cas = if has_cas { Some(next_or_err()?.parse()?) } else { None };
+        if let Some(_) = header.next() {
+            return Err(ServerError::BadResponse(buf.clone()))?;
         }
-        let flags = header[2].parse()?;
-        let length = header[3].parse()?;
-
-        let mut buffer = vec![0; length];
-        self.reader.read_exact(buffer.as_mut_slice())?;
-
-        // read the rest \r\n and END\r\n
-        let mut s = String::new();
-        self.reader.read_line(&mut s)?;
-        if s != "\r\n" {
-            return Err(ServerError::BadResponse(s).into());
+        let mut value = vec![0; length];
+        self.reader.read_exact(value.as_mut_slice())?;
+        let mut s = [0x0; 2];
+        self.reader.read_exact(&mut s[..])?;
+        if &s != b"\r\n" {
+            return Err(ServerError::BadResponse(String::from_utf8(s.to_vec())?))?;
         }
-        s = String::new();
-        self.reader.read_line(&mut s)?;
-        if s != "END\r\n" {
-            return Err(ServerError::BadResponse(s).into());
-        }
-
-        return Ok(Some(FromMemcacheValueExt::from_memcache_value(buffer, flags, None)?));
+        let value = FromMemcacheValueExt::from_memcache_value(value, flags, cas)?;
+        Ok(Some((key.to_string(), value)))
     }
 
     pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
@@ -205,45 +217,18 @@ impl AsciiProtocol<Stream> {
         }
         write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
 
-        let mut result: HashMap<String, V> = HashMap::new();
-        loop {
-            let mut s = String::new();
-            self.reader.read_line(&mut s)?;
-
-            let s = MemcacheError::try_from(s)?;
-            if s.starts_with("END") {
-                break;
-            } else if !s.starts_with("VALUE") {
-                return Err(ServerError::BadResponse(s).into());
-            }
-
-            let header: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
-            if header.len() != 5 {
-                return Err(ServerError::BadResponse(s).into());
-            }
-
-            let key = header[1];
-            let flags = header[2].parse()?;
-            let length = header[3].parse()?;
-            let cas = header[4].parse()?;
-
-            let mut buffer = vec![0; length];
-            self.reader.read_exact(buffer.as_mut_slice())?;
-
-            result.insert(
-                key.to_string(),
-                FromMemcacheValueExt::from_memcache_value(buffer, flags, Some(cas))?,
-            );
-
-            // read the rest \r\n
-            let mut s = String::new();
-            self.reader.read_line(&mut s)?;
-            if s != "\r\n" {
-                return Err(ServerError::BadResponse(s).into());
+        let mut result: HashMap<String, V> = HashMap::with_capacity(keys.len());
+        // there will be atmost keys.len() "VALUE <...>" responses and one END response
+        for _ in 0..=keys.len() {
+            match self.parse_get_response(true)? {
+                Some((key, value)) => {
+                    result.insert(key, value);
+                }
+                None => return Ok(result),
             }
         }
 
-        return Ok(result);
+        Err(ServerError::BadResponse("Expected END of gets response".to_string()))?
     }
 
     pub(super) fn cas<V: ToMemcacheValue<Stream>>(
