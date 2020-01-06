@@ -56,29 +56,39 @@ impl AsciiProtocol<Stream> {
         options: &Options,
     ) -> Result<bool, MemcacheError> {
         check_key_len(key)?;
-
-        let mut header = format!(
-            "{} {} {} {} {}",
-            command,
-            key,
-            value.get_flags(),
-            options.exptime,
-            value.get_length()
-        );
         if command == StoreCommand::Cas {
             if options.cas.is_none() {
                 Err(ClientError::Error(Cow::Borrowed(
                     "cas_id should be present when using cas command",
                 )))?;
             }
-            let cas = options.cas.unwrap();
-            header += &format!(" {}", cas);
         }
-        if options.noreply {
-            header += " noreply";
+        let noreply = if options.noreply { " noreply" } else { "" };
+        if options.cas.is_some() {
+            write!(
+                self.reader.get_mut(),
+                "{command} {key} {flags} {exptime} {vlen} {cas}{noreply}\r\n",
+                command = command,
+                key = key,
+                flags = value.get_flags(),
+                exptime = options.exptime,
+                vlen = value.get_length(),
+                cas = options.cas.unwrap(),
+                noreply = noreply
+            )?;
+        } else {
+            write!(
+                self.reader.get_mut(),
+                "{command} {key} {flags} {exptime} {vlen}{noreply}\r\n",
+                command = command,
+                key = key,
+                flags = value.get_flags(),
+                exptime = options.exptime,
+                vlen = value.get_length(),
+                noreply = noreply
+            )?;
         }
-        header += "\r\n";
-        self.reader.get_mut().write(header.as_bytes())?;
+
         value.write_to(self.reader.get_mut())?;
         self.reader.get_mut().write(b"\r\n")?;
         self.reader.get_mut().flush()?;
