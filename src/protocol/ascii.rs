@@ -110,7 +110,7 @@ impl AsciiProtocol<Stream> {
                 } else if s == "NOT_FOUND\r\n" {
                     Err(CommandError::KeyNotFound)?
                 } else {
-                    Err(ServerError::BadResponse(s))?
+                    Err(ServerError::BadResponse(Cow::Owned(s)))?
                 }
             }
             Err(e) => Err(e),
@@ -124,7 +124,7 @@ impl AsciiProtocol<Stream> {
         self.reader.read_line(&mut s)?;
         let s = MemcacheError::try_from(s)?;
         if !s.starts_with("VERSION") {
-            return Err(ServerError::BadResponse(s).into());
+            return Err(ServerError::BadResponse(Cow::Owned(s)))?;
         }
         let s = s.trim_start_matches("VERSION ");
         let s = s.trim_end_matches("\r\n");
@@ -142,7 +142,7 @@ impl AsciiProtocol<Stream> {
         self.reader.read_line(&mut s)?;
         let s = MemcacheError::try_from(s)?;
         if s != "OK\r\n" {
-            return Err(ServerError::BadResponse(s).into());
+            return Err(ServerError::BadResponse(Cow::Owned(s)).into());
         }
         return Ok(());
     }
@@ -154,7 +154,7 @@ impl AsciiProtocol<Stream> {
         self.reader.read_line(&mut s)?;
         let s = MemcacheError::try_from(s)?;
         if s != "OK\r\n" {
-            return Err(ServerError::BadResponse(s).into());
+            return Err(ServerError::BadResponse(Cow::Owned(s)).into());
         }
         return Ok(());
     }
@@ -188,24 +188,28 @@ impl AsciiProtocol<Stream> {
             return Ok(None);
         }
         if !buf.starts_with("VALUE") {
-            return Err(ServerError::BadResponse(buf.clone()))?;
+            return Err(ServerError::BadResponse(Cow::Owned(buf.clone())))?;
         }
         let mut header = buf.trim_end_matches("\r\n").split(" ");
-        let mut next_or_err = || header.next().ok_or_else(|| ServerError::BadResponse(buf.clone()));
+        let mut next_or_err = || {
+            header
+                .next()
+                .ok_or_else(|| ServerError::BadResponse(Cow::Owned(buf.clone())))
+        };
         let _ = next_or_err()?;
         let key = next_or_err()?;
         let flags = next_or_err()?.parse()?;
         let length = next_or_err()?.parse()?;
         let cas = if has_cas { Some(next_or_err()?.parse()?) } else { None };
         if let Some(_) = header.next() {
-            return Err(ServerError::BadResponse(buf.clone()))?;
+            return Err(ServerError::BadResponse(Cow::Owned(buf.clone())))?;
         }
         let mut value = vec![0; length];
         self.reader.read_exact(value.as_mut_slice())?;
         let mut s = [0x0; 2];
         self.reader.read_exact(&mut s[..])?;
         if &s != b"\r\n" {
-            return Err(ServerError::BadResponse(String::from_utf8(s.to_vec())?))?;
+            return Err(ServerError::BadResponse(Cow::Owned(String::from_utf8(s.to_vec())?)))?;
         }
         let value = FromMemcacheValueExt::from_memcache_value(value, flags, cas)?;
         Ok(Some((key.to_string(), value)))
@@ -228,7 +232,7 @@ impl AsciiProtocol<Stream> {
             }
         }
 
-        Err(ServerError::BadResponse("Expected END of gets response".to_string()))?
+        Err(ServerError::BadResponse(Cow::Borrowed("Expected end of gets response")))?
     }
 
     pub(super) fn cas<V: ToMemcacheValue<Stream>>(
@@ -314,7 +318,7 @@ impl AsciiProtocol<Stream> {
                 if s == "DELETED\r\n" {
                     Ok(true)
                 } else {
-                    Err(ServerError::BadResponse(s))?
+                    Err(ServerError::BadResponse(Cow::Owned(s)))?
                 }
             }
             Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
@@ -351,7 +355,7 @@ impl AsciiProtocol<Stream> {
                 if s == "TOUCHED\r\n" {
                     Ok(true)
                 } else {
-                    Err(ServerError::BadResponse(s))?
+                    Err(ServerError::BadResponse(Cow::Owned(s)))?
                 }
             }
             Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
@@ -373,12 +377,12 @@ impl AsciiProtocol<Stream> {
             if s.starts_with("END") {
                 break;
             } else if !s.starts_with("STAT") {
-                return Err(ServerError::BadResponse(s).into());
+                return Err(ServerError::BadResponse(Cow::Owned(s)).into());
             }
 
             let stat: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
             if stat.len() < 3 {
-                return Err(ServerError::BadResponse(s).into());
+                return Err(ServerError::BadResponse(Cow::Owned(s)).into());
             }
             let key = stat[1];
             let value = s.trim_start_matches(format!("STAT {}", key).as_str());
