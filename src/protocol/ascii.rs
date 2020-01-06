@@ -321,22 +321,23 @@ impl AsciiProtocol<Stream> {
         }
     }
 
-    pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        check_key_len(key)?;
-        write!(self.reader.get_mut(), "incr {} {}\r\n", key, amount)?;
+    fn parse_u64_response(&mut self) -> Result<u64, MemcacheError> {
         let mut s = String::new();
         self.reader.read_line(&mut s)?;
         let s = MemcacheError::try_from(s)?;
         Ok(s.trim_end_matches("\r\n").parse::<u64>()?)
     }
 
+    pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        check_key_len(key)?;
+        write!(self.reader.get_mut(), "incr {} {}\r\n", key, amount)?;
+        self.parse_u64_response()
+    }
+
     pub(super) fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         check_key_len(key)?;
         write!(self.reader.get_mut(), "decr {} {}\r\n", key, amount)?;
-        let mut s = String::new();
-        self.reader.read_line(&mut s)?;
-        let s = MemcacheError::try_from(s)?;
-        Ok(s.trim_end_matches("\r\n").parse::<u64>()?)
+        self.parse_u64_response()
     }
 
     pub(super) fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
