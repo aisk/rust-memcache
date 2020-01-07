@@ -194,18 +194,19 @@ impl AsciiProtocol<Stream> {
         let _ = next_or_err()?;
         let key = next_or_err()?;
         let flags = next_or_err()?.parse()?;
-        let length = next_or_err()?.parse()?;
+        let length: usize = next_or_err()?.parse()?;
         let cas = if has_cas { Some(next_or_err()?.parse()?) } else { None };
-        if let Some(_) = header.next() {
+        if header.next().is_some() {
             return Err(ServerError::BadResponse(Cow::Owned(buf.clone())))?;
         }
-        let mut value = vec![0; length];
+        let mut value = vec![0u8; length + 2];
         self.reader.read_exact(value.as_mut_slice())?;
-        let mut s = [0x0; 2];
-        self.reader.read_exact(&mut s[..])?;
-        if &s != b"\r\n" {
-            return Err(ServerError::BadResponse(Cow::Owned(String::from_utf8(s.to_vec())?)))?;
+        if &value[length..] != b"\r\n" {
+            return Err(ServerError::BadResponse(Cow::Owned(String::from_utf8(value)?)))?;
         }
+        // remove the trailing \r\n
+        value.pop(); value.pop();
+        value.shrink_to_fit();
         let value = FromMemcacheValueExt::from_memcache_value(value, flags, cas)?;
         Ok(Some((key.to_string(), value)))
     }
@@ -369,10 +370,10 @@ impl AsciiProtocol<Stream> {
             self.reader.read_line(&mut s)?;
 
             let s = MemcacheError::try_from(s)?;
-            // FIXME: what if a stat starts with END?
-            if s.starts_with("END") {
+            if s == END {
                 break;
-            } else if !s.starts_with("STAT") {
+            }
+            if !s.starts_with("STAT") {
                 return Err(ServerError::BadResponse(Cow::Owned(s)).into());
             }
 
