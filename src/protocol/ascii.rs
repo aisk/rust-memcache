@@ -200,6 +200,9 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
+        for key in keys {
+            check_key_len(key)?;
+        }
         write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
 
         let mut result: HashMap<String, V> = HashMap::new();
