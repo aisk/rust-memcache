@@ -133,11 +133,11 @@ impl Client {
     /// client.version().unwrap();
     /// ```
     pub fn version(&mut self) -> Result<Vec<(String, String)>, MemcacheError> {
-        let mut result: Vec<(String, String)> = vec![];
+        let mut result = Vec::with_capacity(self.connections.len());
         for connection in &mut self.connections {
-            result.push(("".into(), connection.protocol.version()?));
+            result.push((connection.url.clone(), connection.protocol.version()?));
         }
-        return Ok(result);
+        Ok(result)
     }
 
     /// Flush all cache on memcached server immediately.
