@@ -143,7 +143,7 @@ impl BinaryProtocol {
             ..Default::default()
         };
         noop_request_header.write(&mut self.stream)?;
-        return binary_packet::parse_gets_response(&mut self.stream);
+        return binary_packet::parse_gets_response(&mut self.stream, keys.len());
     }
 
     pub(super) fn cas<V: ToMemcacheValue<Stream>>(
