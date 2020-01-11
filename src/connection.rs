@@ -206,3 +206,18 @@ impl Connection {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn test_transport_url() {
+        use super::Transport;
+        use url::Url;
+        match Transport::from_url(&Url::parse("memcache:///tmp/memcached.sock").unwrap()).unwrap() {
+            Transport::Unix => (),
+            _ => assert!(false, "transport is not unix")
+        }
+    }
+}
+
