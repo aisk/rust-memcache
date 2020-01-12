@@ -3,8 +3,6 @@ use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
-#[cfg(unix)]
-use url::Host;
 use url::Url;
 
 use error::MemcacheError;
@@ -138,7 +136,7 @@ impl Transport {
 
         #[cfg(unix)]
         {
-            if url.host() == Some(Host::Domain("")) && url.port() == None {
+            if url.host().is_none() && url.port() == None {
                 return Ok(Transport::Unix);
             }
         }
