@@ -38,7 +38,7 @@ pub enum ServerError {
     /// than 0x81 in the response packet.
     BadMagic(u8),
     /// The client did not expect this response from the server.
-    BadResponse(String),
+    BadResponse(Cow<'static, str>),
     /// The server returned an error prefixed with SERVER_ERROR in response to a command.
     Error(String),
 }

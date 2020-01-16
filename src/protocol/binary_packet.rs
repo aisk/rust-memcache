@@ -2,6 +2,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use error::{CommandError, MemcacheError, ServerError};
 use std::collections::HashMap;
 use std::io::{self, Cursor};
+use std::borrow::Cow;
 use value::FromMemcacheValueExt;
 
 const OK_STATUS: u16 = 0x0;
@@ -167,9 +168,10 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValueExt>(reader: &mut R) 
 
 pub fn parse_gets_response<R: io::Read, V: FromMemcacheValueExt>(
     reader: &mut R,
+    max_responses: usize
 ) -> Result<HashMap<String, V>, MemcacheError> {
     let mut result = HashMap::new();
-    loop {
+    for _ in 0..=max_responses {
         let Response {
             header,
             key,
@@ -177,7 +179,7 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValueExt>(
             value,
         } = parse_response(reader)?.err()?;
         if header.opcode == Opcode::Noop as u8 {
-            break;
+            return Ok(result);
         }
         let flags = Cursor::new(extras).read_u32::<BigEndian>()?;
         let key = String::from_utf8(key)?;
@@ -186,7 +188,7 @@ pub fn parse_gets_response<R: io::Read, V: FromMemcacheValueExt>(
             FromMemcacheValueExt::from_memcache_value(value, flags, Some(header.cas))?,
         );
     }
-    Ok(result)
+    Err(ServerError::BadResponse(Cow::Borrowed("Expected end of gets response")))?
 }
 
 pub fn parse_delete_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
