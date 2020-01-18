@@ -162,7 +162,7 @@ impl Connection {
         let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
         let stream: Stream = match transport {
             Transport::Tcp(options) => Stream::Tcp(tcp_stream(url, &options)?),
-            Transport::Udp => Stream::Udp(UdpStream::new(url.clone())?),
+            Transport::Udp => Stream::Udp(UdpStream::new(url)?),
             #[cfg(unix)]
             Transport::Unix => Stream::Unix(UnixStream::connect(url.path())?),
             #[cfg(feature = "tls")]
