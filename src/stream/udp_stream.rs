@@ -16,7 +16,7 @@ pub struct UdpStream {
 }
 
 impl UdpStream {
-    pub fn new(addr: Url) -> Result<Self, MemcacheError> {
+    pub fn new(addr: &Url) -> Result<Self, MemcacheError> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         socket.connect(&*addr.socket_addrs(||None)?)?;
         return Ok(UdpStream {

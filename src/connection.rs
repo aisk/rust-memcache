@@ -107,16 +107,17 @@ impl TcpOptions {
 
 impl Transport {
     fn from_url(url: &Url) -> Result<Self, MemcacheError> {
-        let parts: Vec<&str> = url.scheme().split("+").collect();
-        if parts.len() != 1 && parts.len() != 2 || parts[0] != "memcache" {
-            return Err(MemcacheError::BadURL(
-                "memcache URL's scheme should start with 'memcache'".into(),
-            ));
+        let mut parts = url.scheme().splitn(2, "+");
+        match parts.next() {
+            Some(part) if part == "memcache" => (),
+            _ => return Err(MemcacheError::BadURL(
+                    "memcache URL's scheme should start with 'memcache'".into(),
+                ))
         }
 
         // scheme has highest priority
-        if parts.len() == 2 {
-            return match parts[1] {
+        if let Some(proto) = parts.next() {
+            return match proto {
                 "tcp" => Ok(Transport::Tcp(TcpOptions::from_url(url))),
                 "udp" => Ok(Transport::Udp),
                 #[cfg(unix)]
@@ -126,7 +127,7 @@ impl Transport {
                 _ => Err(MemcacheError::BadURL(
                     "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix' or 'memcache+tls'".into(),
                 )),
-            };
+            }
         }
 
         let is_udp = url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true");
@@ -161,7 +162,7 @@ impl Connection {
         let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
         let stream: Stream = match transport {
             Transport::Tcp(options) => Stream::Tcp(tcp_stream(url, &options)?),
-            Transport::Udp => Stream::Udp(UdpStream::new(url.clone())?),
+            Transport::Udp => Stream::Udp(UdpStream::new(url)?),
             #[cfg(unix)]
             Transport::Unix => Stream::Unix(UnixStream::connect(url.path())?),
             #[cfg(feature = "tls")]
