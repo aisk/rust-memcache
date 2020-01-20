@@ -67,11 +67,12 @@ impl Client {
         let mut connections = vec![];
         for url in urls {
             let parsed = Url::parse(url.as_str())?;
-            let mut connection = Connection::connect(&parsed)?;
+            let mut connection = Connection::connect(parsed)?;
 
-            if parsed.has_authority() && parsed.username() != "" && parsed.password().is_some() {
-                let username = parsed.username();
-                let password = parsed.password().unwrap();
+            let url = &connection.url;
+            if url.has_authority() && url.username().is_empty() && url.password().is_some() {
+                let username = url.username();
+                let password = url.password().unwrap();
                 connection.protocol.auth(username, password)?;
             }
 
@@ -85,8 +86,14 @@ impl Client {
 
     fn get_connection(&mut self, key: &str) -> &mut Connection {
         let connections_count = self.connections.len();
-        return &mut self.connections[(self.hash_function)(key) as usize % connections_count];
+        return self.get_connection_indexed((self.hash_function)(key) as usize % connections_count);
     }
+
+    fn get_connection_indexed(&mut self, index: usize) -> &mut Connection {
+        // TODO: reconnect if connection is dirty
+        return &mut self.connections[index];
+    }
+
 
     /// Set the socket read timeout for TCP connections.
     ///
@@ -135,7 +142,7 @@ impl Client {
     pub fn version(&mut self) -> Result<Vec<(String, String)>, MemcacheError> {
         let mut result = Vec::with_capacity(self.connections.len());
         for connection in &mut self.connections {
-            result.push((connection.url.clone(), connection.protocol.version()?));
+            result.push((connection.url.to_string(), connection.protocol.version()?));
         }
         Ok(result)
     }
@@ -204,7 +211,7 @@ impl Client {
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
-            let connection = &mut self.connections[connection_index];
+            let connection = self.get_connection_indexed(connection_index);
             result.extend(connection.protocol.gets(keys)?);
         }
         return Ok(result);
@@ -382,7 +389,7 @@ impl Client {
         let mut result: Vec<(String, HashMap<String, String>)> = vec![];
         for connection in &mut self.connections {
             let stats_info = connection.protocol.stats()?;
-            let url = connection.url.clone();
+            let url = connection.url.to_string();
             result.push((url, stats_info));
         }
         return Ok(result);

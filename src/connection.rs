@@ -16,7 +16,7 @@ use stream::UdpStream;
 /// a connection to the memcached server
 pub struct Connection {
     pub protocol: Protocol,
-    pub url: String,
+    pub url: Url,
 }
 
 enum Transport {
@@ -157,12 +157,12 @@ fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> 
 }
 
 impl Connection {
-    pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
-        let transport = Transport::from_url(url)?;
+    pub(crate) fn connect(url: Url) -> Result<Self, MemcacheError> {
+        let transport = Transport::from_url(&url)?;
         let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
         let stream: Stream = match transport {
-            Transport::Tcp(options) => Stream::Tcp(tcp_stream(url, &options)?),
-            Transport::Udp => Stream::Udp(UdpStream::new(url)?),
+            Transport::Tcp(options) => Stream::Tcp(tcp_stream(&url, &options)?),
+            Transport::Udp => Stream::Udp(UdpStream::new(&url)?),
             #[cfg(unix)]
             Transport::Unix => Stream::Unix(UnixStream::connect(url.path())?),
             #[cfg(feature = "tls")]
@@ -187,7 +187,7 @@ impl Connection {
                 }
 
                 let tls_conn = builder.build();
-                let tcp_stream = tcp_stream(url, &options.tcp_options)?;
+                let tcp_stream = tcp_stream(&url, &options.tcp_options)?;
                 let tls_stream = tls_conn.connect(host, tcp_stream)?;
                 Stream::Tls(tls_stream)
             }
@@ -202,7 +202,7 @@ impl Connection {
         };
 
         Ok(Connection {
-            url: url.to_string(),
+            url: url,
             protocol: protocol,
         })
     }
