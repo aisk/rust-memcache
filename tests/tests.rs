@@ -27,7 +27,7 @@ fn test() {
     if cfg!(unix) {
         urls.push("memcache:///tmp/memcached2.sock");
     }
-    let mut client = memcache::Client::connect(urls).unwrap();
+    let client = memcache::Client::connect(urls).unwrap();
 
     client.version().unwrap();
 
@@ -60,7 +60,7 @@ fn test() {
 #[test]
 fn issue74() {
     use memcache::{Client, CommandError, MemcacheError};
-    let mut client = Client::connect("memcache://localhost:12346?tcp_nodelay=true").unwrap();
+    let client = Client::connect("memcache://localhost:12346?tcp_nodelay=true").unwrap();
     client.delete("issue74").unwrap();
     client.add("issue74", 1, 0).unwrap();
 
@@ -92,7 +92,7 @@ fn issue74() {
 #[test]
 fn udp_test() {
     let urls = vec!["memcache+udp://localhost:22345"];
-    let mut client = memcache::Client::connect(urls).unwrap();
+    let client = memcache::Client::connect(urls).unwrap();
 
     client.version().unwrap();
 
@@ -168,7 +168,7 @@ fn udp_test() {
         handles.push(Some(thread::spawn(move || {
             let key = format!("key{}", i);
             let value = format!("value{}", i);
-            let mut client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
+            let client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
             for j in 0..50 {
                 let value = format!("{}{}", value, j);
                 client.set(key.as_str(), &value, 0).unwrap();
@@ -214,7 +214,7 @@ fn test_cas() {
         Client::connect("memcache://localhost:12345").unwrap(),
         Client::connect("memcache://localhost:12345?protocol=ascii").unwrap(),
     ];
-    for mut client in clients {
+    for client in clients {
         client.flush().unwrap();
 
         client.set("ascii_foo", "bar", 0).unwrap();

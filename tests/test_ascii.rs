@@ -5,7 +5,7 @@ use std::{thread, time};
 
 #[test]
 fn test_ascii() {
-    let mut client = memcache::Client::connect("memcache://localhost:12345?protocol=ascii").unwrap();
+    let client = memcache::Client::connect("memcache://localhost:12345?protocol=ascii").unwrap();
 
     client.flush_with_delay(1).unwrap();
     thread::sleep(time::Duration::from_secs(1));
