@@ -19,7 +19,7 @@ pub struct UdpStream {
 impl UdpStream {
     pub fn new(addr: &Url) -> Result<Self, MemcacheError> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
-        socket.connect(&*addr.socket_addrs(||None)?)?;
+        socket.connect(&*addr.socket_addrs(|| None)?)?;
         return Ok(UdpStream {
             socket,
             read_buf: Vec::new(),
@@ -35,7 +35,6 @@ impl UdpStream {
     pub(crate) fn set_write_timeout(&self, duration: Option<Duration>) -> Result<(), MemcacheError> {
         Ok(self.socket.set_write_timeout(duration)?)
     }
-
 }
 
 impl Read for UdpStream {
