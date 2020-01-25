@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use url::Url;
@@ -46,14 +46,9 @@ impl Connectable for Vec<&str> {
     }
 }
 
-type ThreadSafeConnection = Arc<Mutex<Connection>>;
-
 #[derive(Clone)]
 pub struct Client {
-    /// Taking a lock on a `Connection` will never fail unless the `Mutex`
-    /// is poisoned(which implies another bug in protocol module) because
-    /// all `Client` methods unlock the mutex before returning control flow.
-    connections: Arc<Vec<ThreadSafeConnection>>,
+    connections: Arc<Vec<Connection>>,
     pub hash_function: fn(&str) -> u64,
 }
 
@@ -76,15 +71,15 @@ impl Client {
         let mut connections = vec![];
         for url in urls {
             let parsed = Url::parse(url.as_str())?;
-            let mut connection = Connection::connect(&parsed)?;
+            let connection = Connection::connect(&parsed)?;
 
             if parsed.has_authority() && parsed.username() != "" && parsed.password().is_some() {
                 let username = parsed.username();
                 let password = parsed.password().unwrap();
-                connection.protocol.auth(username, password)?;
+                connection.get_ref().auth(username, password)?;
             }
 
-            connections.push(Arc::new(Mutex::new(connection)));
+            connections.push(connection);
         }
         return Ok(Client {
             connections: Arc::new(connections),
@@ -92,7 +87,7 @@ impl Client {
         });
     }
 
-    fn get_connection(&self, key: &str) -> Arc<Mutex<Connection>> {
+    fn get_connection(&self, key: &str) -> Connection {
         let connections_count = self.connections.len();
         return self.connections[(self.hash_function)(key) as usize % connections_count].clone();
     }
@@ -107,8 +102,7 @@ impl Client {
     /// ```
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
-            let mut conn = conn.lock().expect("won't fail");
-            match conn.protocol {
+            match *conn.get_ref() {
                 Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
                 Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
             }
@@ -126,8 +120,7 @@ impl Client {
     /// ```
     pub fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
-            let mut conn = conn.lock().expect("won't fail");
-            match conn.protocol {
+            match *conn.get_ref() {
                 Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
                 Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
             }
@@ -146,9 +139,9 @@ impl Client {
     pub fn version(&self) -> Result<Vec<(String, String)>, MemcacheError> {
         let mut result = Vec::with_capacity(self.connections.len());
         for connection in self.connections.iter() {
-            let mut connection = connection.lock().expect("won't fail");
-            let url = connection.url.clone();
-            result.push((url, connection.protocol.version()?));
+            let mut protocol = connection.get_ref();
+            let url = connection.url.to_string();
+            result.push((url, protocol.version()?));
         }
         Ok(result)
     }
@@ -163,7 +156,7 @@ impl Client {
     /// ```
     pub fn flush(&self) -> Result<(), MemcacheError> {
         for connection in self.connections.iter() {
-            connection.lock().expect("won't fail").protocol.flush()?;
+            connection.get_ref().flush()?;
         }
         return Ok(());
     }
@@ -178,11 +171,7 @@ impl Client {
     /// ```
     pub fn flush_with_delay(&self, delay: u32) -> Result<(), MemcacheError> {
         for connection in self.connections.iter() {
-            connection
-                .lock()
-                .expect("won't fail")
-                .protocol
-                .flush_with_delay(delay)?;
+            connection.get_ref().flush_with_delay(delay)?;
         }
         return Ok(());
     }
@@ -196,7 +185,7 @@ impl Client {
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
     pub fn get<V: FromMemcacheValueExt>(&self, key: &str) -> Result<Option<V>, MemcacheError> {
-        return self.get_connection(key).lock().expect("won't fail").protocol.get(key);
+        return self.get_connection(key).get_ref().get(key);
     }
 
     /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce netwark workloads.
@@ -222,7 +211,7 @@ impl Client {
         }
         for (&connection_index, keys) in con_keys.iter() {
             let connection = self.connections[connection_index].clone();
-            result.extend(connection.lock().expect("won't fail").protocol.gets(keys)?);
+            result.extend(connection.get_ref().gets(keys)?);
         }
         return Ok(result);
     }
@@ -236,12 +225,7 @@ impl Client {
     /// client.set("foo", "bar", 10).unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .set(key, value, expiration);
+        return self.get_connection(key).get_ref().set(key, value, expiration);
     }
 
     /// Compare and swap a key with the associate value into memcached server with expiration seconds.
@@ -265,11 +249,7 @@ impl Client {
         expiration: u32,
         cas_id: u64,
     ) -> Result<bool, MemcacheError> {
-        self.get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .cas(key, value, expiration, cas_id)
+        self.get_connection(key).get_ref().cas(key, value, expiration, cas_id)
     }
 
     /// Add a key with associate value into memcached server with expiration seconds.
@@ -283,12 +263,7 @@ impl Client {
     /// client.add(key, "bar", 100000000).unwrap();
     /// ```
     pub fn add<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .add(key, value, expiration);
+        return self.get_connection(key).get_ref().add(key, value, expiration);
     }
 
     /// Replace a key with associate value into memcached server with expiration seconds.
@@ -307,12 +282,7 @@ impl Client {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .replace(key, value, expiration);
+        return self.get_connection(key).get_ref().replace(key, value, expiration);
     }
 
     /// Append value to the key.
@@ -328,12 +298,7 @@ impl Client {
     /// assert_eq!(result, "hello, world!");
     /// ```
     pub fn append<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .append(key, value);
+        return self.get_connection(key).get_ref().append(key, value);
     }
 
     /// Prepend value to the key.
@@ -349,12 +314,7 @@ impl Client {
     /// assert_eq!(result, "hello, world!");
     /// ```
     pub fn prepend<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .prepend(key, value);
+        return self.get_connection(key).get_ref().prepend(key, value);
     }
 
     /// Delete a key from memcached server.
@@ -366,12 +326,7 @@ impl Client {
     /// client.delete("foo").unwrap();
     /// ```
     pub fn delete(&self, key: &str) -> Result<bool, MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .delete(key);
+        return self.get_connection(key).get_ref().delete(key);
     }
 
     /// Increment the value with amount.
@@ -383,12 +338,7 @@ impl Client {
     /// client.increment("counter", 42).unwrap();
     /// ```
     pub fn increment(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .increment(key, amount);
+        return self.get_connection(key).get_ref().increment(key, amount);
     }
 
     /// Decrement the value with amount.
@@ -400,12 +350,7 @@ impl Client {
     /// client.decrement("counter", 42).unwrap();
     /// ```
     pub fn decrement(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .decrement(key, amount);
+        return self.get_connection(key).get_ref().decrement(key, amount);
     }
 
     /// Set a new expiration time for a exist key.
@@ -419,12 +364,7 @@ impl Client {
     /// assert_eq!(client.touch("foo", 12345).unwrap(), true);
     /// ```
     pub fn touch(&self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
-        return self
-            .get_connection(key)
-            .lock()
-            .expect("won't fail")
-            .protocol
-            .touch(key, expiration);
+        return self.get_connection(key).get_ref().touch(key, expiration);
     }
 
     /// Get all servers' statistics.
@@ -437,9 +377,8 @@ impl Client {
     pub fn stats(&self) -> Result<Vec<(String, Stats)>, MemcacheError> {
         let mut result: Vec<(String, HashMap<String, String>)> = vec![];
         for connection in self.connections.iter() {
-            let mut connection = connection.lock().expect("won't fail");
-            let url = connection.url.clone();
-            let stats_info = connection.protocol.stats()?;
+            let stats_info = connection.get_ref().stats()?;
+            let url = connection.url.to_string();
             result.push((url, stats_info));
         }
         return Ok(result);

@@ -2,6 +2,7 @@ use std::io::BufReader;
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use url::Url;
 
@@ -14,9 +15,13 @@ use stream::Stream;
 use stream::UdpStream;
 
 /// a connection to the memcached server
+#[derive(Clone)]
 pub struct Connection {
-    pub protocol: Protocol,
-    pub url: String,
+    /// Taking a lock on a `Protocol` will never fail unless the `Mutex`
+    /// is poisoned(which implies another bug in protocol module) because
+    /// all `Client` methods unlock the mutex before returning control flow.
+    pub protocol: Arc<Mutex<Protocol>>,
+    pub url: Arc<String>,
 }
 
 enum Transport {
@@ -157,6 +162,10 @@ fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> 
 }
 
 impl Connection {
+    pub(crate) fn get_ref(&self) -> MutexGuard<Protocol> {
+        self.protocol.lock().expect("won't fail")
+    }
+
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
         let transport = Transport::from_url(url)?;
         let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
@@ -202,8 +211,8 @@ impl Connection {
         };
 
         Ok(Connection {
-            url: url.to_string(),
-            protocol: protocol,
+            url: Arc::new(url.to_string()),
+            protocol: Arc::new(Mutex::new(protocol)),
         })
     }
 }
