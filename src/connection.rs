@@ -115,9 +115,11 @@ impl Transport {
         let mut parts = url.scheme().splitn(2, "+");
         match parts.next() {
             Some(part) if part == "memcache" => (),
-            _ => return Err(MemcacheError::BadURL(
+            _ => {
+                return Err(MemcacheError::BadURL(
                     "memcache URL's scheme should start with 'memcache'".into(),
                 ))
+            }
         }
 
         // scheme has highest priority
@@ -132,7 +134,7 @@ impl Transport {
                 _ => Err(MemcacheError::BadURL(
                     "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix' or 'memcache+tls'".into(),
                 )),
-            }
+            };
         }
 
         let is_udp = url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true");
@@ -152,7 +154,7 @@ impl Transport {
 }
 
 fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> {
-    let tcp_stream = TcpStream::connect(&*url.socket_addrs(||None)?)?;
+    let tcp_stream = TcpStream::connect(&*url.socket_addrs(|| None)?)?;
     if opts.timeout.is_some() {
         tcp_stream.set_read_timeout(opts.timeout)?;
         tcp_stream.set_write_timeout(opts.timeout)?;
@@ -226,8 +228,7 @@ mod tests {
         use url::Url;
         match Transport::from_url(&Url::parse("memcache:///tmp/memcached.sock").unwrap()).unwrap() {
             Transport::Unix => (),
-            _ => assert!(false, "transport is not unix")
+            _ => assert!(false, "transport is not unix"),
         }
     }
 }
-
