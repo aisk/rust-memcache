@@ -24,24 +24,24 @@ pub enum Stream {
 impl Stream {
     pub(super) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         match self {
-            Stream::Tcp(ref mut conn) => conn.set_read_timeout(timeout)?,
+            Stream::Tcp(ref conn) => conn.set_read_timeout(timeout)?,
             #[cfg(unix)]
-            Stream::Unix(ref mut conn) => conn.set_read_timeout(timeout)?,
+            Stream::Unix(ref conn) => conn.set_read_timeout(timeout)?,
             #[cfg(feature = "tls")]
-            Stream::Tls(ref mut stream) => stream.get_ref().set_read_timeout(timeout)?,
-            _ => (),
+            Stream::Tls(ref stream) => stream.get_ref().set_read_timeout(timeout)?,
+            Stream::Udp(ref conn) => conn.set_read_timeout(timeout)?,
         }
         Ok(())
     }
 
     pub(super) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         match self {
-            Stream::Tcp(ref mut conn) => conn.set_write_timeout(timeout)?,
+            Stream::Tcp(ref conn) => conn.set_write_timeout(timeout)?,
             #[cfg(unix)]
-            Stream::Unix(ref mut conn) => conn.set_write_timeout(timeout)?,
+            Stream::Unix(ref conn) => conn.set_write_timeout(timeout)?,
             #[cfg(feature = "tls")]
-            Stream::Tls(ref mut stream) => stream.get_ref().set_write_timeout(timeout)?,
-            _ => (),
+            Stream::Tls(ref stream) => stream.get_ref().set_write_timeout(timeout)?,
+            Stream::Udp(ref conn) => conn.set_write_timeout(timeout)?,
         }
         Ok(())
     }
