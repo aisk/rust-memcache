@@ -2,6 +2,7 @@ use std::io::BufReader;
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use url::Url;
 
@@ -14,9 +15,13 @@ use stream::Stream;
 use stream::UdpStream;
 
 /// a connection to the memcached server
+#[derive(Clone)]
 pub struct Connection {
-    pub protocol: Protocol,
-    pub url: String,
+    /// Taking a lock on a `Protocol` will never fail unless the `Mutex`
+    /// is poisoned(which implies another bug in protocol module) because
+    /// all `Client` methods unlock the mutex before returning control flow.
+    pub protocol: Arc<Mutex<Protocol>>,
+    pub url: Arc<String>,
 }
 
 enum Transport {
@@ -110,9 +115,11 @@ impl Transport {
         let mut parts = url.scheme().splitn(2, "+");
         match parts.next() {
             Some(part) if part == "memcache" => (),
-            _ => return Err(MemcacheError::BadURL(
+            _ => {
+                return Err(MemcacheError::BadURL(
                     "memcache URL's scheme should start with 'memcache'".into(),
                 ))
+            }
         }
 
         // scheme has highest priority
@@ -127,7 +134,7 @@ impl Transport {
                 _ => Err(MemcacheError::BadURL(
                     "memcache URL's scheme should be 'memcache+tcp' or 'memcache+udp' or 'memcache+unix' or 'memcache+tls'".into(),
                 )),
-            }
+            };
         }
 
         let is_udp = url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true");
@@ -147,7 +154,7 @@ impl Transport {
 }
 
 fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> {
-    let tcp_stream = TcpStream::connect(&*url.socket_addrs(||None)?)?;
+    let tcp_stream = TcpStream::connect(&*url.socket_addrs(|| None)?)?;
     if opts.timeout.is_some() {
         tcp_stream.set_read_timeout(opts.timeout)?;
         tcp_stream.set_write_timeout(opts.timeout)?;
@@ -157,6 +164,10 @@ fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> 
 }
 
 impl Connection {
+    pub(crate) fn get_ref(&self) -> MutexGuard<Protocol> {
+        self.protocol.lock().expect("won't fail")
+    }
+
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
         let transport = Transport::from_url(url)?;
         let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
@@ -202,8 +213,8 @@ impl Connection {
         };
 
         Ok(Connection {
-            url: url.to_string(),
-            protocol: protocol,
+            url: Arc::new(url.to_string()),
+            protocol: Arc::new(Mutex::new(protocol)),
         })
     }
 }
@@ -217,8 +228,7 @@ mod tests {
         use url::Url;
         match Transport::from_url(&Url::parse("memcache:///tmp/memcached.sock").unwrap()).unwrap() {
             Transport::Unix => (),
-            _ => assert!(false, "transport is not unix")
+            _ => assert!(false, "transport is not unix"),
         }
     }
 }
-
