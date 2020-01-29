@@ -103,7 +103,7 @@ impl Client {
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
             match *conn.get_ref() {
-                Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
+                Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout)?,
                 Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
             }
         }
@@ -121,7 +121,7 @@ impl Client {
     pub fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
             match *conn.get_ref() {
-                Protocol::Ascii(ref mut protocol) => protocol.reader.get_mut().set_read_timeout(timeout)?,
+                Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout)?,
                 Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
             }
         }

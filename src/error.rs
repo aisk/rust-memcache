@@ -73,13 +73,13 @@ pub enum CommandError {
 }
 
 impl MemcacheError {
-    pub(crate) fn try_from(s: String) -> Result<String, MemcacheError> {
+    pub(crate) fn try_from(s: &str) -> Result<&str, MemcacheError> {
         if s == "ERROR\r\n" {
             Err(CommandError::InvalidCommand)?
         } else if s.starts_with("CLIENT_ERROR") {
-            Err(ClientError::from(s))?
+            Err(ClientError::from(String::from(s)))?
         } else if s.starts_with("SERVER_ERROR") {
-            Err(ServerError::from(s))?
+            Err(ServerError::from(String::from(s)))?
         } else if s == "NOT_FOUND\r\n" {
             Err(CommandError::KeyNotFound)?
         } else if s == "EXISTS\r\n" {
@@ -147,6 +147,7 @@ pub enum ParseError {
     Int(num::ParseIntError),
     Float(num::ParseFloatError),
     String(string::FromUtf8Error),
+    Str(std::str::Utf8Error),
     Url(url::ParseError),
 }
 
@@ -157,6 +158,7 @@ impl error::Error for ParseError {
             ParseError::Int(ref e) => e.source(),
             ParseError::Float(ref e) => e.source(),
             ParseError::String(ref e) => e.source(),
+            ParseError::Str(ref e) => e.source(),
             ParseError::Url(ref e) => e.source(),
         }
     }
@@ -169,6 +171,7 @@ impl fmt::Display for ParseError {
             ParseError::Int(ref e) => e.fmt(f),
             ParseError::Float(ref e) => e.fmt(f),
             ParseError::String(ref e) => e.fmt(f),
+            ParseError::Str(ref e) => e.fmt(f),
             ParseError::Url(ref e) => e.fmt(f),
         }
     }
@@ -185,6 +188,13 @@ impl From<string::FromUtf8Error> for MemcacheError {
         ParseError::String(err).into()
     }
 }
+
+impl From<std::str::Utf8Error> for MemcacheError {
+    fn from(err: std::str::Utf8Error) -> MemcacheError {
+        ParseError::Str(err).into()
+    }
+}
+
 impl From<num::ParseIntError> for MemcacheError {
     fn from(err: num::ParseIntError) -> MemcacheError {
         ParseError::Int(err).into()

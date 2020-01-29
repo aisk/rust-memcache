@@ -1,4 +1,3 @@
-use std::io::BufReader;
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -205,9 +204,7 @@ impl Connection {
         };
 
         let protocol = if is_ascii {
-            Protocol::Ascii(AsciiProtocol {
-                reader: BufReader::new(stream),
-            })
+            Protocol::Ascii(AsciiProtocol::new(stream))
         } else {
             Protocol::Binary(BinaryProtocol { stream: stream })
         };
