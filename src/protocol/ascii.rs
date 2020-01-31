@@ -64,7 +64,7 @@ impl<C: Read> CappedLineReader<C> {
         Self {
             inner,
             filled: 0,
-            buf: [0x0; 2048]
+            buf: [0x0; 2048],
         }
     }
 
