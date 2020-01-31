@@ -1,8 +1,8 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use error::{CommandError, MemcacheError, ServerError};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Cursor};
-use std::borrow::Cow;
 use value::FromMemcacheValueExt;
 
 const OK_STATUS: u16 = 0x0;
@@ -119,11 +119,8 @@ pub fn parse_response<R: io::Read>(reader: &mut R) -> Result<Response, MemcacheE
     reader.read_exact(key.as_mut_slice())?;
 
     // TODO: return error if total_body_length < extras_length + key_length
-    let mut value = vec![
-        0x0;
-    (header.total_body_length - u32::from(header.key_length) - u32::from(header.extras_length))
-        as usize
-    ];
+    let mut value =
+        vec![0x0; (header.total_body_length - u32::from(header.key_length) - u32::from(header.extras_length)) as usize];
     reader.read_exact(value.as_mut_slice())?;
 
     Ok(Response {
@@ -168,7 +165,7 @@ pub fn parse_get_response<R: io::Read, V: FromMemcacheValueExt>(reader: &mut R) 
 
 pub fn parse_gets_response<R: io::Read, V: FromMemcacheValueExt>(
     reader: &mut R,
-    max_responses: usize
+    max_responses: usize,
 ) -> Result<HashMap<String, V>, MemcacheError> {
     let mut result = HashMap::new();
     for _ in 0..=max_responses {
