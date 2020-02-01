@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+    - master
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - nightly # Now grcov only support nightly toolchain, so we run run tests on other toolchains on travis.
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.rust }}
+        override: true
+        components: rustfmt, clippy
+    - name: Install dependencies
+      run: sudo apt-get install libevent-dev libssl-dev
+    - name: Setup memcached
+      run: ./tests/setup_tests.sh
+    - name: Check format
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --all -- --check
+    - name: Build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+    - name: Run tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+      env:
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads"
+    - name: Gather coverage data
+      id: coverage
+      uses: actions-rs/grcov@v0.1
+      with:
+        coveralls-token: ${{ secrets.COVERALLS_TOKEN }}
+    - name: Coveralls upload
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+        path-to-lcov: ${{ steps.coverage.outputs.report }}
+
+  grcov_finalize:
+    runs-on: ubuntu-latest
+    needs: ci
+    steps:
+      - name: Coveralls finalization
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
