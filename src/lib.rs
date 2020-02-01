@@ -33,7 +33,7 @@ memcache = "*"
 
 ```rust
 // create connection with to memcached server node:
-let client = memcache::Client::connect("memcache://127.0.0.1:12345?timeout=10&tcp_nodelay=true").unwrap();
+let client = memcache::connect("memcache://127.0.0.1:12345?timeout=10&tcp_nodelay=true").unwrap();
 
 // flush the database:
 client.flush().unwrap();
@@ -82,3 +82,14 @@ mod value;
 pub use client::{Client, Connectable};
 pub use error::{ClientError, CommandError, MemcacheError, ServerError};
 pub use value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};
+
+/// Create a memcached client instance and connect to memcached server.
+///
+/// Example:
+///
+/// ```rust
+/// let client = memcache::connect("memcache://localhost:12345").unwrap();
+/// ```
+pub fn connect<C: Connectable>(target: C) -> Result<Client, MemcacheError> {
+    Client::connect(target)
+}
