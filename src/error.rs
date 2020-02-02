@@ -1,3 +1,4 @@
+use r2d2;
 use std::borrow::Cow;
 use std::error;
 use std::fmt;
@@ -237,6 +238,8 @@ pub enum MemcacheError {
     OpensslError(openssl::ssl::HandshakeError<std::net::TcpStream>),
     /// Parse errors
     ParseError(ParseError),
+    /// ConnectionPool errors
+    PoolError(r2d2::Error),
 }
 
 impl fmt::Display for MemcacheError {
@@ -250,6 +253,7 @@ impl fmt::Display for MemcacheError {
             MemcacheError::ClientError(ref err) => err.fmt(f),
             MemcacheError::ServerError(ref err) => err.fmt(f),
             MemcacheError::CommandError(ref err) => err.fmt(f),
+            MemcacheError::PoolError(ref err) => err.fmt(f),
         }
     }
 }
@@ -266,6 +270,7 @@ impl error::Error for MemcacheError {
             MemcacheError::ClientError(_) => None,
             MemcacheError::ServerError(_) => None,
             MemcacheError::CommandError(_) => None,
+            MemcacheError::PoolError(ref p) => p.source(),
         }
     }
 }
@@ -287,5 +292,11 @@ impl From<openssl::error::ErrorStack> for MemcacheError {
 impl From<openssl::ssl::HandshakeError<std::net::TcpStream>> for MemcacheError {
     fn from(err: openssl::ssl::HandshakeError<std::net::TcpStream>) -> MemcacheError {
         MemcacheError::OpensslError(err)
+    }
+}
+
+impl From<r2d2::Error> for MemcacheError {
+    fn from(err: r2d2::Error) -> MemcacheError {
+        MemcacheError::PoolError(err)
     }
 }
