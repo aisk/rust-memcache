@@ -223,6 +223,7 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar", 10).unwrap();
+    /// # client.flush().unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         return self.get_connection(key).get_ref().set(key, value, expiration);
@@ -241,6 +242,7 @@ impl Client {
     /// let (_, _, cas) = result.get("foo").unwrap();
     /// let cas = cas.unwrap();
     /// assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());
+    /// # client.flush().unwrap();
     /// ```
     pub fn cas<V: ToMemcacheValue<Stream>>(
         &self,
@@ -261,6 +263,7 @@ impl Client {
     /// let key = "add_test";
     /// client.delete(key).unwrap();
     /// client.add(key, "bar", 100000000).unwrap();
+    /// # client.flush().unwrap();
     /// ```
     pub fn add<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         return self.get_connection(key).get_ref().add(key, value, expiration);
@@ -275,6 +278,7 @@ impl Client {
     /// let key = "replace_test";
     /// client.set(key, "bar", 0).unwrap();
     /// client.replace(key, "baz", 100000000).unwrap();
+    /// # client.flush().unwrap();
     /// ```
     pub fn replace<V: ToMemcacheValue<Stream>>(
         &self,
@@ -296,6 +300,7 @@ impl Client {
     /// client.append(key, ", world!").unwrap();
     /// let result: String = client.get(key).unwrap().unwrap();
     /// assert_eq!(result, "hello, world!");
+    /// # client.flush().unwrap();
     /// ```
     pub fn append<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
         return self.get_connection(key).get_ref().append(key, value);
@@ -312,6 +317,7 @@ impl Client {
     /// client.prepend(key, "hello, ").unwrap();
     /// let result: String = client.get(key).unwrap().unwrap();
     /// assert_eq!(result, "hello, world!");
+    /// # client.flush().unwrap();
     /// ```
     pub fn prepend<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
         return self.get_connection(key).get_ref().prepend(key, value);
@@ -324,6 +330,7 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.delete("foo").unwrap();
+    /// # client.flush().unwrap();
     /// ```
     pub fn delete(&self, key: &str) -> Result<bool, MemcacheError> {
         return self.get_connection(key).get_ref().delete(key);
@@ -336,6 +343,7 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.increment("counter", 42).unwrap();
+    /// # client.flush().unwrap();
     /// ```
     pub fn increment(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         return self.get_connection(key).get_ref().increment(key, amount);
@@ -348,6 +356,7 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.decrement("counter", 42).unwrap();
+    /// # client.flush().unwrap();
     /// ```
     pub fn decrement(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         return self.get_connection(key).get_ref().decrement(key, amount);
@@ -362,6 +371,7 @@ impl Client {
     /// assert_eq!(client.touch("not_exists_key", 12345).unwrap(), false);
     /// client.set("foo", "bar", 123).unwrap();
     /// assert_eq!(client.touch("foo", 12345).unwrap(), true);
+    /// # client.flush().unwrap();
     /// ```
     pub fn touch(&self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
         return self.get_connection(key).get_ref().touch(key, expiration);
