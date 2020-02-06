@@ -10,7 +10,6 @@ keywords = ["memcache", "memcached", "driver", "cache", "database"]
 
 [features]
 default = ["tls"]
-
 tls = ["openssl"]
 
 [dependencies]
@@ -19,3 +18,4 @@ url = "2.1.1"
 rand = "0.7"
 enum_dispatch = "0.2"
 openssl = { version = "^0.10", optional = true }
+r2d2 = "0.8.8"

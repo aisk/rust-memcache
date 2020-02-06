@@ -69,6 +69,7 @@ extern crate byteorder;
 extern crate enum_dispatch;
 #[cfg(feature = "tls")]
 extern crate openssl;
+extern crate r2d2;
 extern crate rand;
 extern crate url;
 
@@ -81,6 +82,7 @@ mod value;
 
 pub use client::{Client, Connectable};
 pub use error::{ClientError, CommandError, MemcacheError, ServerError};
+pub use r2d2::Error;
 pub use value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};
 
 /// Create a memcached client instance and connect to memcached server.

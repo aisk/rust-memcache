@@ -1,7 +1,8 @@
 use std::net::TcpStream;
+use std::ops::{Deref, DerefMut};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
@@ -9,18 +10,63 @@ use error::MemcacheError;
 
 #[cfg(feature = "tls")]
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod, SslVerifyMode};
-use protocol::{AsciiProtocol, BinaryProtocol, Protocol};
+use protocol::{AsciiProtocol, BinaryProtocol, Protocol, ProtocolTrait};
+use r2d2::ManageConnection;
 use stream::Stream;
 use stream::UdpStream;
 
-/// a connection to the memcached server
-#[derive(Clone)]
+/// A connection to the memcached server
 pub struct Connection {
-    /// Taking a lock on a `Protocol` will never fail unless the `Mutex`
-    /// is poisoned(which implies another bug in protocol module) because
-    /// all `Client` methods unlock the mutex before returning control flow.
-    pub protocol: Arc<Mutex<Protocol>>,
+    pub protocol: Protocol,
     pub url: Arc<String>,
+}
+
+impl DerefMut for Connection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.protocol
+    }
+}
+
+impl Deref for Connection {
+    type Target = Protocol;
+    fn deref(&self) -> &Self::Target {
+        &self.protocol
+    }
+}
+
+pub(crate) struct ConnectionManager {
+    url: Url,
+}
+
+impl ConnectionManager {
+    pub(crate) fn new(url: Url) -> Self {
+        Self { url }
+    }
+}
+
+impl ManageConnection for ConnectionManager {
+    type Connection = Connection;
+    type Error = MemcacheError;
+
+    fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        let url = &self.url;
+        let mut connection = Connection::connect(url)?;
+        if url.has_authority() && !url.username().is_empty() && url.password().is_some() {
+            let username = url.username();
+            let password = url.password().unwrap();
+            connection.auth(username, password)?;
+        }
+        Ok(connection)
+    }
+
+    fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        conn.version().map(|_| ())
+    }
+
+    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
+        // TODO: fix this
+        false
+    }
 }
 
 enum Transport {
@@ -163,8 +209,8 @@ fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> 
 }
 
 impl Connection {
-    pub(crate) fn get_ref(&self) -> MutexGuard<Protocol> {
-        self.protocol.lock().expect("won't fail")
+    pub(crate) fn get_url(&self) -> String {
+        self.url.to_string()
     }
 
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
@@ -211,7 +257,7 @@ impl Connection {
 
         Ok(Connection {
             url: Arc::new(url.to_string()),
-            protocol: Arc::new(Mutex::new(protocol)),
+            protocol: protocol,
         })
     }
 }
