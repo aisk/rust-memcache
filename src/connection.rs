@@ -1,5 +1,6 @@
+use client::Stats;
+use std::collections::HashMap;
 use std::net::TcpStream;
-use std::ops::{Deref, DerefMut};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
@@ -14,23 +15,35 @@ use protocol::{AsciiProtocol, BinaryProtocol, Protocol, ProtocolTrait};
 use r2d2::ManageConnection;
 use stream::Stream;
 use stream::UdpStream;
+use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 /// A connection to the memcached server
 pub struct Connection {
     pub protocol: Protocol,
+    is_dirty: bool,
     pub url: Arc<String>,
 }
 
-impl DerefMut for Connection {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.protocol
+#[derive(Debug)]
+pub(crate) struct ConnCustomizer {
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
+}
+
+impl r2d2::CustomizeConnection<Connection, MemcacheError> for ConnCustomizer {
+    fn on_acquire(&self, conn: &mut Connection) -> Result<(), MemcacheError> {
+        conn.set_read_timeout(self.read_timeout)?;
+        conn.set_write_timeout(self.write_timeout)?;
+        Ok(())
     }
 }
 
-impl Deref for Connection {
-    type Target = Protocol;
-    fn deref(&self) -> &Self::Target {
-        &self.protocol
+impl ConnCustomizer {
+    pub(crate) fn new(read_timeout: Option<Duration>, write_timeout: Option<Duration>) -> Self {
+        Self {
+            read_timeout,
+            write_timeout,
+        }
     }
 }
 
@@ -63,9 +76,8 @@ impl ManageConnection for ConnectionManager {
         conn.version().map(|_| ())
     }
 
-    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
-        // TODO: fix this
-        false
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
+        conn.is_dirty
     }
 }
 
@@ -208,7 +220,142 @@ fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> 
     Ok(tcp_stream)
 }
 
+impl ProtocolTrait for Connection {
+    fn auth(&mut self, username: &str, password: &str) -> Result<(), MemcacheError> {
+        self.protocol.auth(username, password).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+
+    fn version(&mut self) -> Result<String, MemcacheError> {
+        self.protocol.version().map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+
+    fn flush(&mut self) -> Result<(), MemcacheError> {
+        self.protocol.flush().map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError> {
+        self.protocol.flush_with_delay(delay).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+
+    fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
+        self.protocol.get(key).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
+        self.protocol.gets(keys).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+        self.protocol.set(key, value, expiration).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn cas<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+        cas: u64,
+    ) -> Result<bool, MemcacheError> {
+        self.protocol.cas(key, value, expiration, cas).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn add<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+        self.protocol.add(key, value, expiration).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn replace<V: ToMemcacheValue<Stream>>(
+        &mut self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
+        self.protocol.replace(key, value, expiration).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
+        self.protocol.append(key, value).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
+        self.protocol.prepend(key, value).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
+        self.protocol.delete(key).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        self.protocol.increment(key, amount).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        self.protocol.decrement(key, amount).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
+        self.protocol.touch(key, expiration).map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+    fn stats(&mut self) -> Result<Stats, MemcacheError> {
+        self.protocol.stats().map_err(|e| {
+            self.is_dirty = !e.is_recoverable();
+            e
+        })
+    }
+}
+
 impl Connection {
+    pub(crate) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        match self.protocol {
+            Protocol::Ascii(ref mut protocol) => protocol.stream().set_write_timeout(timeout)?,
+            Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        match self.protocol {
+            Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout)?,
+            Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
+        }
+        Ok(())
+    }
+
     pub(crate) fn get_url(&self) -> String {
         self.url.to_string()
     }
@@ -257,6 +404,7 @@ impl Connection {
 
         Ok(Connection {
             url: Arc::new(url.to_string()),
+            is_dirty: false,
             protocol: protocol,
         })
     }

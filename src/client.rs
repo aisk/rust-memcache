@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use url::Url;
 
-use connection::ConnectionManager;
+use connection::{ConnCustomizer, ConnectionManager};
 use error::MemcacheError;
-use protocol::{Protocol, ProtocolTrait};
+use protocol::ProtocolTrait;
 use r2d2::Pool;
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
@@ -60,19 +60,70 @@ fn default_hash_function(key: &str) -> u64 {
     return hasher.finish();
 }
 
-impl Client {
-    #[deprecated(since = "0.10.0", note = "please use `connect` instead")]
-    pub fn new<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
-        return Self::connect(target);
+pub struct ClientBuilder<C> {
+    target: C,
+    max_size: u32,
+    min_idle: Option<u32>,
+    max_lifetime: Option<Duration>,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
+    pool_wait_timeout: Duration,
+}
+
+impl<C: Connectable> ClientBuilder<C> {
+    pub fn new(target: C) -> Self {
+        Self {
+            target,
+            max_size: 1,
+            min_idle: None,
+            max_lifetime: None,
+            read_timeout: None,
+            write_timeout: None,
+            pool_wait_timeout: Duration::new(30, 0),
+        }
     }
 
-    pub fn with_pool_size<C: Connectable>(target: C, size: u32) -> Result<Self, MemcacheError> {
-        let urls = target.get_urls();
+    pub fn with_min_idle(mut self, min_idle: Option<u32>) -> Self {
+        self.min_idle = min_idle;
+        self
+    }
+
+    pub fn with_max_lifetime(mut self, max_lifetime: Option<Duration>) -> Self {
+        self.max_lifetime = max_lifetime;
+        self
+    }
+
+    pub fn with_max_size(mut self, size: u32) -> Self {
+        self.max_size = size;
+        self
+    }
+
+    pub fn with_read_timeout(mut self, read_timeout: Option<Duration>) -> Self {
+        self.read_timeout = read_timeout;
+        self
+    }
+
+    pub fn with_pool_wait_timeout(mut self, pool_wait_timeout: Duration) -> Self {
+        self.pool_wait_timeout = pool_wait_timeout;
+        self
+    }
+
+    pub fn with_write_timeout(mut self, write_timeout: Option<Duration>) -> Self {
+        self.write_timeout = write_timeout;
+        self
+    }
+
+    pub fn build(self) -> Result<Client, MemcacheError> {
+        let urls = self.target.get_urls();
         let mut connections = vec![];
         for url in urls {
             let parsed = Url::parse(url.as_str())?;
-            let pool = r2d2::Pool::builder()
-                .max_size(size)
+            let pool = Pool::builder()
+                .max_size(self.max_size)
+                .min_idle(self.min_idle)
+                .max_lifetime(self.max_lifetime)
+                .connection_timeout(self.pool_wait_timeout)
+                .connection_customizer(Box::new(ConnCustomizer::new(self.read_timeout, self.write_timeout)))
                 .build(ConnectionManager::new(parsed))?;
             connections.push(pool);
         }
@@ -81,52 +132,21 @@ impl Client {
             hash_function: default_hash_function,
         })
     }
+}
+
+impl Client {
+    #[deprecated(since = "0.10.0", note = "please use `connect` instead")]
+    pub fn new<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
+        return Self::connect(target);
+    }
 
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
-        Self::with_pool_size(target, 1)
+        ClientBuilder::new(target).with_max_size(1).build()
     }
 
     fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
         let connections_count = self.connections.len();
         return self.connections[(self.hash_function)(key) as usize % connections_count].clone();
-    }
-
-    /// Set the socket read timeout for TCP connections.
-    ///
-    /// Example:
-    ///
-    /// ```rust
-    /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.set_read_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
-    /// ```
-    pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        for conn in self.connections.iter() {
-            let mut conn = conn.get()?;
-            match **conn {
-                Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout)?,
-                Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
-            }
-        }
-        Ok(())
-    }
-
-    /// Set the socket write timeout for TCP connections.
-    ///
-    /// Example:
-    ///
-    /// ```rust
-    /// let client = memcache::Client::connect("memcache://localhost:12345?protocol=ascii").unwrap();
-    /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
-    /// ```
-    pub fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
-        for conn in self.connections.iter() {
-            let mut conn = conn.get()?;
-            match **conn {
-                Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout)?,
-                Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
-            }
-        }
-        Ok(())
     }
 
     /// Get the memcached server version.
