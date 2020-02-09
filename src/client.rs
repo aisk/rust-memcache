@@ -200,7 +200,7 @@ impl Client {
         self.get_multi(keys)
     }
 
-    /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce netwark workloads.
+    /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce network workloads.
     ///
     /// Example:
     ///
@@ -211,10 +211,12 @@ impl Client {
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
     /// ```
-    pub fn get_multi<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
-        &self,
-        keys: I,
-    ) -> Result<HashMap<String, V>, MemcacheError> {
+    pub fn get_multi<V, K, I>(&self, keys: I) -> Result<HashMap<String, V>, MemcacheError>
+    where
+        V: FromMemcacheValueExt,
+        K: AsRef<str>,
+        I: IntoIterator<Item = K>,
+    {
         let mut con_keys: HashMap<usize, Vec<K>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
 
@@ -243,6 +245,8 @@ impl Client {
 
     /// Set multiple keys with associated values into memcached server with expiration seconds.
     ///
+    /// Uses pipelining to reduce the number of server round trips.
+    ///
     /// Example:
     ///
     /// ```rust
@@ -250,11 +254,12 @@ impl Client {
     /// client.set_multi(vec![("foo", "Foo"), ("bar", "Bar")], 10).unwrap();
     /// # client.flush().unwrap();
     /// ```
-    pub fn set_multi<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
-        &self,
-        entries: I,
-        expiration: u32,
-    ) -> Result<(), MemcacheError> {
+    pub fn set_multi<V, K, I>(&self, entries: I, expiration: u32) -> Result<(), MemcacheError>
+    where
+        V: ToMemcacheValue<Stream>,
+        K: AsRef<str>,
+        I: IntoIterator<Item = (K, V)>,
+    {
         let mut entry_map: HashMap<usize, Vec<(K, V)>> = HashMap::new();
         for (key, value) in entries.into_iter() {
             entry_map
@@ -380,6 +385,8 @@ impl Client {
 
     /// Delete keys from memcached server.
     ///
+    /// Uses pipelining to reduce the number of server round trips.
+    ///
     /// Example:
     ///
     /// ```rust
@@ -387,10 +394,11 @@ impl Client {
     /// client.delete_multi(&["foo", "bar"]).unwrap();
     /// # client.flush().unwrap();
     /// ```
-    pub fn delete_multi<K: AsRef<str> + Eq + Hash, I: IntoIterator<Item = K>>(
-        &self,
-        keys: I,
-    ) -> Result<HashMap<K, bool>, MemcacheError> {
+    pub fn delete_multi<K, I>(&self, keys: I) -> Result<HashMap<K, bool>, MemcacheError>
+    where
+        K: AsRef<str> + Eq + Hash,
+        I: IntoIterator<Item = K>,
+    {
         let mut con_keys: HashMap<usize, Vec<K>> = HashMap::new();
         for key in keys.into_iter() {
             con_keys.entry(self.hash_key(key.as_ref())).or_default().push(key);
