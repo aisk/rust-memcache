@@ -148,7 +148,15 @@ impl AsciiProtocol<Stream> {
         value: V,
         options: &Options,
     ) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
+        Ok(self.stores(command, Some((key, value)), options)?)
+    }
+
+    fn stores<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+        &mut self,
+        command: StoreCommand,
+        entries: I,
+        options: &Options,
+    ) -> Result<bool, MemcacheError> {
         if command == StoreCommand::Cas {
             if options.cas.is_none() {
                 Err(ClientError::Error(Cow::Borrowed(
@@ -156,50 +164,68 @@ impl AsciiProtocol<Stream> {
                 )))?;
             }
         }
-        let noreply = if options.noreply { " noreply" } else { "" };
-        if options.cas.is_some() {
-            write!(
-                self.reader.get_mut(),
-                "{command} {key} {flags} {exptime} {vlen} {cas}{noreply}\r\n",
-                command = command,
-                key = key,
-                flags = value.get_flags(),
-                exptime = options.exptime,
-                vlen = value.get_length(),
-                cas = options.cas.unwrap(),
-                noreply = noreply
-            )?;
-        } else {
-            write!(
-                self.reader.get_mut(),
-                "{command} {key} {flags} {exptime} {vlen}{noreply}\r\n",
-                command = command,
-                key = key,
-                flags = value.get_flags(),
-                exptime = options.exptime,
-                vlen = value.get_length(),
-                noreply = noreply
-            )?;
-        }
 
-        value.write_to(self.reader.get_mut())?;
-        self.reader.get_mut().write(b"\r\n")?;
-        self.reader.get_mut().flush()?;
+        let noreply = if options.noreply { " noreply" } else { "" };
+        let mut sent_count = 0;
+
+        {
+            let reader = self.reader.get_mut();
+            for (key_ref, value) in entries.into_iter() {
+                let key = key_ref.as_ref();
+                check_key_len(key)?;
+                if options.cas.is_some() {
+                    write!(
+                        reader,
+                        "{command} {key} {flags} {exptime} {vlen} {cas}{noreply}\r\n",
+                        command = command,
+                        key = key,
+                        flags = value.get_flags(),
+                        exptime = options.exptime,
+                        vlen = value.get_length(),
+                        cas = options.cas.unwrap(),
+                        noreply = noreply
+                    )?;
+                } else {
+                    write!(
+                        reader,
+                        "{command} {key} {flags} {exptime} {vlen}{noreply}\r\n",
+                        command = command,
+                        key = key,
+                        flags = value.get_flags(),
+                        exptime = options.exptime,
+                        vlen = value.get_length(),
+                        noreply = noreply
+                    )?;
+                }
+
+                value.write_to(reader)?;
+                reader.write(b"\r\n")?;
+                sent_count += 1;
+            }
+
+            // Flush now that all the requests have been written.
+            reader.flush()?;
+        }
 
         if options.noreply {
             return Ok(true);
         }
 
-        self.reader.read_line(|response| {
-            let response = MemcacheError::try_from(response)?;
-            match response {
-                "STORED\r\n" => Ok(true),
-                "NOT_STORED\r\n" => Ok(false),
-                "EXISTS\r\n" => Err(CommandError::KeyExists)?,
-                "NOT_FOUND\r\n" => Err(CommandError::KeyNotFound)?,
-                response => Err(ServerError::BadResponse(Cow::Owned(response.into())))?,
-            }
-        })
+        let mut all_stored = true;
+        for _ in 0..sent_count {
+            all_stored = all_stored
+                && self.reader.read_line(|response| {
+                    let response = MemcacheError::try_from(response)?;
+                    match response {
+                        "STORED\r\n" => Ok(true),
+                        "NOT_STORED\r\n" => Ok(false),
+                        "EXISTS\r\n" => Err(CommandError::KeyExists)?,
+                        "NOT_FOUND\r\n" => Err(CommandError::KeyNotFound)?,
+                        response => Err(ServerError::BadResponse(Cow::Owned(response.into())))?,
+                    }
+                })?;
+        }
+        Ok(all_stored)
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
@@ -355,6 +381,18 @@ impl AsciiProtocol<Stream> {
         self.store(StoreCommand::Set, key, value, &options).map(|_| ())
     }
 
+    pub(super) fn sets<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+        &mut self,
+        entries: I,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
+        let options = Options {
+            exptime: expiration,
+            ..Default::default()
+        };
+        self.stores(StoreCommand::Set, entries, &options).map(|_| ())
+    }
+
     pub(super) fn add<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
@@ -393,22 +431,43 @@ impl AsciiProtocol<Stream> {
             .map(|_| ())
     }
 
+    pub(super) fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(
+        &mut self,
+        keys: I,
+    ) -> Result<Vec<bool>, MemcacheError> {
+        let mut sent_count = 0;
+        {
+            let reader = self.reader.get_mut();
+            for k in keys.into_iter() {
+                let key = k.as_ref();
+                check_key_len(key)?;
+                write!(reader, "delete {}\r\n", key)?;
+                sent_count += 1;
+            }
+            reader.flush()?;
+        }
+        let mut res = Vec::with_capacity(sent_count);
+        for _ in 0..sent_count {
+            res.push(
+                self.reader
+                    .read_line(|response| match MemcacheError::try_from(response) {
+                        Ok(s) => {
+                            if s == "DELETED\r\n" {
+                                Ok(true)
+                            } else {
+                                Err(ServerError::BadResponse(Cow::Owned(s.into())).into())
+                            }
+                        }
+                        Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
+                        Err(e) => Err(e),
+                    })?,
+            );
+        }
+        Ok(res)
+    }
+
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
-        write!(self.reader.get_mut(), "delete {}\r\n", key)?;
-        self.reader.get_mut().flush()?;
-        self.reader
-            .read_line(|response| match MemcacheError::try_from(response) {
-                Ok(s) => {
-                    if s == "DELETED\r\n" {
-                        Ok(true)
-                    } else {
-                        Err(ServerError::BadResponse(Cow::Owned(s.into())).into())
-                    }
-                }
-                Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
-                Err(e) => Err(e),
-            })
+        Ok(self.deletes(&[key])?[0])
     }
 
     fn parse_u64_response(&mut self) -> Result<u64, MemcacheError> {

@@ -57,7 +57,7 @@ impl BinaryProtocol {
         self.stream.write_u32::<BigEndian>(extras.expiration)?;
         self.stream.write_all(key.as_bytes())?;
         value.write_to(&mut self.stream)?;
-        self.stream.flush().map_err(Into::into)
+        Ok(())
     }
 
     fn store<V: ToMemcacheValue<Stream>>(
@@ -69,7 +69,28 @@ impl BinaryProtocol {
         cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         self.send_request(opcode, key, value, expiration, cas)?;
+        self.stream.flush()?;
         binary_packet::parse_response(&mut self.stream)?.err().map(|_| ())
+    }
+
+    /// Support efficient multi-store operations using pipelining.
+    fn stores<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+        &mut self,
+        opcode: Opcode,
+        entries: I,
+        expiration: u32,
+        cas: Option<u64>,
+    ) -> Result<(), MemcacheError> {
+        let mut sent_count = 0;
+        for (key, value) in entries.into_iter() {
+            self.send_request(opcode, key.as_ref(), value, expiration, cas)?;
+            sent_count += 1;
+        }
+        self.stream.flush()?;
+        for _ in 0..sent_count {
+            binary_packet::parse_response(&mut self.stream)?;
+        }
+        Ok(())
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
@@ -143,6 +164,7 @@ impl BinaryProtocol {
             ..Default::default()
         };
         noop_request_header.write(&mut self.stream)?;
+        self.stream.flush()?;
         return binary_packet::parse_gets_response(&mut self.stream, keys.len());
     }
 
@@ -154,6 +176,7 @@ impl BinaryProtocol {
         cas: u64,
     ) -> Result<bool, MemcacheError> {
         self.send_request(Opcode::Set, key, value, expiration, Some(cas))?;
+        self.stream.flush()?;
         binary_packet::parse_cas_response(&mut self.stream)
     }
 
@@ -164,6 +187,14 @@ impl BinaryProtocol {
         expiration: u32,
     ) -> Result<(), MemcacheError> {
         return self.store(Opcode::Set, key, value, expiration, None);
+    }
+
+    pub(super) fn sets<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+        &mut self,
+        entries: I,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
+        return self.stores(Opcode::Set, entries, expiration, None);
     }
 
     pub(super) fn add<V: ToMemcacheValue<Stream>>(
@@ -217,18 +248,35 @@ impl BinaryProtocol {
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
-        let request_header = PacketHeader {
-            magic: Magic::Request as u8,
-            opcode: Opcode::Delete as u8,
-            key_length: key.len() as u16,
-            total_body_length: key.len() as u32,
-            ..Default::default()
-        };
-        request_header.write(&mut self.stream)?;
-        self.stream.write_all(key.as_bytes())?;
+        Ok(self.deletes(&[key])?[0])
+    }
+
+    pub(super) fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(
+        &mut self,
+        keys: I,
+    ) -> Result<Vec<bool>, MemcacheError> {
+        let mut sent_count = 0;
+        for k in keys.into_iter() {
+            check_key_len(k.as_ref())?;
+            let key = k.as_ref();
+            let request_header = PacketHeader {
+                magic: Magic::Request as u8,
+                opcode: Opcode::Delete as u8,
+                key_length: key.len() as u16,
+                total_body_length: key.len() as u32,
+                ..Default::default()
+            };
+            request_header.write(&mut self.stream)?;
+            self.stream.write_all(key.as_bytes())?;
+            sent_count += 1;
+        }
+        // Flush now that all the requests have been written.
         self.stream.flush()?;
-        return binary_packet::parse_delete_response(&mut self.stream);
+        let mut res = Vec::with_capacity(sent_count);
+        for _ in 0..sent_count {
+            res.push(binary_packet::parse_delete_response(&mut self.stream)?);
+        }
+        Ok(res)
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {

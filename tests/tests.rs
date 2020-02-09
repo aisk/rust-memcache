@@ -17,6 +17,8 @@ fn gen_random_key() -> String {
 
 #[test]
 fn test() {
+    use std::collections::HashMap;
+
     let mut urls = vec![
         "memcache://localhost:12346?tcp_nodelay=true",
         "memcache://localhost:12347?timeout=10",
@@ -45,16 +47,33 @@ fn test() {
     assert_eq!(value, None);
 
     let mut keys: Vec<String> = Vec::new();
-    for _ in 0..1000 {
+    let mut batch: HashMap<String, String> = HashMap::new();
+    for i in 0..1000 {
         let key = gen_random_key();
         keys.push(key.clone());
-        client.set(key.as_str(), "xxx", 0).unwrap();
+        if i < 10 {
+            // Set the first 10 one at a time
+            client.set(key.as_str(), "xxx", 0).unwrap();
+        } else {
+            // Set the rest as a batch
+            batch.insert(key, "xxx".to_string());
+        }
     }
+    client.sets(batch, 0).unwrap();
 
-    for key in keys {
+    let keys_strs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    let all_at_once: HashMap<String, String> = client.gets(&keys_strs).unwrap();
+    assert_eq!(1000, all_at_once.len());
+
+    for key in keys.iter() {
         let value: String = client.get(key.as_str()).unwrap().unwrap();
         assert_eq!(value, "xxx");
+        assert_eq!(all_at_once[key], "xxx");
     }
+
+    client.deletes(&keys_strs).unwrap();
+    let all_at_once: HashMap<String, String> = client.gets(&keys_strs).unwrap();
+    assert_eq!(0, all_at_once.len());
 }
 
 #[test]
