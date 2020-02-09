@@ -211,21 +211,32 @@ impl AsciiProtocol<Stream> {
             return Ok(true);
         }
 
+        // Receive all the responses. If there were errors, return the first.
+
         let mut all_stored = true;
+        let mut error_list: Vec<MemcacheError> = Vec::new();
         for _ in 0..sent_count {
-            all_stored = all_stored
-                && self.reader.read_line(|response| {
-                    let response = MemcacheError::try_from(response)?;
-                    match response {
-                        "STORED\r\n" => Ok(true),
-                        "NOT_STORED\r\n" => Ok(false),
-                        "EXISTS\r\n" => Err(CommandError::KeyExists)?,
-                        "NOT_FOUND\r\n" => Err(CommandError::KeyNotFound)?,
-                        response => Err(ServerError::BadResponse(Cow::Owned(response.into())))?,
-                    }
-                })?;
+            let one_result = self.reader.read_line(|response| {
+                let response = MemcacheError::try_from(response)?;
+                match response {
+                    "STORED\r\n" => Ok(true),
+                    "NOT_STORED\r\n" => Ok(false),
+                    "EXISTS\r\n" => Err(CommandError::KeyExists)?,
+                    "NOT_FOUND\r\n" => Err(CommandError::KeyNotFound)?,
+                    response => Err(ServerError::BadResponse(Cow::Owned(response.into())))?,
+                }
+            });
+            match one_result {
+                Ok(true) => (),
+                Ok(false) => all_stored = false,
+                Err(e) => error_list.push(e),
+            }
         }
-        Ok(all_stored)
+
+        match error_list.into_iter().next() {
+            None => Ok(all_stored),
+            Some(e) => Err(e),
+        }
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
@@ -444,26 +455,38 @@ impl AsciiProtocol<Stream> {
                 write!(reader, "delete {}\r\n", key)?;
                 sent_count += 1;
             }
+            // Flush now that all the requests have been written.
             reader.flush()?;
         }
-        let mut res = Vec::with_capacity(sent_count);
+
+        // Receive all the responses. If there were errors, return the first.
+
+        let mut deleted_list = Vec::with_capacity(sent_count);
+        let mut error_list: Vec<MemcacheError> = Vec::new();
         for _ in 0..sent_count {
-            res.push(
-                self.reader
-                    .read_line(|response| match MemcacheError::try_from(response) {
-                        Ok(s) => {
-                            if s == "DELETED\r\n" {
-                                Ok(true)
-                            } else {
-                                Err(ServerError::BadResponse(Cow::Owned(s.into())).into())
-                            }
+            let one_result = self
+                .reader
+                .read_line(|response| match MemcacheError::try_from(response) {
+                    Ok(s) => {
+                        if s == "DELETED\r\n" {
+                            Ok(true)
+                        } else {
+                            Err(ServerError::BadResponse(Cow::Owned(s.into())).into())
                         }
-                        Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
-                        Err(e) => Err(e),
-                    })?,
-            );
+                    }
+                    Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
+                    Err(e) => Err(e),
+                });
+            match one_result {
+                Ok(deleted) => deleted_list.push(deleted),
+                Err(e) => error_list.push(e),
+            }
         }
-        Ok(res)
+
+        match error_list.into_iter().next() {
+            None => Ok(deleted_list),
+            Some(e) => Err(e),
+        }
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {

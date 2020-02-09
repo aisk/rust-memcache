@@ -86,11 +86,20 @@ impl BinaryProtocol {
             self.send_request(opcode, key.as_ref(), value, expiration, cas)?;
             sent_count += 1;
         }
+        // Flush now that all the requests have been written.
         self.stream.flush()?;
+        // Receive all the responses. If there were errors, return the first.
+        let mut error_list = Vec::new();
         for _ in 0..sent_count {
-            binary_packet::parse_response(&mut self.stream)?;
+            match binary_packet::parse_response(&mut self.stream) {
+                Ok(_) => (),
+                Err(e) => error_list.push(e),
+            };
         }
-        Ok(())
+        match error_list.into_iter().next() {
+            None => Ok(()),
+            Some(e) => Err(e),
+        }
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
@@ -272,11 +281,19 @@ impl BinaryProtocol {
         }
         // Flush now that all the requests have been written.
         self.stream.flush()?;
-        let mut res = Vec::with_capacity(sent_count);
+        // Receive all the responses. If there were errors, return the first.
+        let mut deleted_list = Vec::with_capacity(sent_count);
+        let mut error_list: Vec<MemcacheError> = Vec::new();
         for _ in 0..sent_count {
-            res.push(binary_packet::parse_delete_response(&mut self.stream)?);
+            match binary_packet::parse_delete_response(&mut self.stream) {
+                Ok(deleted) => deleted_list.push(deleted),
+                Err(e) => error_list.push(e),
+            }
         }
-        Ok(res)
+        match error_list.into_iter().next() {
+            None => Ok(deleted_list),
+            Some(e) => Err(e),
+        }
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
