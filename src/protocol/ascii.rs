@@ -338,11 +338,25 @@ impl AsciiProtocol<Stream> {
         }
     }
 
-    pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
-        for key in keys {
+    pub(super) fn get_multi<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
+        &mut self,
+        keys: I,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
+        let keys: Vec<K> = keys.into_iter().collect();
+        let mut capacity = 0;
+        for k in keys.iter() {
+            let key = k.as_ref();
             check_key_len(key)?;
+            capacity += key.len() + 1;
         }
-        write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
+
+        let mut keystr = String::with_capacity(capacity);
+        for k in keys.iter() {
+            keystr.push(' ');
+            keystr.push_str(k.as_ref());
+        }
+
+        write!(self.reader.get_mut(), "gets{}\r\n", keystr)?;
 
         let mut result: HashMap<String, V> = HashMap::with_capacity(keys.len());
         // there will be atmost keys.len() "VALUE <...>" responses and one END response
@@ -392,7 +406,7 @@ impl AsciiProtocol<Stream> {
         self.store(StoreCommand::Set, key, value, &options).map(|_| ())
     }
 
-    pub(super) fn sets<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+    pub(super) fn set_multi<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
         &mut self,
         entries: I,
         expiration: u32,
@@ -442,7 +456,7 @@ impl AsciiProtocol<Stream> {
             .map(|_| ())
     }
 
-    pub(super) fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(
+    pub(super) fn delete_multi<K: AsRef<str>, I: IntoIterator<Item = K>>(
         &mut self,
         keys: I,
     ) -> Result<Vec<bool>, MemcacheError> {
@@ -490,7 +504,7 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        Ok(self.deletes(&[key])?[0])
+        Ok(self.delete_multi(&[key])?[0])
     }
 
     fn parse_u64_response(&mut self) -> Result<u64, MemcacheError> {

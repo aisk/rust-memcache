@@ -59,10 +59,9 @@ fn test() {
             batch.insert(key, "xxx".to_string());
         }
     }
-    client.sets(batch, 0).unwrap();
+    client.set_multi(batch, 0).unwrap();
 
-    let keys_strs: Vec<&str> = keys.iter().map(String::as_str).collect();
-    let all_at_once: HashMap<String, String> = client.gets(&keys_strs).unwrap();
+    let all_at_once: HashMap<String, String> = client.get_multi(&keys).unwrap();
     assert_eq!(1000, all_at_once.len());
 
     for key in keys.iter() {
@@ -71,8 +70,8 @@ fn test() {
         assert_eq!(all_at_once[key], "xxx");
     }
 
-    client.deletes(&keys_strs).unwrap();
-    let all_at_once: HashMap<String, String> = client.gets(&keys_strs).unwrap();
+    client.delete_multi(&keys).unwrap();
+    let all_at_once: HashMap<String, String> = client.get_multi(&keys).unwrap();
     assert_eq!(0, all_at_once.len());
 }
 

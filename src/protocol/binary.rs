@@ -154,8 +154,13 @@ impl BinaryProtocol {
         return binary_packet::parse_get_response(&mut self.stream);
     }
 
-    pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
-        for key in keys {
+    pub(super) fn get_multi<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
+        &mut self,
+        keys: I,
+    ) -> Result<HashMap<String, V>, MemcacheError> {
+        let mut count = 0;
+        for k in keys.into_iter() {
+            let key = k.as_ref();
             check_key_len(key)?;
             let request_header = PacketHeader {
                 magic: Magic::Request as u8,
@@ -166,6 +171,7 @@ impl BinaryProtocol {
             };
             request_header.write(&mut self.stream)?;
             self.stream.write_all(key.as_bytes())?;
+            count += 1;
         }
         let noop_request_header = PacketHeader {
             magic: Magic::Request as u8,
@@ -174,7 +180,7 @@ impl BinaryProtocol {
         };
         noop_request_header.write(&mut self.stream)?;
         self.stream.flush()?;
-        return binary_packet::parse_gets_response(&mut self.stream, keys.len());
+        return binary_packet::parse_gets_response(&mut self.stream, count);
     }
 
     pub(super) fn cas<V: ToMemcacheValue<Stream>>(
@@ -198,7 +204,7 @@ impl BinaryProtocol {
         return self.store(Opcode::Set, key, value, expiration, None);
     }
 
-    pub(super) fn sets<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+    pub(super) fn set_multi<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
         &mut self,
         entries: I,
         expiration: u32,
@@ -257,10 +263,10 @@ impl BinaryProtocol {
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        Ok(self.deletes(&[key])?[0])
+        Ok(self.delete_multi(&[key])?[0])
     }
 
-    pub(super) fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(
+    pub(super) fn delete_multi<K: AsRef<str>, I: IntoIterator<Item = K>>(
         &mut self,
         keys: I,
     ) -> Result<Vec<bool>, MemcacheError> {
