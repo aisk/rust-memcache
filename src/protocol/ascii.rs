@@ -107,9 +107,23 @@ impl<C: Read> CappedLineReader<C> {
                 return Err(ClientError::Error(Cow::Borrowed("Ascii protocol no line found")))?;
             }
             self.filled += read;
-            if let Some(n) = get_line(&buf[..read]) {
-                let result = cb(std::str::from_utf8(&self.buf[..filled + n])?);
-                self.consume(n);
+
+            // Find the next \r\n.
+            let search_start;
+            let search_buf;
+            if filled > 0 {
+                // Start searching one character back, otherwise we would skip over \r\n
+                // sequences that happen to straddle packet boundaries.
+                search_start = filled - 1;
+                search_buf = &self.buf[search_start..read + 1];
+            } else {
+                search_start = filled;
+                search_buf = buf;
+            }
+
+            if let Some(n) = get_line(search_buf) {
+                let result = cb(std::str::from_utf8(&self.buf[..search_start + n])?);
+                self.consume(search_start + n);
                 return result;
             }
         }
@@ -578,5 +592,88 @@ impl AsciiProtocol<Stream> {
                 break Ok(stats);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_read_line_with_line_straddling_packets() {
+        use super::CappedLineReader;
+        use std::io::Cursor;
+        use std::io::Seek;
+        use std::io::Write;
+
+        let mut cursor = Cursor::new(Vec::new());
+        // Write 102 * 20 = 2040 characters
+        for _ in 0..102 {
+            cursor.write(b"1234567890abcdefghij").unwrap();
+        }
+        cursor
+            .write(b"\r\nline 2 to be read exactly\r\nline 3 to be sure\r\n")
+            .unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let mut capped = CappedLineReader::new(cursor);
+
+        let length = capped
+            .read_line(|line| {
+                assert_eq!(2042, line.len()); // 102 * 20 + "\r\n".len()
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(2042, length);
+
+        let length = capped
+            .read_line(|line| {
+                assert_eq!("line 2 to be read exactly\r\n", line);
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(27, length);
+
+        // Older versions would fail here because not all of the
+        // consumed bytes were marked as consumed.
+        let length = capped
+            .read_line(|line| {
+                assert_eq!("line 3 to be sure\r\n", line);
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(19, length);
+    }
+
+    #[test]
+    fn test_read_line_with_crlf_straddling_packets() {
+        use super::CappedLineReader;
+        use std::io::Read;
+
+        struct FourBytePacketReader {
+            content: Vec<u8>,
+            pos: usize,
+        }
+
+        impl Read for FourBytePacketReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let size = (self.content.len() - self.pos).min(4);
+                buf[..size].copy_from_slice(&self.content[self.pos..self.pos + size]);
+                self.pos += size;
+                Ok(size)
+            }
+        }
+
+        let inner = FourBytePacketReader {
+            content: Vec::from("GET\r\nOK\r\n"),
+            pos: 0,
+        };
+        let mut capped = CappedLineReader::new(inner);
+
+        let length = capped
+            .read_line(|line| {
+                assert_eq!("GET\r\n", line);
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(5, length);
     }
 }
