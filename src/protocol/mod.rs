@@ -32,12 +32,12 @@ pub trait ProtocolTrait {
     fn flush(&mut self) -> Result<(), MemcacheError>;
     fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError>;
     fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError>;
-    fn get_multi<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
+    fn gets<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
         &mut self,
         keys: I,
     ) -> Result<HashMap<String, V>, MemcacheError>;
     fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError>;
-    fn set_multi<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+    fn sets<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
         &mut self,
         entries: I,
         expiration: u32,
@@ -59,7 +59,7 @@ pub trait ProtocolTrait {
     fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError>;
     fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError>;
     fn delete(&mut self, key: &str) -> Result<bool, MemcacheError>;
-    fn delete_multi<K: AsRef<str>, I: IntoIterator<Item = K>>(&mut self, keys: I) -> Result<Vec<bool>, MemcacheError>;
+    fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(&mut self, keys: I) -> Result<Vec<bool>, MemcacheError>;
     fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError>;
     fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError>;
     fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError>;

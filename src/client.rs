@@ -195,11 +195,6 @@ impl Client {
         (self.hash_function)(key) as usize % connections_count
     }
 
-    /// Alias for get_multi().
-    pub fn gets<V: FromMemcacheValueExt>(&self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
-        self.get_multi(keys)
-    }
-
     /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce network workloads.
     ///
     /// Example:
@@ -207,11 +202,11 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "42", 0).unwrap();
-    /// let result: std::collections::HashMap<String, String> = client.get_multi(&["foo", "bar", "baz"]).unwrap();
+    /// let result: std::collections::HashMap<String, String> = client.gets(&["foo", "bar", "baz"]).unwrap();
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
     /// ```
-    pub fn get_multi<V, K, I>(&self, keys: I) -> Result<HashMap<String, V>, MemcacheError>
+    pub fn gets<V, K, I>(&self, keys: I) -> Result<HashMap<String, V>, MemcacheError>
     where
         V: FromMemcacheValueExt,
         K: AsRef<str>,
@@ -225,7 +220,7 @@ impl Client {
         }
         for (&connection_index, keys) in con_keys.iter() {
             let connection = self.connections[connection_index].clone();
-            result.extend(connection.get()?.get_multi(keys)?);
+            result.extend(connection.get()?.gets(keys)?);
         }
         return Ok(result);
     }
@@ -251,10 +246,10 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.set_multi(vec![("foo", "Foo"), ("bar", "Bar")], 10).unwrap();
+    /// client.sets(vec![("foo", "Foo"), ("bar", "Bar")], 10).unwrap();
     /// # client.flush().unwrap();
     /// ```
-    pub fn set_multi<V, K, I>(&self, entries: I, expiration: u32) -> Result<(), MemcacheError>
+    pub fn sets<V, K, I>(&self, entries: I, expiration: u32) -> Result<(), MemcacheError>
     where
         V: ToMemcacheValue<Stream>,
         K: AsRef<str>,
@@ -270,7 +265,7 @@ impl Client {
 
         for (connection_index, entries_subset) in entry_map.into_iter() {
             let connection = self.connections[connection_index].clone();
-            connection.get()?.set_multi(entries_subset, expiration)?;
+            connection.get()?.sets(entries_subset, expiration)?;
         }
 
         Ok(())
@@ -383,7 +378,7 @@ impl Client {
         return self.get_connection(key).get()?.delete(key);
     }
 
-    /// Delete keys from memcached server.
+    /// Delete multiple keys from memcached server.
     ///
     /// Uses pipelining to reduce the number of server round trips.
     ///
@@ -391,10 +386,10 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.delete_multi(&["foo", "bar"]).unwrap();
+    /// client.deletes(&["foo", "bar"]).unwrap();
     /// # client.flush().unwrap();
     /// ```
-    pub fn delete_multi<K, I>(&self, keys: I) -> Result<HashMap<K, bool>, MemcacheError>
+    pub fn deletes<K, I>(&self, keys: I) -> Result<HashMap<K, bool>, MemcacheError>
     where
         K: AsRef<str> + Eq + Hash,
         I: IntoIterator<Item = K>,
@@ -407,12 +402,7 @@ impl Client {
         let mut result: HashMap<K, bool> = HashMap::new();
         for (connection_index, keys_subset) in con_keys.into_iter() {
             let connection = self.connections[connection_index].clone();
-            for (deleted, key) in connection
-                .get()?
-                .delete_multi(&keys_subset)?
-                .into_iter()
-                .zip(keys_subset)
-            {
+            for (deleted, key) in connection.get()?.deletes(&keys_subset)?.into_iter().zip(keys_subset) {
                 result.insert(key, deleted);
             }
         }

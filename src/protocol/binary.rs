@@ -154,7 +154,7 @@ impl BinaryProtocol {
         return binary_packet::parse_get_response(&mut self.stream);
     }
 
-    pub(super) fn get_multi<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
+    pub(super) fn gets<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
         &mut self,
         keys: I,
     ) -> Result<HashMap<String, V>, MemcacheError> {
@@ -204,7 +204,7 @@ impl BinaryProtocol {
         return self.store(Opcode::Set, key, value, expiration, None);
     }
 
-    pub(super) fn set_multi<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+    pub(super) fn sets<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
         &mut self,
         entries: I,
         expiration: u32,
@@ -263,10 +263,10 @@ impl BinaryProtocol {
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        Ok(self.delete_multi(&[key])?[0])
+        Ok(self.deletes(&[key])?[0])
     }
 
-    pub(super) fn delete_multi<K: AsRef<str>, I: IntoIterator<Item = K>>(
+    pub(super) fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(
         &mut self,
         keys: I,
     ) -> Result<Vec<bool>, MemcacheError> {
