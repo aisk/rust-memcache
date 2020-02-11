@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use super::check_key_len;
 use byteorder::{BigEndian, WriteBytesExt};
 use client::Stats;
 use error::MemcacheError;
@@ -38,7 +37,6 @@ impl BinaryProtocol {
         expiration: u32,
         cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: opcode as u8,
@@ -110,7 +108,6 @@ impl BinaryProtocol {
     }
 
     pub(super) fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Get as u8,
@@ -126,7 +123,6 @@ impl BinaryProtocol {
 
     pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
-            check_key_len(key)?;
             let request_header = PacketHeader {
                 magic: Magic::Request as u8,
                 opcode: Opcode::GetKQ as u8,
@@ -185,7 +181,6 @@ impl BinaryProtocol {
     }
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Append as u8,
@@ -201,7 +196,6 @@ impl BinaryProtocol {
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Prepend as u8,
@@ -217,7 +211,6 @@ impl BinaryProtocol {
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Delete as u8,
@@ -232,7 +225,6 @@ impl BinaryProtocol {
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Increment as u8,
@@ -256,7 +248,6 @@ impl BinaryProtocol {
     }
 
     pub(super) fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Decrement as u8,
@@ -280,7 +271,6 @@ impl BinaryProtocol {
     }
 
     pub(super) fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
         let request_header = PacketHeader {
             magic: Magic::Request as u8,
             opcode: Opcode::Touch as u8,

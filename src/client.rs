@@ -6,7 +6,7 @@ use std::time::Duration;
 use url::Url;
 
 use connection::ConnectionManager;
-use error::MemcacheError;
+use error::{ClientError, MemcacheError};
 use protocol::{Protocol, ProtocolTrait};
 use r2d2::Pool;
 use stream::Stream;
@@ -58,6 +58,13 @@ fn default_hash_function(key: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     key.hash(&mut hasher);
     return hasher.finish();
+}
+
+pub(crate) fn check_key_len(key: &str) -> Result<(), MemcacheError> {
+    if key.len() > 250 {
+        Err(ClientError::KeyTooLong)?
+    }
+    Ok(())
 }
 
 impl Client {
@@ -186,6 +193,7 @@ impl Client {
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
     pub fn get<V: FromMemcacheValueExt>(&self, key: &str) -> Result<Option<V>, MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.get(key);
     }
 
@@ -201,6 +209,9 @@ impl Client {
     /// assert_eq!(result["foo"], "42");
     /// ```
     pub fn gets<V: FromMemcacheValueExt>(&self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
+        for key in keys {
+            check_key_len(key)?;
+        }
         let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
         let connections_count = self.connections.len();
@@ -227,6 +238,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.set(key, value, expiration);
     }
 
@@ -252,6 +264,7 @@ impl Client {
         expiration: u32,
         cas_id: u64,
     ) -> Result<bool, MemcacheError> {
+        check_key_len(key)?;
         self.get_connection(key).get()?.cas(key, value, expiration, cas_id)
     }
 
@@ -267,6 +280,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn add<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.add(key, value, expiration);
     }
 
@@ -287,6 +301,7 @@ impl Client {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.replace(key, value, expiration);
     }
 
@@ -304,6 +319,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn append<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.append(key, value);
     }
 
@@ -321,6 +337,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn prepend<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.prepend(key, value);
     }
 
@@ -334,6 +351,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn delete(&self, key: &str) -> Result<bool, MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.delete(key);
     }
 
@@ -347,6 +365,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn increment(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.increment(key, amount);
     }
 
@@ -360,6 +379,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn decrement(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.decrement(key, amount);
     }
 
@@ -375,6 +395,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn touch(&self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
+        check_key_len(key)?;
         return self.get_connection(key).get()?.touch(key, expiration);
     }
 
