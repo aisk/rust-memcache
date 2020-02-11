@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
 
-use super::check_key_len;
 use client::Stats;
 use error::{ClientError, CommandError, MemcacheError, ServerError};
 use std::borrow::Cow;
@@ -148,7 +147,6 @@ impl AsciiProtocol<Stream> {
         value: V,
         options: &Options,
     ) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
         if command == StoreCommand::Cas {
             if options.cas.is_none() {
                 Err(ClientError::Error(Cow::Borrowed(
@@ -302,9 +300,6 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
-        for key in keys {
-            check_key_len(key)?;
-        }
         write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
 
         let mut result: HashMap<String, V> = HashMap::with_capacity(keys.len());
@@ -382,19 +377,16 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn append<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
         self.store(StoreCommand::Append, key, value, &Default::default())
             .map(|_| ())
     }
 
     pub(super) fn prepend<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
         self.store(StoreCommand::Prepend, key, value, &Default::default())
             .map(|_| ())
     }
 
     pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
         write!(self.reader.get_mut(), "delete {}\r\n", key)?;
         self.reader.get_mut().flush()?;
         self.reader
@@ -419,19 +411,16 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        check_key_len(key)?;
         write!(self.reader.get_mut(), "incr {} {}\r\n", key, amount)?;
         self.parse_u64_response()
     }
 
     pub(super) fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        check_key_len(key)?;
         write!(self.reader.get_mut(), "decr {} {}\r\n", key, amount)?;
         self.parse_u64_response()
     }
 
     pub(super) fn touch(&mut self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
         write!(self.reader.get_mut(), "touch {} {}\r\n", key, expiration)?;
         self.reader.get_mut().flush()?;
         self.reader

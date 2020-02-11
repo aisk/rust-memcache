@@ -2,7 +2,6 @@ mod ascii;
 mod binary;
 mod binary_packet;
 
-use crate::error::ClientError;
 use client::Stats;
 use enum_dispatch::enum_dispatch;
 use error::MemcacheError;
@@ -11,13 +10,6 @@ pub(crate) use protocol::binary::BinaryProtocol;
 use std::collections::HashMap;
 use stream::Stream;
 use value::{FromMemcacheValueExt, ToMemcacheValue};
-
-pub(crate) fn check_key_len(key: &str) -> Result<(), MemcacheError> {
-    if key.len() > 250 {
-        Err(ClientError::KeyTooLong)?
-    }
-    Ok(())
-}
 
 #[enum_dispatch]
 pub enum Protocol {
