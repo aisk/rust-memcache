@@ -95,10 +95,10 @@ impl BinaryProtocol {
         for _ in 0..sent_count {
             match binary_packet::parse_response(&mut self.stream) {
                 Ok(_) => (),
-                Err(MemcacheError::CommandError(e)) => {
+                Err(e) if e.is_recoverable() => {
                     // Recoverable error. Report it after reading the rest of the responses.
                     if final_result.is_ok() {
-                        final_result = Err(MemcacheError::CommandError(e));
+                        final_result = Err(e);
                     }
                 }
                 Err(e) => return Err(e), // Unrecoverable error. Stop immediately.
@@ -303,10 +303,10 @@ impl BinaryProtocol {
                         deleted_list.push(deleted);
                     }
                 }
-                Err(MemcacheError::CommandError(e)) => {
+                Err(e) if e.is_recoverable() => {
                     // Recoverable error. Report it after reading the rest of the responses.
                     if final_result.is_ok() {
-                        final_result = Err(MemcacheError::CommandError(e));
+                        final_result = Err(e);
                     }
                 }
                 Err(e) => return Err(e), // Unrecoverable error. Stop immediately.
