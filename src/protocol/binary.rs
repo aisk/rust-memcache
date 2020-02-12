@@ -88,18 +88,24 @@ impl BinaryProtocol {
         }
         // Flush now that all the requests have been written.
         self.stream.flush()?;
+
         // Receive all the responses. If there were errors, return the first.
-        let mut error_list = Vec::new();
+        let mut final_result = Ok(());
+
         for _ in 0..sent_count {
             match binary_packet::parse_response(&mut self.stream) {
                 Ok(_) => (),
-                Err(e) => error_list.push(e),
+                Err(MemcacheError::CommandError(e)) => {
+                    // Recoverable error. Report it after reading the rest of the responses.
+                    if final_result.is_ok() {
+                        final_result = Err(MemcacheError::CommandError(e));
+                    }
+                }
+                Err(e) => return Err(e), // Unrecoverable error. Stop immediately.
             };
         }
-        match error_list.into_iter().next() {
-            None => Ok(()),
-            Some(e) => Err(e),
-        }
+
+        final_result
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
@@ -287,19 +293,28 @@ impl BinaryProtocol {
         }
         // Flush now that all the requests have been written.
         self.stream.flush()?;
+
         // Receive all the responses. If there were errors, return the first.
-        let mut deleted_list = Vec::with_capacity(sent_count);
-        let mut error_list: Vec<MemcacheError> = Vec::new();
+        let mut final_result = Ok(Vec::with_capacity(sent_count));
+
         for _ in 0..sent_count {
             match binary_packet::parse_delete_response(&mut self.stream) {
-                Ok(deleted) => deleted_list.push(deleted),
-                Err(e) => error_list.push(e),
+                Ok(deleted) => {
+                    if let Ok(deleted_list) = &mut final_result {
+                        deleted_list.push(deleted);
+                    }
+                }
+                Err(MemcacheError::CommandError(e)) => {
+                    // Recoverable error. Report it after reading the rest of the responses.
+                    if final_result.is_ok() {
+                        final_result = Err(MemcacheError::CommandError(e));
+                    }
+                }
+                Err(e) => return Err(e), // Unrecoverable error. Stop immediately.
             }
         }
-        match error_list.into_iter().next() {
-            None => Ok(deleted_list),
-            Some(e) => Err(e),
-        }
+
+        final_result
     }
 
     pub(super) fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
