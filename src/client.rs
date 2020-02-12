@@ -206,21 +206,20 @@ impl Client {
     /// assert_eq!(result.len(), 1);
     /// assert_eq!(result["foo"], "42");
     /// ```
-    pub fn gets<V, K, I>(&self, keys: I) -> Result<HashMap<String, V>, MemcacheError>
+    pub fn gets<V, K>(&self, keys: &[K]) -> Result<HashMap<String, V>, MemcacheError>
     where
         V: FromMemcacheValueExt,
         K: AsRef<str>,
-        I: IntoIterator<Item = K>,
     {
-        let mut con_keys: HashMap<usize, Vec<K>> = HashMap::new();
+        let mut con_keys: HashMap<usize, Vec<&K>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
 
         for k in keys {
             con_keys.entry(self.hash_key(k.as_ref())).or_default().push(k);
         }
-        for (&connection_index, keys) in con_keys.iter() {
+        for (connection_index, keys) in con_keys {
             let connection = self.connections[connection_index].clone();
-            result.extend(connection.get()?.gets(keys)?);
+            result.extend(connection.get()?.gets(&keys)?);
         }
         return Ok(result);
     }
@@ -256,14 +255,14 @@ impl Client {
         I: IntoIterator<Item = (K, V)>,
     {
         let mut entry_map: HashMap<usize, Vec<(K, V)>> = HashMap::new();
-        for (key, value) in entries.into_iter() {
+        for (key, value) in entries {
             entry_map
                 .entry(self.hash_key(key.as_ref()))
                 .or_default()
                 .push((key, value));
         }
 
-        for (connection_index, entries_subset) in entry_map.into_iter() {
+        for (connection_index, entries_subset) in entry_map {
             let connection = self.connections[connection_index].clone();
             connection.get()?.sets(entries_subset, expiration)?;
         }
@@ -389,18 +388,14 @@ impl Client {
     /// client.deletes(&["foo", "bar"]).unwrap();
     /// # client.flush().unwrap();
     /// ```
-    pub fn deletes<K, I>(&self, keys: I) -> Result<HashMap<K, bool>, MemcacheError>
-    where
-        K: AsRef<str> + Eq + Hash,
-        I: IntoIterator<Item = K>,
-    {
-        let mut con_keys: HashMap<usize, Vec<K>> = HashMap::new();
-        for key in keys.into_iter() {
+    pub fn deletes<'a, K: AsRef<str> + Eq + Hash>(&self, keys: &'a [K]) -> Result<HashMap<&'a K, bool>, MemcacheError> {
+        let mut con_keys: HashMap<usize, Vec<&K>> = HashMap::new();
+        for key in keys {
             con_keys.entry(self.hash_key(key.as_ref())).or_default().push(key);
         }
 
-        let mut result: HashMap<K, bool> = HashMap::new();
-        for (connection_index, keys_subset) in con_keys.into_iter() {
+        let mut result: HashMap<&K, bool> = HashMap::new();
+        for (connection_index, keys_subset) in con_keys {
             let connection = self.connections[connection_index].clone();
             for (deleted, key) in connection.get()?.deletes(&keys_subset)?.into_iter().zip(keys_subset) {
                 result.insert(key, deleted);

@@ -182,7 +182,7 @@ impl AsciiProtocol<Stream> {
         let noreply = if options.noreply { " noreply" } else { "" };
         let mut sent_count = 0;
 
-        for (key_ref, value) in entries.into_iter() {
+        for (key_ref, value) in entries {
             let key = key_ref.as_ref();
             check_key_len(key)?;
             if options.cas.is_some() {
@@ -359,23 +359,19 @@ impl AsciiProtocol<Stream> {
         }
     }
 
-    pub(super) fn gets<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
+    pub(super) fn gets<V: FromMemcacheValueExt, K: AsRef<str>>(
         &mut self,
-        keys: I,
+        keys: &[K],
     ) -> Result<HashMap<String, V>, MemcacheError> {
-        // Note: it would be nice to avoid allocation here, but we have to allocate strings
-        // anyway because the input key type is a reference while the output key type is String.
-        let keys: Vec<String> = keys.into_iter().map(|s| s.as_ref().to_string()).collect();
-
         for k in keys.iter() {
-            check_key_len(k)?;
+            check_key_len(k.as_ref())?;
         }
 
         let mut writer = BufWriter::new(self.reader.get_mut());
         writer.write_all(b"gets")?;
         for k in keys.iter() {
             writer.write_all(b" ")?;
-            writer.write_all(k.as_bytes())?;
+            writer.write_all(k.as_ref().as_bytes())?;
         }
         writer.write_all(b"\r\n")?;
         writer.flush()?;
@@ -479,25 +475,23 @@ impl AsciiProtocol<Stream> {
             .map(|_| ())
     }
 
-    pub(super) fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(
-        &mut self,
-        keys: I,
-    ) -> Result<Vec<bool>, MemcacheError> {
-        let mut sent_count = 0;
-        for k in keys.into_iter() {
+    pub(super) fn deletes<K: AsRef<str>>(&mut self, keys: &[K]) -> Result<Vec<bool>, MemcacheError> {
+        for k in keys.iter() {
             let key = k.as_ref();
             check_key_len(key)?;
-            write!(self.reader.get_mut(), "delete {}\r\n", key)?;
-            sent_count += 1;
+        }
+
+        for k in keys {
+            write!(self.reader.get_mut(), "delete {}\r\n", k.as_ref())?;
         }
         // Flush now that all the requests have been written.
         self.reader.get_mut().flush()?;
 
         // Receive all the responses. If there were errors, return the first.
 
-        let mut final_result = Ok(Vec::with_capacity(sent_count));
+        let mut final_result = Ok(Vec::with_capacity(keys.len()));
 
-        for _ in 0..sent_count {
+        for _ in 0..keys.len() {
             let one_result = self
                 .reader
                 .read_line(|response| match MemcacheError::try_from(response) {

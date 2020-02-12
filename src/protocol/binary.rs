@@ -82,7 +82,7 @@ impl BinaryProtocol {
         cas: Option<u64>,
     ) -> Result<(), MemcacheError> {
         let mut sent_count = 0;
-        for (key, value) in entries.into_iter() {
+        for (key, value) in entries {
             self.send_request(opcode, key.as_ref(), value, expiration, cas)?;
             sent_count += 1;
         }
@@ -160,14 +160,16 @@ impl BinaryProtocol {
         return binary_packet::parse_get_response(&mut self.stream);
     }
 
-    pub(super) fn gets<V: FromMemcacheValueExt, K: AsRef<str>, I: IntoIterator<Item = K>>(
+    pub(super) fn gets<V: FromMemcacheValueExt, K: AsRef<str>>(
         &mut self,
-        keys: I,
+        keys: &[K],
     ) -> Result<HashMap<String, V>, MemcacheError> {
-        let mut count = 0;
-        for k in keys.into_iter() {
+        for k in keys.iter() {
+            check_key_len(k.as_ref())?;
+        }
+
+        for k in keys.iter() {
             let key = k.as_ref();
-            check_key_len(key)?;
             let request_header = PacketHeader {
                 magic: Magic::Request as u8,
                 opcode: Opcode::GetKQ as u8,
@@ -177,7 +179,6 @@ impl BinaryProtocol {
             };
             request_header.write(&mut self.stream)?;
             self.stream.write_all(key.as_bytes())?;
-            count += 1;
         }
         let noop_request_header = PacketHeader {
             magic: Magic::Request as u8,
@@ -186,7 +187,7 @@ impl BinaryProtocol {
         };
         noop_request_header.write(&mut self.stream)?;
         self.stream.flush()?;
-        return binary_packet::parse_gets_response(&mut self.stream, count);
+        return binary_packet::parse_gets_response(&mut self.stream, keys.len());
     }
 
     pub(super) fn cas<V: ToMemcacheValue<Stream>>(
@@ -272,13 +273,12 @@ impl BinaryProtocol {
         Ok(self.deletes(&[key])?[0])
     }
 
-    pub(super) fn deletes<K: AsRef<str>, I: IntoIterator<Item = K>>(
-        &mut self,
-        keys: I,
-    ) -> Result<Vec<bool>, MemcacheError> {
-        let mut sent_count = 0;
-        for k in keys.into_iter() {
+    pub(super) fn deletes<K: AsRef<str>>(&mut self, keys: &[K]) -> Result<Vec<bool>, MemcacheError> {
+        for k in keys.iter() {
             check_key_len(k.as_ref())?;
+        }
+
+        for k in keys.iter() {
             let key = k.as_ref();
             let request_header = PacketHeader {
                 magic: Magic::Request as u8,
@@ -289,15 +289,14 @@ impl BinaryProtocol {
             };
             request_header.write(&mut self.stream)?;
             self.stream.write_all(key.as_bytes())?;
-            sent_count += 1;
         }
         // Flush now that all the requests have been written.
         self.stream.flush()?;
 
         // Receive all the responses. If there were errors, return the first.
-        let mut final_result = Ok(Vec::with_capacity(sent_count));
+        let mut final_result = Ok(Vec::with_capacity(keys.len()));
 
-        for _ in 0..sent_count {
+        for _ in 0..keys.len() {
             match binary_packet::parse_delete_response(&mut self.stream) {
                 Ok(deleted) => {
                     if let Ok(deleted_list) = &mut final_result {
