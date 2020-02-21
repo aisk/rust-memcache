@@ -86,6 +86,13 @@ client.hash_function = |key: &str| -> u64 {
 };
 ```
 
+## Contributing
+
+Before sending pull request, please ensure:
+
+- `cargo fmt` is being run;
+- Commit message is using [gitmoji](https://gitmoji.carloscuesta.me/) with first character is lower cased, for example: `:sparkles: rust-memcache can print money now`.
+
 ## Contributors
 
 <a href="https://github.com/aisk/rust-memcache/graphs/contributors">
