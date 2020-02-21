@@ -8,6 +8,7 @@ use value::FromMemcacheValueExt;
 const OK_STATUS: u16 = 0x0;
 
 #[allow(dead_code)]
+#[derive(Copy, Clone)]
 pub enum Opcode {
     Get = 0x00,
     Set = 0x01,

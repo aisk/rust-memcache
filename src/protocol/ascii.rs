@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 
 use super::check_key_len;
 use client::Stats;
@@ -107,9 +107,23 @@ impl<C: Read> CappedLineReader<C> {
                 return Err(ClientError::Error(Cow::Borrowed("Ascii protocol no line found")))?;
             }
             self.filled += read;
-            if let Some(n) = get_line(&buf[..read]) {
-                let result = cb(std::str::from_utf8(&self.buf[..filled + n])?);
-                self.consume(n);
+
+            // Find the next \r\n.
+            let search_start;
+            let search_buf;
+            if filled > 0 {
+                // Start searching one character back, otherwise we would skip over \r\n
+                // sequences that happen to straddle packet boundaries.
+                search_start = filled - 1;
+                search_buf = &self.buf[search_start..read + 1];
+            } else {
+                search_start = filled;
+                search_buf = buf;
+            }
+
+            if let Some(n) = get_line(search_buf) {
+                let result = cb(std::str::from_utf8(&self.buf[..search_start + n])?);
+                self.consume(search_start + n);
                 return result;
             }
         }
@@ -148,7 +162,15 @@ impl AsciiProtocol<Stream> {
         value: V,
         options: &Options,
     ) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
+        Ok(self.stores(command, Some((key, value)), options)?)
+    }
+
+    fn stores<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+        &mut self,
+        command: StoreCommand,
+        entries: I,
+        options: &Options,
+    ) -> Result<bool, MemcacheError> {
         if command == StoreCommand::Cas {
             if options.cas.is_none() {
                 Err(ClientError::Error(Cow::Borrowed(
@@ -156,54 +178,90 @@ impl AsciiProtocol<Stream> {
                 )))?;
             }
         }
+
         let noreply = if options.noreply { " noreply" } else { "" };
-        if options.cas.is_some() {
-            write!(
-                self.reader.get_mut(),
-                "{command} {key} {flags} {exptime} {vlen} {cas}{noreply}\r\n",
-                command = command,
-                key = key,
-                flags = value.get_flags(),
-                exptime = options.exptime,
-                vlen = value.get_length(),
-                cas = options.cas.unwrap(),
-                noreply = noreply
-            )?;
-        } else {
-            write!(
-                self.reader.get_mut(),
-                "{command} {key} {flags} {exptime} {vlen}{noreply}\r\n",
-                command = command,
-                key = key,
-                flags = value.get_flags(),
-                exptime = options.exptime,
-                vlen = value.get_length(),
-                noreply = noreply
-            )?;
+        let mut sent_count = 0;
+
+        for (key_ref, value) in entries {
+            let key = key_ref.as_ref();
+            check_key_len(key)?;
+            if options.cas.is_some() {
+                write!(
+                    self.reader.get_mut(),
+                    "{command} {key} {flags} {exptime} {vlen} {cas}{noreply}\r\n",
+                    command = command,
+                    key = key,
+                    flags = value.get_flags(),
+                    exptime = options.exptime,
+                    vlen = value.get_length(),
+                    cas = options.cas.unwrap(),
+                    noreply = noreply
+                )?;
+            } else {
+                write!(
+                    self.reader.get_mut(),
+                    "{command} {key} {flags} {exptime} {vlen}{noreply}\r\n",
+                    command = command,
+                    key = key,
+                    flags = value.get_flags(),
+                    exptime = options.exptime,
+                    vlen = value.get_length(),
+                    noreply = noreply
+                )?;
+            }
+
+            value.write_to(self.reader.get_mut())?;
+            self.reader.get_mut().write_all(b"\r\n")?;
+            sent_count += 1;
         }
 
-        value.write_to(self.reader.get_mut())?;
-        self.reader.get_mut().write(b"\r\n")?;
+        // Flush now that all the requests have been written.
         self.reader.get_mut().flush()?;
 
         if options.noreply {
             return Ok(true);
         }
 
-        self.reader.read_line(|response| {
-            let response = MemcacheError::try_from(response)?;
-            match response {
-                "STORED\r\n" => Ok(true),
-                "NOT_STORED\r\n" => Ok(false),
-                "EXISTS\r\n" => Err(CommandError::KeyExists)?,
-                "NOT_FOUND\r\n" => Err(CommandError::KeyNotFound)?,
-                response => Err(ServerError::BadResponse(Cow::Owned(response.into())))?,
+        // In order to keep the client in sync with the server,
+        // read all the responses, even after an EXISTS or NOT_FOUND
+        // error, unless some other error occurs.
+        // If there were errors, return the first error.
+
+        let mut final_result = Ok(true);
+
+        for _ in 0..sent_count {
+            let one_result = self.reader.read_line(|response| {
+                let response = MemcacheError::try_from(response)?;
+                match response {
+                    "STORED\r\n" => Ok(true),
+                    "NOT_STORED\r\n" => Ok(false),
+                    "EXISTS\r\n" => Err(CommandError::KeyExists.into()),
+                    "NOT_FOUND\r\n" => Err(CommandError::KeyNotFound.into()),
+                    response => Err(ServerError::BadResponse(Cow::Owned(response.into())).into()),
+                }
+            });
+            match one_result {
+                Ok(true) => (),
+                Ok(false) => {
+                    if let Ok(true) = final_result {
+                        final_result = Ok(false)
+                    }
+                }
+                Err(e) if e.is_recoverable() => {
+                    // Recoverable error. Report it after reading the rest of the responses.
+                    if final_result.is_ok() {
+                        final_result = Err(e);
+                    }
+                }
+                Err(e) => return Err(e), // Unrecoverable error. Stop immediately.
             }
-        })
+        }
+
+        final_result
     }
 
     pub(super) fn version(&mut self) -> Result<String, MemcacheError> {
-        self.reader.get_mut().write(b"version\r\n")?;
+        self.reader.get_mut().write_all(b"version\r\n")?;
         self.reader.get_mut().flush()?;
         self.reader.read_line(|response| {
             let response = MemcacheError::try_from(response)?;
@@ -301,11 +359,23 @@ impl AsciiProtocol<Stream> {
         }
     }
 
-    pub(super) fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
-        for key in keys {
-            check_key_len(key)?;
+    pub(super) fn gets<V: FromMemcacheValueExt, K: AsRef<str>>(
+        &mut self,
+        keys: &[K],
+    ) -> Result<HashMap<String, V>, MemcacheError> {
+        for k in keys.iter() {
+            check_key_len(k.as_ref())?;
         }
-        write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
+
+        let mut writer = BufWriter::new(self.reader.get_mut());
+        writer.write_all(b"gets")?;
+        for k in keys.iter() {
+            writer.write_all(b" ")?;
+            writer.write_all(k.as_ref().as_bytes())?;
+        }
+        writer.write_all(b"\r\n")?;
+        writer.flush()?;
+        drop(writer);
 
         let mut result: HashMap<String, V> = HashMap::with_capacity(keys.len());
         // there will be atmost keys.len() "VALUE <...>" responses and one END response
@@ -355,6 +425,18 @@ impl AsciiProtocol<Stream> {
         self.store(StoreCommand::Set, key, value, &options).map(|_| ())
     }
 
+    pub(super) fn sets<V: ToMemcacheValue<Stream>, K: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+        &mut self,
+        entries: I,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
+        let options = Options {
+            exptime: expiration,
+            ..Default::default()
+        };
+        self.stores(StoreCommand::Set, entries, &options).map(|_| ())
+    }
+
     pub(super) fn add<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
@@ -393,22 +475,58 @@ impl AsciiProtocol<Stream> {
             .map(|_| ())
     }
 
-    pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
-        write!(self.reader.get_mut(), "delete {}\r\n", key)?;
+    pub(super) fn deletes<K: AsRef<str>>(&mut self, keys: &[K]) -> Result<Vec<bool>, MemcacheError> {
+        for k in keys.iter() {
+            let key = k.as_ref();
+            check_key_len(key)?;
+        }
+
+        for k in keys {
+            write!(self.reader.get_mut(), "delete {}\r\n", k.as_ref())?;
+        }
+        // Flush now that all the requests have been written.
         self.reader.get_mut().flush()?;
-        self.reader
-            .read_line(|response| match MemcacheError::try_from(response) {
-                Ok(s) => {
-                    if s == "DELETED\r\n" {
-                        Ok(true)
-                    } else {
-                        Err(ServerError::BadResponse(Cow::Owned(s.into())).into())
+
+        // Receive all the responses. If there were errors, return the first.
+
+        let mut final_result = Ok(Vec::with_capacity(keys.len()));
+
+        for _ in 0..keys.len() {
+            let one_result = self
+                .reader
+                .read_line(|response| match MemcacheError::try_from(response) {
+                    Ok(s) => {
+                        if s == "DELETED\r\n" {
+                            Ok(true)
+                        } else {
+                            Err(ServerError::BadResponse(Cow::Owned(s.into())).into())
+                        }
+                    }
+                    Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
+                    Err(e) => Err(e),
+                });
+
+            match one_result {
+                Ok(deleted) => {
+                    if let Ok(deleted_list) = &mut final_result {
+                        deleted_list.push(deleted);
                     }
                 }
-                Err(MemcacheError::CommandError(CommandError::KeyNotFound)) => Ok(false),
-                Err(e) => Err(e),
-            })
+                Err(e) if e.is_recoverable() => {
+                    // Recoverable error. Report it after reading the rest of the responses.
+                    if final_result.is_ok() {
+                        final_result = Err(e);
+                    }
+                }
+                Err(e) => return Err(e), // Unrecoverable error. Stop immediately.
+            }
+        }
+
+        final_result
+    }
+
+    pub(super) fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
+        Ok(self.deletes(&[key])?[0])
     }
 
     fn parse_u64_response(&mut self) -> Result<u64, MemcacheError> {
@@ -449,7 +567,7 @@ impl AsciiProtocol<Stream> {
     }
 
     pub(super) fn stats(&mut self) -> Result<Stats, MemcacheError> {
-        self.reader.get_mut().write(b"stats\r\n")?;
+        self.reader.get_mut().write_all(b"stats\r\n")?;
         self.reader.get_mut().flush()?;
 
         enum Loop {
@@ -482,5 +600,88 @@ impl AsciiProtocol<Stream> {
                 break Ok(stats);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_read_line_with_line_straddling_packets() {
+        use super::CappedLineReader;
+        use std::io::Cursor;
+        use std::io::Seek;
+        use std::io::Write;
+
+        let mut cursor = Cursor::new(Vec::new());
+        // Write 102 * 20 = 2040 characters
+        for _ in 0..102 {
+            cursor.write(b"1234567890abcdefghij").unwrap();
+        }
+        cursor
+            .write(b"\r\nline 2 to be read exactly\r\nline 3 to be sure\r\n")
+            .unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let mut capped = CappedLineReader::new(cursor);
+
+        let length = capped
+            .read_line(|line| {
+                assert_eq!(2042, line.len()); // 102 * 20 + "\r\n".len()
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(2042, length);
+
+        let length = capped
+            .read_line(|line| {
+                assert_eq!("line 2 to be read exactly\r\n", line);
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(27, length);
+
+        // Older versions would fail here because not all of the
+        // consumed bytes were marked as consumed.
+        let length = capped
+            .read_line(|line| {
+                assert_eq!("line 3 to be sure\r\n", line);
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(19, length);
+    }
+
+    #[test]
+    fn test_read_line_with_crlf_straddling_packets() {
+        use super::CappedLineReader;
+        use std::io::Read;
+
+        struct FourBytePacketReader {
+            content: Vec<u8>,
+            pos: usize,
+        }
+
+        impl Read for FourBytePacketReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let size = (self.content.len() - self.pos).min(4);
+                buf[..size].copy_from_slice(&self.content[self.pos..self.pos + size]);
+                self.pos += size;
+                Ok(size)
+            }
+        }
+
+        let inner = FourBytePacketReader {
+            content: Vec::from("GET\r\nOK\r\n"),
+            pos: 0,
+        };
+        let mut capped = CappedLineReader::new(inner);
+
+        let length = capped
+            .read_line(|line| {
+                assert_eq!("GET\r\n", line);
+                Ok(line.len())
+            })
+            .unwrap();
+        assert_eq!(5, length);
     }
 }

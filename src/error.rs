@@ -74,6 +74,18 @@ pub enum CommandError {
 }
 
 impl MemcacheError {
+    pub(crate) fn is_recoverable(&self) -> bool {
+        match self {
+            MemcacheError::ClientError(ref err) if err != &ClientError::KeyTooLong => false,
+            MemcacheError::ServerError(_) => false,
+            MemcacheError::IOError(_) => false,
+            MemcacheError::ParseError(_) => false,
+            #[cfg(feature = "tls")]
+            MemcacheError::OpensslError(_) => false,
+            _ => true,
+        }
+    }
+
     pub(crate) fn try_from(s: &str) -> Result<&str, MemcacheError> {
         if s == "ERROR\r\n" {
             Err(CommandError::InvalidCommand)?
