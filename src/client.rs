@@ -197,7 +197,7 @@ impl Client {
         return self.get_connection(key).get()?.get(key);
     }
 
-    /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce netwark workloads.
+    /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce network workloads.
     ///
     /// Example:
     ///
