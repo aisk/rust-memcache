@@ -9,10 +9,11 @@ use std::thread::JoinHandle;
 use std::time;
 
 fn gen_random_key() -> String {
-    return iter::repeat(())
+    let bs = iter::repeat(())
         .map(|()| thread_rng().sample(Alphanumeric))
         .take(10)
-        .collect::<String>();
+        .collect::<Vec<u8>>();
+    return String::from_utf8(bs).unwrap();
 }
 
 #[test]
