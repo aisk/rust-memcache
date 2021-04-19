@@ -3,11 +3,11 @@ use std::fmt;
 use std::io::{Read, Write};
 
 use super::ProtocolTrait;
-use client::Stats;
-use error::{ClientError, CommandError, MemcacheError, ServerError};
+use crate::client::Stats;
+use crate::error::{ClientError, CommandError, MemcacheError, ServerError};
+use crate::stream::Stream;
+use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
 use std::borrow::Cow;
-use stream::Stream;
-use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 #[derive(Default)]
 pub struct Options {

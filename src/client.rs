@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use url::Url;
 
-use connection::ConnectionManager;
-use error::{ClientError, MemcacheError};
-use protocol::{Protocol, ProtocolTrait};
+use crate::connection::ConnectionManager;
+use crate::error::{ClientError, MemcacheError};
+use crate::protocol::{Protocol, ProtocolTrait};
+use crate::stream::Stream;
+use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
 use r2d2::Pool;
-use stream::Stream;
-use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 pub type Stats = HashMap<String, String>;
 

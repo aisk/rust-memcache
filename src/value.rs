@@ -1,4 +1,4 @@
-use error::MemcacheError;
+use crate::error::MemcacheError;
 use std::io;
 use std::io::Write;
 use std::str;
@@ -117,7 +117,7 @@ type MemcacheValue<T> = Result<T, MemcacheError>;
 
 /// determine how the value is unserialize to memcache
 pub trait FromMemcacheValue: Sized {
-    fn from_memcache_value(Vec<u8>, u32) -> MemcacheValue<Self>;
+    fn from_memcache_value(_: Vec<u8>, _: u32) -> MemcacheValue<Self>;
 }
 
 pub trait FromMemcacheValueExt: Sized {

@@ -1,5 +1,5 @@
+use crate::error::MemcacheError;
 use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
-use error::MemcacheError;
 use rand;
 use std::collections::HashMap;
 use std::io;

@@ -1,9 +1,9 @@
+use crate::error::{CommandError, MemcacheError, ServerError};
+use crate::value::FromMemcacheValueExt;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use error::{CommandError, MemcacheError, ServerError};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Cursor};
-use value::FromMemcacheValueExt;
 
 const OK_STATUS: u16 = 0x0;
 

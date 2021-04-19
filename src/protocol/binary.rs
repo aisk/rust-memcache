@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use super::ProtocolTrait;
+use crate::client::Stats;
+use crate::error::MemcacheError;
+use crate::protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
+use crate::stream::Stream;
+use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
 use byteorder::{BigEndian, WriteBytesExt};
-use client::Stats;
-use error::MemcacheError;
-use protocol::binary_packet::{self, Magic, Opcode, PacketHeader};
-use stream::Stream;
-use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 pub struct BinaryProtocol {
     pub stream: Stream,

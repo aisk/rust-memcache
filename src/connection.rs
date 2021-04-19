@@ -6,14 +6,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
-use error::MemcacheError;
+use crate::error::MemcacheError;
 
+use crate::protocol::{AsciiProtocol, BinaryProtocol, Protocol, ProtocolTrait};
+use crate::stream::Stream;
+use crate::stream::UdpStream;
 #[cfg(feature = "tls")]
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod, SslVerifyMode};
-use protocol::{AsciiProtocol, BinaryProtocol, Protocol, ProtocolTrait};
 use r2d2::ManageConnection;
-use stream::Stream;
-use stream::UdpStream;
 
 /// A connection to the memcached server
 pub struct Connection {
