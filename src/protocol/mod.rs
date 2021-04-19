@@ -2,14 +2,14 @@ mod ascii;
 mod binary;
 mod binary_packet;
 
-use client::Stats;
+use crate::client::Stats;
+use crate::error::MemcacheError;
+pub(crate) use crate::protocol::ascii::AsciiProtocol;
+pub(crate) use crate::protocol::binary::BinaryProtocol;
+use crate::stream::Stream;
+use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
 use enum_dispatch::enum_dispatch;
-use error::MemcacheError;
-pub(crate) use protocol::ascii::AsciiProtocol;
-pub(crate) use protocol::binary::BinaryProtocol;
 use std::collections::HashMap;
-use stream::Stream;
-use value::{FromMemcacheValueExt, ToMemcacheValue};
 
 #[enum_dispatch]
 pub enum Protocol {

@@ -7,7 +7,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 pub(crate) use self::udp_stream::UdpStream;
-use error::MemcacheError;
+use crate::error::MemcacheError;
 
 #[cfg(feature = "tls")]
 use openssl::ssl::SslStream;

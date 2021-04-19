@@ -80,10 +80,10 @@ mod protocol;
 mod stream;
 mod value;
 
-pub use client::{Client, Connectable};
-pub use error::{ClientError, CommandError, MemcacheError, ServerError};
+pub use crate::client::{Client, Connectable};
+pub use crate::error::{ClientError, CommandError, MemcacheError, ServerError};
+pub use crate::value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};
 pub use r2d2::Error;
-pub use value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};
 
 /// Create a memcached client instance and connect to memcached server.
 ///
