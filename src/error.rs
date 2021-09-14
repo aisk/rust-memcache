@@ -224,7 +224,6 @@ impl From<str::ParseBoolError> for MemcacheError {
 #[derive(Debug)]
 pub enum MemcacheError {
     /// Error raised when the provided memcache URL doesn't have a host name
-    #[cfg(feature = "tls")]
     BadURL(String),
     /// `std::io` related errors.
     IOError(io::Error),
@@ -261,7 +260,6 @@ impl fmt::Display for MemcacheError {
 impl error::Error for MemcacheError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
-            #[cfg(feature = "tls")]
             MemcacheError::BadURL(_) => None,
             MemcacheError::IOError(ref err) => err.source(),
             #[cfg(feature = "tls")]
