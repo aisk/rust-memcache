@@ -82,8 +82,8 @@ mod value;
 
 pub use crate::client::{Client, Connectable};
 pub use crate::error::{ClientError, CommandError, MemcacheError, ServerError};
+pub use crate::stream::Stream;
 pub use crate::value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};
-pub use crate::stream::{Stream};
 pub use r2d2::Error;
 
 /// Create a memcached client instance and connect to memcached server.
