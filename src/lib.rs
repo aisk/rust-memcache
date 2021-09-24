@@ -81,10 +81,15 @@ mod stream;
 mod value;
 
 pub use crate::client::{Client, Connectable};
+pub use crate::connection::ConnectionManager;
 pub use crate::error::{ClientError, CommandError, MemcacheError, ServerError};
 pub use crate::stream::Stream;
 pub use crate::value::{FromMemcacheValue, FromMemcacheValueExt, ToMemcacheValue};
 pub use r2d2::Error;
+pub use url::{ParseError as UrlParseError, Url};
+
+/// R2D2 connection pool
+pub type Pool = r2d2::Pool<connection::ConnectionManager>;
 
 /// Create a memcached client instance and connect to memcached server.
 ///

@@ -89,6 +89,13 @@ impl Client {
         })
     }
 
+    pub fn with_pool(pool: Pool<ConnectionManager>) -> Result<Self, MemcacheError> {
+        Ok(Client {
+            connections: vec![pool],
+            hash_function: default_hash_function,
+        })
+    }
+
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
         Self::with_pool_size(target, 1)
     }
