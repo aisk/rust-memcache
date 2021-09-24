@@ -1,16 +1,19 @@
+use r2d2::Pool;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::time::Duration;
-
 use url::Url;
+
+#[cfg(not(feature = "mcrouter"))]
+use crate::protocol::Protocol;
+#[cfg(not(feature = "mcrouter"))]
+use std::time::Duration;
 
 use crate::connection::ConnectionManager;
 use crate::error::{ClientError, MemcacheError};
-use crate::protocol::{Protocol, ProtocolTrait};
+use crate::protocol::ProtocolTrait;
 use crate::stream::Stream;
 use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
-use r2d2::Pool;
 
 pub type Stats = HashMap<String, String>;
 
@@ -106,6 +109,7 @@ impl Client {
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set_read_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
     /// ```
+    #[cfg(not(feature = "mcrouter"))]
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
             let mut conn = conn.get()?;
@@ -125,6 +129,7 @@ impl Client {
     /// let client = memcache::Client::connect("memcache://localhost:12345?protocol=ascii").unwrap();
     /// client.set_write_timeout(Some(::std::time::Duration::from_secs(3))).unwrap();
     /// ```
+    #[cfg(not(feature = "mcrouter"))]
     pub fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
             let mut conn = conn.get()?;

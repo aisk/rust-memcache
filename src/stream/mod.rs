@@ -4,13 +4,17 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use std::time::Duration;
 
-pub(crate) use self::udp_stream::UdpStream;
-use crate::error::MemcacheError;
+#[cfg(not(feature = "mcrouter"))]
+use std::time::Duration;
 
 #[cfg(feature = "tls")]
 use openssl::ssl::SslStream;
+
+#[cfg(not(feature = "mcrouter"))]
+use crate::error::MemcacheError;
+
+pub(crate) use self::udp_stream::UdpStream;
 
 pub enum Stream {
     Tcp(TcpStream),
@@ -22,6 +26,7 @@ pub enum Stream {
 }
 
 impl Stream {
+    #[cfg(not(feature = "mcrouter"))]
     pub(super) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         match self {
             Stream::Tcp(ref conn) => conn.set_read_timeout(timeout)?,
@@ -34,6 +39,7 @@ impl Stream {
         Ok(())
     }
 
+    #[cfg(not(feature = "mcrouter"))]
     pub(super) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         match self {
             Stream::Tcp(ref conn) => conn.set_write_timeout(timeout)?,

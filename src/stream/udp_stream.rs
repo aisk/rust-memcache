@@ -5,9 +5,11 @@ use std::collections::HashMap;
 use std::io;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::net::UdpSocket;
-use std::time::Duration;
 use std::u16;
 use url::Url;
+
+#[cfg(not(feature = "mcrouter"))]
+use std::time::Duration;
 
 pub struct UdpStream {
     socket: UdpSocket,
@@ -28,10 +30,12 @@ impl UdpStream {
         });
     }
 
+    #[cfg(not(feature = "mcrouter"))]
     pub(crate) fn set_read_timeout(&self, duration: Option<Duration>) -> Result<(), MemcacheError> {
         Ok(self.socket.set_read_timeout(duration)?)
     }
 
+    #[cfg(not(feature = "mcrouter"))]
     pub(crate) fn set_write_timeout(&self, duration: Option<Duration>) -> Result<(), MemcacheError> {
         Ok(self.socket.set_write_timeout(duration)?)
     }

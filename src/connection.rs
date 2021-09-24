@@ -200,7 +200,7 @@ impl Transport {
 
 fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> {
     let tcp_stream = TcpStream::connect(&*url.socket_addrs(|| None)?)?;
-    if opts.timeout.is_some() {
+    if cfg!(not(feature = "mcrouter")) && opts.timeout.is_some() {
         tcp_stream.set_read_timeout(opts.timeout)?;
         tcp_stream.set_write_timeout(opts.timeout)?;
     }

@@ -338,6 +338,7 @@ impl AsciiProtocol<Stream> {
         }
     }
 
+    #[cfg(not(feature = "mcrouter"))]
     pub(crate) fn stream(&mut self) -> &mut Stream {
         self.reader.get_mut()
     }
