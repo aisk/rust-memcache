@@ -129,7 +129,7 @@ impl Client {
         for conn in self.connections.iter() {
             let mut conn = conn.get()?;
             match **conn {
-                Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout)?,
+                Protocol::Ascii(ref mut protocol) => protocol.stream().set_write_timeout(timeout)?,
                 Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
             }
         }
