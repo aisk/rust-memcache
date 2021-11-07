@@ -34,12 +34,14 @@ impl Deref for Connection {
     }
 }
 
-pub(crate) struct ConnectionManager {
+/// Memcache connection manager implementing rd2d Pool ManageConnection
+pub struct ConnectionManager {
     url: Url,
 }
 
 impl ConnectionManager {
-    pub(crate) fn new(url: Url) -> Self {
+    /// Initialize connection manager with given Url
+    pub fn new(url: Url) -> Self {
         Self { url }
     }
 }
