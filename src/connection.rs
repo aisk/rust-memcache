@@ -148,8 +148,8 @@ impl TcpOptions {
         let timeout = url
             .query_pairs()
             .find(|&(ref k, ref _v)| k == "timeout")
-            .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
-            .map(Duration::from_secs);
+            .and_then(|(ref _k, ref v)| v.parse::<f64>().ok())
+            .map(Duration::from_secs_f64);
         TcpOptions {
             nodelay: nodelay,
             timeout: timeout,

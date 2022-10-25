@@ -81,8 +81,8 @@ impl Client {
             let timeout = parsed
                 .query_pairs()
                 .find(|&(ref k, ref _v)| k == "connect_timeout")
-                .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
-                .map(Duration::from_secs);
+                .and_then(|(ref _k, ref v)| v.parse::<f64>().ok())
+                .map(Duration::from_secs_f64);
             let builder = r2d2::Pool::builder().max_size(size);
             let builder = if let Some(timeout) = timeout {
                 builder.connection_timeout(timeout)
