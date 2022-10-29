@@ -78,9 +78,18 @@ impl Client {
         let mut connections = vec![];
         for url in urls {
             let parsed = Url::parse(url.as_str())?;
-            let pool = r2d2::Pool::builder()
-                .max_size(size)
-                .build(ConnectionManager::new(parsed))?;
+            let timeout = parsed
+                .query_pairs()
+                .find(|&(ref k, ref _v)| k == "connect_timeout")
+                .and_then(|(ref _k, ref v)| v.parse::<u64>().ok())
+                .map(Duration::from_secs);
+            let builder = r2d2::Pool::builder().max_size(size);
+            let builder = if let Some(timeout) = timeout {
+                builder.connection_timeout(timeout)
+            } else {
+                builder
+            };
+            let pool = builder.build(ConnectionManager::new(parsed))?;
             connections.push(pool);
         }
         Ok(Client {
