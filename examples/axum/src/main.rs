@@ -22,9 +22,7 @@ struct AppState {
 }
 
 async fn get_root(State(app_state): State<AppState>, Path(key): Path<String>) -> String {
-    let memcache = app_state.memcache.clone();
-
-    match memcache.get(&key) {
+    match app_state.memcache.get(&key) {
         Ok(Some(value)) => value,
         Ok(None) => "Not found".to_string(),
         Err(err) => format!("ERROR: {}", err),
@@ -32,9 +30,7 @@ async fn get_root(State(app_state): State<AppState>, Path(key): Path<String>) ->
 }
 
 async fn post_root(State(app_state): State<AppState>, Path(key): Path<String>, body: String) -> String {
-    let memcache = app_state.memcache.clone();
-
-    match memcache.set(&key, body, 300) {
+    match app_state.memcache.set(&key, body, 300) {
         Ok(_) => "OK".to_string(),
         Err(e) => format!("ERROR: {}", e),
     }
