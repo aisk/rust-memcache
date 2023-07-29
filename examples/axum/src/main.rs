@@ -7,21 +7,21 @@
 //! cargo run -p example-axum
 //! ```
 
-
 use std::sync::Arc;
 
-use memcache::{self, Url, Pool};
-use axum::{Router, routing::get, extract::{State, Path}, Server};
+use axum::{
+    extract::{Path, State},
+    routing::get,
+    Router, Server,
+};
+use memcache::{self, Pool, Url};
 
 #[derive(Clone)]
 struct AppState {
     memcache: Arc<memcache::Client>,
 }
 
-async fn get_root(
-    State(app_state): State<AppState>,
-    Path(key): Path<String>,
-) -> String {
+async fn get_root(State(app_state): State<AppState>, Path(key): Path<String>) -> String {
     let memcache = app_state.memcache.clone();
 
     match memcache.get(&key) {
@@ -31,11 +31,7 @@ async fn get_root(
     }
 }
 
-async fn post_root(
-    State(app_state): State<AppState>,
-    Path(key): Path<String>,
-    body: String
-) -> String {
+async fn post_root(State(app_state): State<AppState>, Path(key): Path<String>, body: String) -> String {
     let memcache = app_state.memcache.clone();
 
     match memcache.set(&key, body, 300) {
@@ -51,13 +47,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memcached_url = "memcache://127.0.0.1:11211";
     let memcached_url = Url::parse(memcached_url)?;
 
-    let pool = Pool::builder().max_size(10).build(memcache::ConnectionManager::new(memcached_url))?;
+    let pool = Pool::builder()
+        .max_size(10)
+        .build(memcache::ConnectionManager::new(memcached_url))?;
     let client = memcache::Client::with_pool(pool)?;
 
     let app = Router::new()
         .route("/kv/:key", get(get_root).post(post_root))
         .with_state(AppState {
-            memcache: Arc::new(client)
+            memcache: Arc::new(client),
         });
 
     println!("Starting server on http://0.0.0.0:3000");

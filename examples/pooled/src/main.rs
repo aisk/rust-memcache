@@ -6,7 +6,7 @@
 //! cargo run -p example-pooled
 //! ```
 
-use memcache::{Client, Pool, ConnectionManager, Url};
+use memcache::{Client, ConnectionManager, Pool, Url};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let localhost = Url::parse("memcache://localhost:11211")?;
@@ -23,5 +23,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // deletes a key
     client.delete("test")?;
-  Ok(())
+    Ok(())
 }
