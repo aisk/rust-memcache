@@ -8,4 +8,3 @@ publish = false
 axum = { version = "0.6.19", features = ["headers"] }
 memcache = { path = "../../memcache" }
 tokio = { version = "1.15.0", features = ["full"] }
-r2d2 = "0.8.10"
