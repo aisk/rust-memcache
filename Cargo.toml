@@ -1,22 +1,8 @@
-[package]
-name = "memcache"
-version = "0.17.0"
-authors = ["An Long <aisk1988@gmail.com>"]
-repository = "https://github.com/aisk/rust-memcache"
-readme = "README.md"
-license = "MIT"
-description = "memcached client for rust"
-keywords = ["memcache", "memcached", "driver", "cache", "database"]
-edition = "2018"
-
-[features]
-default = ["tls"]
-tls = ["openssl"]
-
-[dependencies]
-byteorder = "1"
-url = "2.1.1"
-rand = "0.8"
-enum_dispatch = "0.3"
-openssl = { version = "^0.10", optional = true }
-r2d2 = "0.8.8"
+[workspace]
+members = [
+  "examples/*",
+  "memcache"
+]
+default-members = [
+  "memcache"
+]

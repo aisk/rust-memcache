@@ -1,0 +1,10 @@
+[package]
+name = "example-axum"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+axum = { version = "0.6.19", features = ["headers"] }
+memcache = { path = "../../memcache" }
+tokio = { version = "1.15.0", features = ["full"] }
