@@ -97,18 +97,17 @@ impl<C: Read> CappedLineReader<C> {
             return result;
         }
         loop {
-            let (filled, buf) = self.buf.split_at_mut(self.filled);
+            let (_filled, buf) = self.buf.split_at_mut(self.filled);
             if buf.len() == 0 {
                 return Err(ClientError::Error(Cow::Borrowed("Ascii protocol response too long")))?;
             }
-            let filled = filled.len();
             let read = self.inner.read(&mut buf[..])?;
             if read == 0 {
                 return Err(ClientError::Error(Cow::Borrowed("Ascii protocol no line found")))?;
             }
             self.filled += read;
-            if let Some(n) = get_line(&buf[..read]) {
-                let result = cb(std::str::from_utf8(&self.buf[..filled + n])?);
+            if let Some(n) = get_line(&self.buf[..self.filled]) {
+                let result = cb(std::str::from_utf8(&self.buf[..n])?);
                 self.consume(n);
                 return result;
             }
@@ -464,5 +463,53 @@ impl AsciiProtocol<Stream> {
             let s = MemcacheError::try_from(response)?;
             Ok(s.trim_end_matches("\r\n").parse::<u64>()?)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    struct MockReader {
+        data: Box<[u8]>,
+        reads: VecDeque<std::ops::Range<usize>>,
+    }
+
+    impl Read for MockReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self.reads.pop_front() {
+                Some(range) => {
+                    let range = &self.data[range];
+                    (&mut buf[0..range.len()]).copy_from_slice(&range);
+                    Ok(range.len())
+                }
+                None => Err(std::io::ErrorKind::WouldBlock.into()),
+            }
+        }
+    }
+
+    #[test]
+    fn test_capped_line_reader() {
+        let mock_reader = MockReader {
+            data: Box::from(&b"LINE#1\r\nLINE#2\r\nLINE#3\r\n"[..]),
+            reads: VecDeque::from(vec![0..8, 8..15, 15..16, 16..22, 22..24]),
+        };
+
+        let mut capped_line_reader = CappedLineReader::new(mock_reader);
+
+        assert_eq!(
+            "LINE#1\r\n",
+            capped_line_reader.read_line(|x| Ok(x.to_string())).unwrap()
+        );
+        assert_eq!(
+            "LINE#2\r\n",
+            capped_line_reader.read_line(|x| Ok(x.to_string())).unwrap()
+        );
+        assert_eq!(
+            "LINE#3\r\n",
+            capped_line_reader.read_line(|x| Ok(x.to_string())).unwrap()
+        );
+        assert!(capped_line_reader.read_line(|x| Ok(x.to_string())).is_err());
     }
 }
