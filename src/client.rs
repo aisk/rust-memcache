@@ -166,7 +166,7 @@ impl Client {
 
     fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
         let connections_count = self.connections.len();
-        // XXX: This may not be deterministic so ideally need to hash the whole fuction itself
+        // XXX: This may not be deterministic so ideally need to hash the whole function itself
         if self.hash_function as isize == empty_hash_function as isize {
             let connection_index = self.get_connections_index(default_hash_function(key));
             self.connections[connection_index as usize].clone()
