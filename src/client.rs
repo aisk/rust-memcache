@@ -50,18 +50,18 @@ impl Connectable for Vec<&str> {
 pub struct Client {
     connections: Vec<Pool<ConnectionManager>>,
     pub hash_function: fn(&str) -> u64,
-    continuum: Continuum
+    continuum: Continuum,
 }
 
 #[derive(Clone)]
 struct VNode {
     position: u64,
-    connection_index: usize
+    connection_index: usize,
 }
 
 #[derive(Clone)]
 pub struct Continuum {
-    vnodes : Vec<VNode>
+    vnodes: Vec<VNode>,
 }
 
 unsafe impl Send for Client {}
@@ -85,14 +85,14 @@ pub(crate) fn check_key_len(key: &str) -> Result<(), MemcacheError> {
 
 impl Continuum {
     fn bsearch_continuum_index(&self, hash: u64) -> usize {
-        let mut left=0;
-        let mut right=self.vnodes.len();
+        let mut left = 0;
+        let mut right = self.vnodes.len();
         let mut middle;
         while left < right {
-            middle = (left+right)/2;
+            middle = (left + right) / 2;
             if self.vnodes[middle].position < hash {
-                left = middle+1;
-            }else{
+                left = middle + 1;
+            } else {
                 right = middle;
             }
         }
@@ -102,21 +102,33 @@ impl Continuum {
     fn add_vnode(&mut self, vnodename: String, idx: usize) {
         let hash = default_hash_function(&vnodename);
         if self.vnodes.len() == 0 {
-            self.vnodes.push( VNode{ position:hash, connection_index:idx });
-        }else{
+            self.vnodes.push(VNode {
+                position: hash,
+                connection_index: idx,
+            });
+        } else {
             let cont_idx = self.bsearch_continuum_index(hash);
             if cont_idx == self.vnodes.len() {
-                self.vnodes.push(VNode{ position:hash, connection_index:idx });
+                self.vnodes.push(VNode {
+                    position: hash,
+                    connection_index: idx,
+                });
             } else {
-                self.vnodes.insert(cont_idx, VNode{ position:hash, connection_index:idx });
+                self.vnodes.insert(
+                    cont_idx,
+                    VNode {
+                        position: hash,
+                        connection_index: idx,
+                    },
+                );
             }
         }
     }
 
     fn add_vnodes(&mut self, hostname: String, idx: usize) {
         for n in 0..160 {
-            let vnodename = format!("{}-{}#{}",hostname,idx,n);
-            self.add_vnode(vnodename,idx);
+            let vnodename = format!("{}-{}#{}", hostname, idx, n);
+            self.add_vnode(vnodename, idx);
         }
     }
 }
@@ -129,21 +141,23 @@ impl Client {
 
     fn get_connections_index(&self, hash: u64) -> usize {
         let mut idx = self.continuum.bsearch_continuum_index(hash);
-        if idx == self.continuum.vnodes.len() { idx = 0; }
+        if idx == self.continuum.vnodes.len() {
+            idx = 0;
+        }
         self.continuum.vnodes[idx].connection_index
     }
 
     pub fn with_pool_size<C: Connectable>(target: C, size: u32) -> Result<Self, MemcacheError> {
         let urls = target.get_urls();
         let mut connections = vec![];
-        let mut continuum = Continuum{ vnodes: Vec::new() };
+        let mut continuum = Continuum { vnodes: Vec::new() };
         for url in urls {
             let parsed = Url::parse(url.as_str())?;
             let pool = r2d2::Pool::builder()
                 .max_size(size)
                 .build(ConnectionManager::new(parsed))?;
             connections.push(pool);
-            continuum.add_vnodes(url.to_string(),connections.len()-1);
+            continuum.add_vnodes(url.to_string(), connections.len() - 1);
         }
         Ok(Client {
             connections,
@@ -156,7 +170,7 @@ impl Client {
         Ok(Client {
             connections: vec![pool],
             hash_function: empty_hash_function,
-            continuum: Continuum{ vnodes: Vec::new() }
+            continuum: Continuum { vnodes: Vec::new() },
         })
     }
 
@@ -552,37 +566,91 @@ mod tests {
 
     #[test]
     fn test_bsearch() {
-        let mut continuum = super::Continuum{vnodes: Vec::new()};
+        let mut continuum = super::Continuum { vnodes: Vec::new() };
 
-        continuum.vnodes.push(super::VNode{position:10,connection_index:1});
-        continuum.vnodes.push(super::VNode{position:20,connection_index:2});
-        continuum.vnodes.push(super::VNode{position:30,connection_index:3});
-        continuum.vnodes.push(super::VNode{position:40,connection_index:2});
+        continuum.vnodes.push(super::VNode {
+            position: 10,
+            connection_index: 1,
+        });
+        continuum.vnodes.push(super::VNode {
+            position: 20,
+            connection_index: 2,
+        });
+        continuum.vnodes.push(super::VNode {
+            position: 30,
+            connection_index: 3,
+        });
+        continuum.vnodes.push(super::VNode {
+            position: 40,
+            connection_index: 2,
+        });
 
         assert_eq!(0, continuum.bsearch_continuum_index(5));
-        assert_eq!(1, continuum.vnodes[continuum.bsearch_continuum_index(5)].connection_index);
+        assert_eq!(
+            1,
+            continuum.vnodes[continuum.bsearch_continuum_index(5)].connection_index
+        );
         assert_eq!(1, continuum.bsearch_continuum_index(15));
-        assert_eq!(2, continuum.vnodes[continuum.bsearch_continuum_index(15)].connection_index);
+        assert_eq!(
+            2,
+            continuum.vnodes[continuum.bsearch_continuum_index(15)].connection_index
+        );
         assert_eq!(2, continuum.bsearch_continuum_index(30));
-        assert_eq!(3, continuum.vnodes[continuum.bsearch_continuum_index(30)].connection_index);
+        assert_eq!(
+            3,
+            continuum.vnodes[continuum.bsearch_continuum_index(30)].connection_index
+        );
         assert_eq!(3, continuum.bsearch_continuum_index(31));
-        assert_eq!(2, continuum.vnodes[continuum.bsearch_continuum_index(31)].connection_index);
+        assert_eq!(
+            2,
+            continuum.vnodes[continuum.bsearch_continuum_index(31)].connection_index
+        );
 
         assert_eq!(4, continuum.bsearch_continuum_index(41));
         assert_eq!(4, continuum.bsearch_continuum_index(65535));
 
-        continuum.vnodes.insert(0,super::VNode{position:1, connection_index:3});
-        continuum.vnodes.insert(2,super::VNode{position:19, connection_index:1});
-        continuum.vnodes.insert(6,super::VNode{position:50, connection_index:4});
+        continuum.vnodes.insert(
+            0,
+            super::VNode {
+                position: 1,
+                connection_index: 3,
+            },
+        );
+        continuum.vnodes.insert(
+            2,
+            super::VNode {
+                position: 19,
+                connection_index: 1,
+            },
+        );
+        continuum.vnodes.insert(
+            6,
+            super::VNode {
+                position: 50,
+                connection_index: 4,
+            },
+        );
 
         assert_eq!(0, continuum.bsearch_continuum_index(0));
-        assert_eq!(3, continuum.vnodes[continuum.bsearch_continuum_index(0)].connection_index);
+        assert_eq!(
+            3,
+            continuum.vnodes[continuum.bsearch_continuum_index(0)].connection_index
+        );
         assert_eq!(2, continuum.bsearch_continuum_index(15));
-        assert_eq!(1, continuum.vnodes[continuum.bsearch_continuum_index(15)].connection_index);
+        assert_eq!(
+            1,
+            continuum.vnodes[continuum.bsearch_continuum_index(15)].connection_index
+        );
         assert_eq!(5, continuum.bsearch_continuum_index(31));
-        assert_eq!(2, continuum.vnodes[continuum.bsearch_continuum_index(31)].connection_index);
+        assert_eq!(
+            2,
+            continuum.vnodes[continuum.bsearch_continuum_index(31)].connection_index
+        );
         assert_eq!(6, continuum.bsearch_continuum_index(41));
-        assert_eq!(4, continuum.vnodes[continuum.bsearch_continuum_index(41)].connection_index);
+        assert_eq!(
+            4,
+            continuum.vnodes[continuum.bsearch_continuum_index(41)].connection_index
+        );
 
         assert_eq!(7, continuum.bsearch_continuum_index(51));
     }
@@ -591,18 +659,18 @@ mod tests {
     fn test_key_distribution() {
         let mut servers = Vec::new();
         for i in 0..5 {
-            servers.push(format!("memcache://localhost:{}",12345+i));
+            servers.push(format!("memcache://localhost:{}", 12345 + i));
         }
         let client = super::Client::connect(servers).unwrap();
         let mut map = super::HashMap::<usize, u64>::new();
         for i in 1..10000 {
-            let key = super::default_hash_function(&format!("key{}",i));
+            let key = super::default_hash_function(&format!("key{}", i));
             let idx = client.get_connections_index(key);
             *map.entry(idx).or_insert(1) += 1;
         }
-        for (_k,v) in map {
+        for (_k, v) in map {
             // Each server should contain at least 75% of expected # of keys
-            assert!( ((10000/5) as f64) * 0.75 < v as f64 );
+            assert!(((10000 / 5) as f64) * 0.75 < v as f64);
         }
     }
 }
