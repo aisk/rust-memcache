@@ -295,7 +295,7 @@ impl Client {
 
         for key in keys {
             let connection_index;
-            // XXX: This may not be deterministic so ideally need to hash the whole fuction itself
+            // XXX: This may not be deterministic so ideally need to hash the whole function itself
             if self.hash_function as isize == empty_hash_function as isize {
                 connection_index = self.get_connections_index(default_hash_function(key));
             } else {
