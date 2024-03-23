@@ -73,6 +73,10 @@ impl Client {
         return Self::connect(target);
     }
 
+    pub fn builder<C: Connectable>(target: C) -> ClientBuilder<C> {
+        ClientBuilder::new(target)
+    }
+
     pub fn with_pool_size<C: Connectable>(target: C, size: u32) -> Result<Self, MemcacheError> {
         let urls = target.get_urls();
         let mut connections = vec![];
@@ -106,7 +110,7 @@ impl Client {
     }
 
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
-        Self::with_pool_size(target, 1)
+        Self::builder(target).build()
     }
 
     fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
@@ -431,6 +435,93 @@ impl Client {
             result.push((url, stats_info));
         }
         return Ok(result);
+    }
+}
+
+pub struct ClientBuilder<C: Connectable> {
+    target: C,
+    max_size: u32,
+    min_idle: Option<u32>,
+    max_lifetime: Option<Duration>,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
+    pool_wait_timeout: Duration,
+}
+
+impl<C: Connectable> ClientBuilder<C> {
+    pub fn new(target: C) -> Self {
+        ClientBuilder {
+            target,
+            max_size: 1,
+            min_idle: None,
+            max_lifetime: None,
+            read_timeout: None,
+            write_timeout: None,
+            pool_wait_timeout: Duration::from_secs(30),
+        }
+    }
+
+    pub fn with_max_size(mut self, max_size: u32) -> Self {
+        self.max_size = max_size;
+        self
+    }
+
+    pub fn with_min_idle(mut self, min_idle: u32) -> Self {
+        self.min_idle = Some(min_idle);
+        self
+    }
+
+    pub fn with_max_lifetime(mut self, max_lifetime: Duration) -> Self {
+        self.max_lifetime = Some(max_lifetime);
+        self
+    }
+
+    pub fn read_timeout(mut self, read_timeout: Duration) -> Self {
+        self.read_timeout = Some(read_timeout);
+        self
+    }
+
+    pub fn write_timeout(mut self, write_timeout: Duration) -> Self {
+        self.write_timeout = Some(write_timeout);
+        self
+    }
+
+    pub fn pool_wait_timeout(mut self, pool_wait_timeout: Duration) -> Self {
+        self.pool_wait_timeout = pool_wait_timeout;
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> Result<Client, MemcacheError> {
+        let urls = self.target.get_urls();
+        let max_size = self.max_size;
+        let min_idle = self.min_idle;
+        let max_lifetime = self.max_lifetime;
+
+        let connections = urls
+            .iter()
+            .filter_map(|url| {
+                let url = Url::parse(url.as_str()).ok()?;
+
+                r2d2::Pool::builder()
+                    .max_size(max_size)
+                    .min_idle(min_idle)
+                    .max_lifetime(max_lifetime)
+                    .connection_timeout(Duration::from_secs(30))
+                    .build(ConnectionManager::new(url))
+                    .ok()
+            })
+            .collect();
+
+        let client = Client {
+            connections,
+            hash_function: default_hash_function,
+        };
+
+        client.set_read_timeout(self.read_timeout)?;
+        client.set_write_timeout(self.write_timeout)?;
+
+        Ok(client)
     }
 }
 
