@@ -532,12 +532,22 @@ mod tests {
     fn unix() {
         let client = super::Client::connect("memcache:///tmp/memcached.sock").unwrap();
         assert!(client.version().unwrap()[0].1 != "");
+
+        let client = super::Client::builder("memcache:///tmp/memcached.sock")
+            .build()
+            .unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
     }
 
     #[cfg(feature = "tls")]
     #[test]
     fn ssl_noverify() {
         let client = super::Client::connect("memcache+tls://localhost:12350?verify_mode=none").unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+
+        let client = super::Client::builder("memcache+tls://localhost:12350?verify_mode=none")
+            .build()
+            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -548,12 +558,23 @@ mod tests {
             super::Client::connect("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
                 .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
+
+        let client =
+            super::Client::builder("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+                .build()
+                .unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
     }
 
     #[cfg(feature = "tls")]
     #[test]
     fn ssl_client_certs() {
         let client = super::Client::connect("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt").unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+
+        let client = super::Client::builder("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+            .build()
+            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -563,11 +584,21 @@ mod tests {
         client.set("an_exists_key", "value", 0).unwrap();
         assert_eq!(client.delete("an_exists_key").unwrap(), true);
         assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
+
+        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
+        client.set("an_exists_key", "value", 0).unwrap();
+        assert_eq!(client.delete("an_exists_key").unwrap(), true);
+        assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
     }
 
     #[test]
     fn increment() {
         let client = super::Client::connect("memcache://localhost:12345").unwrap();
+        client.delete("counter").unwrap();
+        client.set("counter", 321, 0).unwrap();
+        assert_eq!(client.increment("counter", 123).unwrap(), 444);
+
+        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
         client.delete("counter").unwrap();
         client.set("counter", 321, 0).unwrap();
         assert_eq!(client.increment("counter", 123).unwrap(), 444);
