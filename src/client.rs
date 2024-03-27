@@ -18,6 +18,12 @@ pub trait Connectable {
     fn get_urls(self) -> Vec<String>;
 }
 
+impl Connectable for Url {
+    fn get_urls(self) -> Vec<String> {
+        return vec![self.to_string()];
+    }
+}
+
 impl Connectable for String {
     fn get_urls(self) -> Vec<String> {
         return vec![self];
@@ -73,6 +79,10 @@ impl Client {
         return Self::connect(target);
     }
 
+    pub fn builder<C: Connectable>(target: C) -> ClientBuilder<C> {
+        ClientBuilder::new(target)
+    }
+
     pub fn with_pool_size<C: Connectable>(target: C, size: u32) -> Result<Self, MemcacheError> {
         let urls = target.get_urls();
         let mut connections = vec![];
@@ -106,7 +116,7 @@ impl Client {
     }
 
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
-        Self::with_pool_size(target, 1)
+        Self::builder(target).build()
     }
 
     fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
@@ -434,12 +444,115 @@ impl Client {
     }
 }
 
+pub struct ClientBuilder<C: Connectable> {
+    target: C,
+    max_size: u32,
+    min_idle: Option<u32>,
+    max_lifetime: Option<Duration>,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
+}
+
+impl<C: Connectable> ClientBuilder<C> {
+    pub fn new(target: C) -> Self {
+        ClientBuilder {
+            target,
+            max_size: 1,
+            min_idle: None,
+            max_lifetime: None,
+            read_timeout: None,
+            write_timeout: None,
+        }
+    }
+
+    /// Set the maximum number of connections managed by the pool.
+    pub fn with_max_pool_size(mut self, max_size: u32) -> Self {
+        self.max_size = max_size;
+        self
+    }
+
+    /// Set the minimum number of idle connections to maintain in the pool.
+    pub fn with_min_idle_conns(mut self, min_idle: u32) -> Self {
+        self.min_idle = Some(min_idle);
+        self
+    }
+
+    /// Set the maximum lifetime of connections in the pool.
+    pub fn with_max_conn_lifetime(mut self, max_lifetime: Duration) -> Self {
+        self.max_lifetime = Some(max_lifetime);
+        self
+    }
+
+    /// Set the socket read timeout for TCP connections.
+    pub fn with_read_timeout(mut self, read_timeout: Duration) -> Self {
+        self.read_timeout = Some(read_timeout);
+        self
+    }
+
+    /// Set the socket write timeout for TCP connections.
+    pub fn with_write_timeout(mut self, write_timeout: Duration) -> Self {
+        self.write_timeout = Some(write_timeout);
+        self
+    }
+
+    /// Build the client. This will create a connection pool and return a client, or an error if the connection pool could not be created.
+    pub fn build(self) -> Result<Client, MemcacheError> {
+        let urls = self.target.get_urls();
+        let max_size = self.max_size;
+        let min_idle = self.min_idle;
+        let max_lifetime = self.max_lifetime;
+
+        let mut connections = vec![];
+
+        for url in urls.iter() {
+            let url = Url::parse(url.as_str()).map_err(|e| MemcacheError::BadURL(e.to_string()))?;
+
+            connections.push(
+                r2d2::Pool::builder()
+                    .max_size(max_size)
+                    .min_idle(min_idle)
+                    .max_lifetime(max_lifetime)
+                    .connection_timeout(Duration::from_secs(30))
+                    .build(ConnectionManager::new(url))
+                    .map_err(|e| MemcacheError::PoolError(e))?,
+            );
+        }
+
+        let client = Client {
+            connections,
+            hash_function: default_hash_function,
+        };
+
+        client.set_read_timeout(self.read_timeout)?;
+        client.set_write_timeout(self.write_timeout)?;
+
+        Ok(client)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn build_client_happy_path() {
+        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+    }
+
+    #[test]
+    fn build_client_bad_url() {
+        let client = super::Client::builder("memcache://localhost:12345:").build();
+        assert!(client.is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn unix() {
         let client = super::Client::connect("memcache:///tmp/memcached.sock").unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+
+        let client = super::Client::builder("memcache:///tmp/memcached.sock")
+            .build()
+            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -447,6 +560,11 @@ mod tests {
     #[test]
     fn ssl_noverify() {
         let client = super::Client::connect("memcache+tls://localhost:12350?verify_mode=none").unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+
+        let client = super::Client::builder("memcache+tls://localhost:12350?verify_mode=none")
+            .build()
+            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -457,12 +575,23 @@ mod tests {
             super::Client::connect("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
                 .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
+
+        let client =
+            super::Client::builder("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+                .build()
+                .unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
     }
 
     #[cfg(feature = "tls")]
     #[test]
     fn ssl_client_certs() {
         let client = super::Client::connect("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt").unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+
+        let client = super::Client::builder("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+            .build()
+            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -472,11 +601,21 @@ mod tests {
         client.set("an_exists_key", "value", 0).unwrap();
         assert_eq!(client.delete("an_exists_key").unwrap(), true);
         assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
+
+        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
+        client.set("an_exists_key", "value", 0).unwrap();
+        assert_eq!(client.delete("an_exists_key").unwrap(), true);
+        assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
     }
 
     #[test]
     fn increment() {
         let client = super::Client::connect("memcache://localhost:12345").unwrap();
+        client.delete("counter").unwrap();
+        client.set("counter", 321, 0).unwrap();
+        assert_eq!(client.increment("counter", 123).unwrap(), 444);
+
+        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
         client.delete("counter").unwrap();
         client.set("counter", 321, 0).unwrap();
         assert_eq!(client.increment("counter", 123).unwrap(), 444);
