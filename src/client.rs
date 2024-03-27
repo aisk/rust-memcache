@@ -18,6 +18,12 @@ pub trait Connectable {
     fn get_urls(self) -> Vec<String>;
 }
 
+impl Connectable for Url {
+    fn get_urls(self) -> Vec<String> {
+        return vec![self.to_string()];
+    }
+}
+
 impl Connectable for String {
     fn get_urls(self) -> Vec<String> {
         return vec![self];
@@ -496,20 +502,21 @@ impl<C: Connectable> ClientBuilder<C> {
         let min_idle = self.min_idle;
         let max_lifetime = self.max_lifetime;
 
-        let connections = urls
-            .iter()
-            .filter_map(|url| {
-                let url = Url::parse(url.as_str()).ok()?;
+        let mut connections = vec![];
 
+        for url in urls.iter() {
+            let url = Url::parse(url.as_str()).map_err(|e| MemcacheError::BadURL(e.to_string()))?;
+
+            connections.push(
                 r2d2::Pool::builder()
                     .max_size(max_size)
                     .min_idle(min_idle)
                     .max_lifetime(max_lifetime)
                     .connection_timeout(Duration::from_secs(30))
                     .build(ConnectionManager::new(url))
-                    .ok()
-            })
-            .collect();
+                    .map_err(|e| MemcacheError::PoolError(e))?,
+            );
+        }
 
         let client = Client {
             connections,
@@ -525,6 +532,18 @@ impl<C: Connectable> ClientBuilder<C> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn build_client_happy_path() {
+        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+    }
+
+    #[test]
+    fn build_client_bad_url() {
+        let client = super::Client::builder("memcache://localhost:12345:").build();
+        assert!(client.is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn unix() {
