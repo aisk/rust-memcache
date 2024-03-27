@@ -460,31 +460,31 @@ impl<C: Connectable> ClientBuilder<C> {
     }
 
     /// Set the maximum number of connections managed by the pool.
-    pub fn max_pool_size(mut self, max_size: u32) -> Self {
+    pub fn with_max_pool_size(mut self, max_size: u32) -> Self {
         self.max_size = max_size;
         self
     }
 
     /// Set the minimum number of idle connections to maintain in the pool.
-    pub fn min_idle_conns(mut self, min_idle: u32) -> Self {
+    pub fn with_min_idle_conns(mut self, min_idle: u32) -> Self {
         self.min_idle = Some(min_idle);
         self
     }
 
     /// Set the maximum lifetime of connections in the pool.
-    pub fn max_conn_lifetime(mut self, max_lifetime: Duration) -> Self {
+    pub fn with_max_conn_lifetime(mut self, max_lifetime: Duration) -> Self {
         self.max_lifetime = Some(max_lifetime);
         self
     }
 
     /// Set the socket read timeout for TCP connections.
-    pub fn read_timeout(mut self, read_timeout: Duration) -> Self {
+    pub fn with_read_timeout(mut self, read_timeout: Duration) -> Self {
         self.read_timeout = Some(read_timeout);
         self
     }
 
     /// Set the socket write timeout for TCP connections.
-    pub fn write_timeout(mut self, write_timeout: Duration) -> Self {
+    pub fn with_write_timeout(mut self, write_timeout: Duration) -> Self {
         self.write_timeout = Some(write_timeout);
         self
     }
