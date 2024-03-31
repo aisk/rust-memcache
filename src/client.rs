@@ -573,6 +573,8 @@ impl ClientBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     #[test]
     fn build_client_happy_path() {
         let client = super::Client::builder()
@@ -626,11 +628,46 @@ mod tests {
     }
 
     #[test]
+    fn build_client_zero_min_idle_conns() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .with_min_idle_conns(0)
+            .build();
+        assert!(client.is_ok(), "Should handle zero min idle conns");
+    }
+
+    #[test]
+    fn build_client_invalid_hash_function() {
+        let invalid_hash_function = |_: &str| -> u64 {
+            panic!("This should not be called");
+        };
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .with_hash_function(invalid_hash_function)
+            .build();
+        assert!(client.is_ok(), "Should handle custom hash function gracefully");
+    }
+
+    #[test]
     fn build_client_with_unsupported_protocol() {
         let client = super::Client::builder()
             .add_server("unsupported://localhost:12345")
             .build();
         assert!(client.is_err(), "Expected error when using an unsupported protocol");
+    }
+
+    #[test]
+    fn build_client_with_all_optional_parameters() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .with_max_pool_size(10)
+            .with_min_idle_conns(2)
+            .with_max_conn_lifetime(Duration::from_secs(30))
+            .with_read_timeout(Duration::from_secs(5))
+            .with_write_timeout(Duration::from_secs(5))
+            .with_connection_timeout(Duration::from_secs(2))
+            .build();
+        assert!(client.is_ok(), "Should successfully build with all optional parameters");
     }
 
     #[cfg(unix)]
