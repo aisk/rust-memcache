@@ -543,6 +543,13 @@ impl ClientBuilder {
         for url in urls.iter() {
             let url = Url::parse(url.as_str()).map_err(|e| MemcacheError::BadURL(e.to_string()))?;
 
+            match url.scheme() {
+                "memcache" | "memcache+tls" | "memcache+udp" => {}
+                _ => {
+                    return Err(MemcacheError::BadURL(format!("Unsupported protocol: {}", url.scheme())));
+                }
+            }
+
             let mut builder = r2d2::Pool::builder()
                 .max_size(max_size)
                 .min_idle(min_idle)
