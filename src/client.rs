@@ -590,6 +590,47 @@ mod tests {
         assert!(client.is_err());
     }
 
+    #[test]
+    fn build_client_with_large_pool_size() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .with_max_pool_size(100)
+            .build();
+        assert!(
+            client.is_ok(),
+            "Expected successful client creation with large pool size"
+        );
+    }
+
+    #[test]
+    fn build_client_with_custom_hash_function() {
+        fn custom_hash_function(_key: &str) -> u64 {
+            42 // A simple, predictable hash function for testing.
+        }
+
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .with_hash_function(custom_hash_function)
+            .build()
+            .unwrap();
+
+        // This test assumes that the custom hash function will affect the selection of connections.
+        // As the implementation details of connection selection are not exposed, this test might need to be adjusted.
+        assert_eq!(
+            (client.hash_function)("any_key"),
+            42,
+            "Expected custom hash function to be used"
+        );
+    }
+
+    #[test]
+    fn build_client_with_unsupported_protocol() {
+        let client = super::Client::builder()
+            .add_server("unsupported://localhost:12345")
+            .build();
+        assert!(client.is_err(), "Expected error when using an unsupported protocol");
+    }
+
     #[cfg(unix)]
     #[test]
     fn unix() {
