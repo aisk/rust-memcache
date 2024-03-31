@@ -18,6 +18,18 @@ pub trait Connectable {
     fn get_urls(self) -> Vec<String>;
 }
 
+impl Connectable for (&str, u16) {
+    fn get_urls(self) -> Vec<String> {
+        return vec![format!("{}:{}", self.0, self.1)];
+    }
+}
+
+impl Connectable for &[(&str, u16)] {
+    fn get_urls(self) -> Vec<String> {
+        self.iter().map(|(host, port)| format!("{}:{}", host, port)).collect()
+    }
+}
+
 impl Connectable for Url {
     fn get_urls(self) -> Vec<String> {
         return vec![self.to_string()];
@@ -79,8 +91,8 @@ impl Client {
         return Self::connect(target);
     }
 
-    pub fn builder<C: Connectable>(target: C) -> ClientBuilder<C> {
-        ClientBuilder::new(target)
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 
     pub fn with_pool_size<C: Connectable>(target: C, size: u32) -> Result<Self, MemcacheError> {
@@ -116,7 +128,7 @@ impl Client {
     }
 
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
-        Self::builder(target).build()
+        Self::builder().add_server(target).build()
     }
 
     fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
@@ -444,87 +456,116 @@ impl Client {
     }
 }
 
-pub struct ClientBuilder<C: Connectable> {
-    target: C,
-    max_size: u32,
-    min_idle: Option<u32>,
-    max_lifetime: Option<Duration>,
-    read_timeout: Option<Duration>,
-    write_timeout: Option<Duration>,
+pub struct ClientBuilder {
+    target: Vec<String>,
+    with_max_size: u32,
+    with_min_idle: Option<u32>,
+    with_max_lifetime: Option<Duration>,
+    with_read_timeout: Option<Duration>,
+    with_write_timeout: Option<Duration>,
+    with_connection_timeout: Option<Duration>,
+    with_hash_function: fn(&str) -> u64,
 }
 
-impl<C: Connectable> ClientBuilder<C> {
-    pub fn new(target: C) -> Self {
+impl ClientBuilder {
+    /// Create an empty client builder.
+    pub fn new() -> Self {
         ClientBuilder {
-            target,
-            max_size: 1,
-            min_idle: None,
-            max_lifetime: None,
-            read_timeout: None,
-            write_timeout: None,
+            target: vec![],
+            with_max_size: 1,
+            with_min_idle: None,
+            with_max_lifetime: None,
+            with_read_timeout: None,
+            with_write_timeout: None,
+            with_connection_timeout: None,
+            with_hash_function: default_hash_function,
         }
+    }
+
+    /// Add a memcached server to the pool.
+    pub fn add_server<C: Connectable>(mut self, target: C) -> Self {
+        self.target.extend(target.get_urls());
+        self
     }
 
     /// Set the maximum number of connections managed by the pool.
     pub fn with_max_pool_size(mut self, max_size: u32) -> Self {
-        self.max_size = max_size;
+        self.with_max_size = max_size;
         self
     }
 
     /// Set the minimum number of idle connections to maintain in the pool.
     pub fn with_min_idle_conns(mut self, min_idle: u32) -> Self {
-        self.min_idle = Some(min_idle);
+        self.with_min_idle = Some(min_idle);
         self
     }
 
     /// Set the maximum lifetime of connections in the pool.
     pub fn with_max_conn_lifetime(mut self, max_lifetime: Duration) -> Self {
-        self.max_lifetime = Some(max_lifetime);
+        self.with_max_lifetime = Some(max_lifetime);
         self
     }
 
     /// Set the socket read timeout for TCP connections.
     pub fn with_read_timeout(mut self, read_timeout: Duration) -> Self {
-        self.read_timeout = Some(read_timeout);
+        self.with_read_timeout = Some(read_timeout);
         self
     }
 
     /// Set the socket write timeout for TCP connections.
     pub fn with_write_timeout(mut self, write_timeout: Duration) -> Self {
-        self.write_timeout = Some(write_timeout);
+        self.with_write_timeout = Some(write_timeout);
+        self
+    }
+
+    /// Set the connection timeout for TCP connections.
+    pub fn with_connection_timeout(mut self, connection_timeout: Duration) -> Self {
+        self.with_connection_timeout = Some(connection_timeout);
+        self
+    }
+
+    /// Set the hash function for the client.
+    pub fn with_hash_function(mut self, hash_function: fn(&str) -> u64) -> Self {
+        self.with_hash_function = hash_function;
         self
     }
 
     /// Build the client. This will create a connection pool and return a client, or an error if the connection pool could not be created.
     pub fn build(self) -> Result<Client, MemcacheError> {
         let urls = self.target.get_urls();
-        let max_size = self.max_size;
-        let min_idle = self.min_idle;
-        let max_lifetime = self.max_lifetime;
+        let max_size = self.with_max_size;
+        let min_idle = self.with_min_idle;
+        let max_lifetime = self.with_max_lifetime;
+        let timeout = self.with_connection_timeout;
 
         let mut connections = vec![];
 
         for url in urls.iter() {
             let url = Url::parse(url.as_str()).map_err(|e| MemcacheError::BadURL(e.to_string()))?;
 
-            connections.push(
-                r2d2::Pool::builder()
-                    .max_size(max_size)
-                    .min_idle(min_idle)
-                    .max_lifetime(max_lifetime)
-                    .connection_timeout(Duration::from_secs(30))
-                    .build(ConnectionManager::new(url))
-                    .map_err(|e| MemcacheError::PoolError(e))?,
-            );
+            let mut builder = r2d2::Pool::builder()
+                .max_size(max_size)
+                .min_idle(min_idle)
+                .max_lifetime(max_lifetime);
+
+            if let Some(timeout) = timeout {
+                builder = builder.connection_timeout(timeout);
+            }
+
+            let connection = builder
+                .build(ConnectionManager::new(url))
+                .map_err(|e| MemcacheError::PoolError(e))?;
+
+            connections.push(connection);
         }
 
         let client = Client {
             connections,
-            hash_function: default_hash_function,
+            hash_function: self.with_hash_function,
         };
 
-        client.set_read_timeout(self.read_timeout)?;
-        client.set_write_timeout(self.write_timeout)?;
+        client.set_read_timeout(self.with_read_timeout)?;
+        client.set_write_timeout(self.with_write_timeout)?;
 
         Ok(client)
     }
@@ -534,13 +575,18 @@ impl<C: Connectable> ClientBuilder<C> {
 mod tests {
     #[test]
     fn build_client_happy_path() {
-        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .build()
+            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
     #[test]
     fn build_client_bad_url() {
-        let client = super::Client::builder("memcache://localhost:12345:").build();
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345:")
+            .build();
         assert!(client.is_err());
     }
 
@@ -550,7 +596,8 @@ mod tests {
         let client = super::Client::connect("memcache:///tmp/memcached.sock").unwrap();
         assert!(client.version().unwrap()[0].1 != "");
 
-        let client = super::Client::builder("memcache:///tmp/memcached.sock")
+        let client = super::Client::builder()
+            .add_server("memcache:///tmp/memcached.sock")
             .build()
             .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
@@ -562,7 +609,8 @@ mod tests {
         let client = super::Client::connect("memcache+tls://localhost:12350?verify_mode=none").unwrap();
         assert!(client.version().unwrap()[0].1 != "");
 
-        let client = super::Client::builder("memcache+tls://localhost:12350?verify_mode=none")
+        let client = super::Client::builder()
+            .add_server("memcache+tls://localhost:12350?verify_mode=none")
             .build()
             .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
@@ -576,10 +624,10 @@ mod tests {
                 .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
 
-        let client =
-            super::Client::builder("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
-                .build()
-                .unwrap();
+        let client = super::Client::builder()
+            .add_server("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+            .build()
+            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -589,7 +637,7 @@ mod tests {
         let client = super::Client::connect("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt").unwrap();
         assert!(client.version().unwrap()[0].1 != "");
 
-        let client = super::Client::builder("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+        let client = super::Client::builder().add_server("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
             .build()
             .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
@@ -602,7 +650,10 @@ mod tests {
         assert_eq!(client.delete("an_exists_key").unwrap(), true);
         assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
 
-        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .build()
+            .unwrap();
         client.set("an_exists_key", "value", 0).unwrap();
         assert_eq!(client.delete("an_exists_key").unwrap(), true);
         assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
@@ -615,7 +666,10 @@ mod tests {
         client.set("counter", 321, 0).unwrap();
         assert_eq!(client.increment("counter", 123).unwrap(), 444);
 
-        let client = super::Client::builder("memcache://localhost:12345").build().unwrap();
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .build()
+            .unwrap();
         client.delete("counter").unwrap();
         client.set("counter", 321, 0).unwrap();
         assert_eq!(client.increment("counter", 123).unwrap(), 444);
