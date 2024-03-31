@@ -458,12 +458,12 @@ impl Client {
 
 pub struct ClientBuilder {
     target: Vec<String>,
-    with_max_size: u32,
-    with_min_idle: Option<u32>,
-    with_max_lifetime: Option<Duration>,
-    with_read_timeout: Option<Duration>,
-    with_write_timeout: Option<Duration>,
-    with_connection_timeout: Option<Duration>,
+    max_size: u32,
+    min_idle: Option<u32>,
+    max_lifetime: Option<Duration>,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
+    connection_timeout: Option<Duration>,
     with_hash_function: fn(&str) -> u64,
 }
 
