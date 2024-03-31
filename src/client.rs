@@ -18,6 +18,24 @@ pub trait Connectable {
     fn get_urls(self) -> Vec<String>;
 }
 
+impl Connectable for (&str, u16) {
+    fn get_urls(self) -> Vec<String> {
+        return vec![format!("{}:{}", self.0, self.1)];
+    }
+}
+
+impl Connectable for &[(&str, u16)] {
+    fn get_urls(self) -> Vec<String> {
+        self.iter().map(|(host, port)| format!("{}:{}", host, port)).collect()
+    }
+}
+
+impl Connectable for Url {
+    fn get_urls(self) -> Vec<String> {
+        return vec![self.to_string()];
+    }
+}
+
 impl Connectable for String {
     fn get_urls(self) -> Vec<String> {
         return vec![self];
@@ -73,6 +91,10 @@ impl Client {
         return Self::connect(target);
     }
 
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
+    }
+
     pub fn with_pool_size<C: Connectable>(target: C, size: u32) -> Result<Self, MemcacheError> {
         let urls = target.get_urls();
         let mut connections = vec![];
@@ -106,7 +128,7 @@ impl Client {
     }
 
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
-        Self::with_pool_size(target, 1)
+        Self::builder().add_server(target)?.build()
     }
 
     fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
@@ -434,8 +456,256 @@ impl Client {
     }
 }
 
+pub struct ClientBuilder {
+    targets: Vec<String>,
+    max_size: u32,
+    min_idle: Option<u32>,
+    max_lifetime: Option<Duration>,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
+    connection_timeout: Option<Duration>,
+    hash_function: fn(&str) -> u64,
+}
+
+impl ClientBuilder {
+    /// Create an empty client builder.
+    pub fn new() -> Self {
+        ClientBuilder {
+            targets: vec![],
+            max_size: 1,
+            min_idle: None,
+            max_lifetime: None,
+            read_timeout: None,
+            write_timeout: None,
+            connection_timeout: None,
+            hash_function: default_hash_function,
+        }
+    }
+
+    /// Add a memcached server to the pool.
+    pub fn add_server<C: Connectable>(mut self, target: C) -> Result<Self, MemcacheError> {
+        let targets = target.get_urls();
+
+        if targets.len() == 0 {
+            return Err(MemcacheError::BadURL("No servers specified".to_string()));
+        }
+
+        self.targets.extend(targets);
+        Ok(self)
+    }
+
+    /// Set the maximum number of connections managed by the pool.
+    pub fn with_max_pool_size(mut self, max_size: u32) -> Self {
+        self.max_size = max_size;
+        self
+    }
+
+    /// Set the minimum number of idle connections to maintain in the pool.
+    pub fn with_min_idle_conns(mut self, min_idle: u32) -> Self {
+        self.min_idle = Some(min_idle);
+        self
+    }
+
+    /// Set the maximum lifetime of connections in the pool.
+    pub fn with_max_conn_lifetime(mut self, max_lifetime: Duration) -> Self {
+        self.max_lifetime = Some(max_lifetime);
+        self
+    }
+
+    /// Set the socket read timeout for TCP connections.
+    pub fn with_read_timeout(mut self, read_timeout: Duration) -> Self {
+        self.read_timeout = Some(read_timeout);
+        self
+    }
+
+    /// Set the socket write timeout for TCP connections.
+    pub fn with_write_timeout(mut self, write_timeout: Duration) -> Self {
+        self.write_timeout = Some(write_timeout);
+        self
+    }
+
+    /// Set the connection timeout for TCP connections.
+    pub fn with_connection_timeout(mut self, connection_timeout: Duration) -> Self {
+        self.connection_timeout = Some(connection_timeout);
+        self
+    }
+
+    /// Set the hash function for the client.
+    pub fn with_hash_function(mut self, hash_function: fn(&str) -> u64) -> Self {
+        self.hash_function = hash_function;
+        self
+    }
+
+    /// Build the client. This will create a connection pool and return a client, or an error if the connection pool could not be created.
+    pub fn build(self) -> Result<Client, MemcacheError> {
+        let urls = self.targets;
+
+        if urls.len() == 0 {
+            return Err(MemcacheError::BadURL("No servers specified".to_string()));
+        }
+
+        let max_size = self.max_size;
+        let min_idle = self.min_idle;
+        let max_lifetime = self.max_lifetime;
+        let timeout = self.connection_timeout;
+
+        let mut connections = vec![];
+
+        for url in urls.iter() {
+            let url = Url::parse(url.as_str()).map_err(|e| MemcacheError::BadURL(e.to_string()))?;
+
+            match url.scheme() {
+                "memcache" | "memcache+tls" | "memcache+udp" => {}
+                _ => {
+                    return Err(MemcacheError::BadURL(format!("Unsupported protocol: {}", url.scheme())));
+                }
+            }
+
+            let mut builder = r2d2::Pool::builder()
+                .max_size(max_size)
+                .min_idle(min_idle)
+                .max_lifetime(max_lifetime);
+
+            if let Some(timeout) = timeout {
+                builder = builder.connection_timeout(timeout);
+            }
+
+            let connection = builder
+                .build(ConnectionManager::new(url))
+                .map_err(|e| MemcacheError::PoolError(e))?;
+
+            connections.push(connection);
+        }
+
+        let client = Client {
+            connections,
+            hash_function: self.hash_function,
+        };
+
+        client.set_read_timeout(self.read_timeout)?;
+        client.set_write_timeout(self.write_timeout)?;
+
+        Ok(client)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    #[test]
+    fn build_client_happy_path() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(client.version().unwrap()[0].1 != "");
+    }
+
+    #[test]
+    fn build_client_bad_url() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345:")
+            .unwrap()
+            .build();
+        assert!(client.is_err());
+    }
+
+    #[test]
+    fn build_client_no_url() {
+        let client = super::Client::builder().build();
+        assert!(client.is_err());
+
+        let client = super::Client::builder().add_server(Vec::<String>::new());
+
+        assert!(client.is_err());
+    }
+
+    #[test]
+    fn build_client_with_large_pool_size() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .unwrap()
+            // This is a large pool size, but it should still be valid.
+            // This does make the test run very slow however.
+            .with_max_pool_size(100)
+            .build();
+        assert!(
+            client.is_ok(),
+            "Expected successful client creation with large pool size"
+        );
+    }
+
+    #[test]
+    fn build_client_with_custom_hash_function() {
+        fn custom_hash_function(_key: &str) -> u64 {
+            42 // A simple, predictable hash function for testing.
+        }
+
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .unwrap()
+            .with_hash_function(custom_hash_function)
+            .build()
+            .unwrap();
+
+        // This test assumes that the custom hash function will affect the selection of connections.
+        // As the implementation details of connection selection are not exposed, this test might need to be adjusted.
+        assert_eq!(
+            (client.hash_function)("any_key"),
+            42,
+            "Expected custom hash function to be used"
+        );
+    }
+
+    #[test]
+    fn build_client_zero_min_idle_conns() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .unwrap()
+            .with_min_idle_conns(0)
+            .build();
+        assert!(client.is_ok(), "Should handle zero min idle conns");
+    }
+
+    #[test]
+    fn build_client_invalid_hash_function() {
+        let invalid_hash_function = |_: &str| -> u64 {
+            panic!("This should not be called");
+        };
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .unwrap()
+            .with_hash_function(invalid_hash_function)
+            .build();
+        assert!(client.is_ok(), "Should handle custom hash function gracefully");
+    }
+
+    #[test]
+    fn build_client_with_unsupported_protocol() {
+        let client = super::Client::builder()
+            .add_server("unsupported://localhost:12345")
+            .unwrap()
+            .build();
+        assert!(client.is_err(), "Expected error when using an unsupported protocol");
+    }
+
+    #[test]
+    fn build_client_with_all_optional_parameters() {
+        let client = super::Client::builder()
+            .add_server("memcache://localhost:12345")
+            .unwrap()
+            .with_max_pool_size(10)
+            .with_min_idle_conns(2)
+            .with_max_conn_lifetime(Duration::from_secs(30))
+            .with_read_timeout(Duration::from_secs(5))
+            .with_write_timeout(Duration::from_secs(5))
+            .with_connection_timeout(Duration::from_secs(2))
+            .build();
+        assert!(client.is_ok(), "Should successfully build with all optional parameters");
+    }
+
     #[cfg(unix)]
     #[test]
     fn unix() {

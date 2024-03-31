@@ -80,7 +80,7 @@ mod protocol;
 mod stream;
 mod value;
 
-pub use crate::client::{Client, Connectable};
+pub use crate::client::{Client, ClientBuilder, Connectable};
 pub use crate::connection::ConnectionManager;
 pub use crate::error::{ClientError, CommandError, MemcacheError, ServerError};
 pub use crate::stream::Stream;
