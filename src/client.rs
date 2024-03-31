@@ -128,7 +128,7 @@ impl Client {
     }
 
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
-        Self::builder().add_server(target).build()
+        Self::builder().add_server(target)?.build()
     }
 
     fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
@@ -457,7 +457,7 @@ impl Client {
 }
 
 pub struct ClientBuilder {
-    target: Vec<String>,
+    targets: Vec<String>,
     max_size: u32,
     min_idle: Option<u32>,
     max_lifetime: Option<Duration>,
@@ -471,7 +471,7 @@ impl ClientBuilder {
     /// Create an empty client builder.
     pub fn new() -> Self {
         ClientBuilder {
-            target: vec![],
+            targets: vec![],
             max_size: 1,
             min_idle: None,
             max_lifetime: None,
@@ -483,9 +483,15 @@ impl ClientBuilder {
     }
 
     /// Add a memcached server to the pool.
-    pub fn add_server<C: Connectable>(mut self, target: C) -> Self {
-        self.target.extend(target.get_urls());
-        self
+    pub fn add_server<C: Connectable>(mut self, target: C) -> Result<Self, MemcacheError> {
+        let targets = target.get_urls();
+
+        if targets.len() == 0 {
+            return Err(MemcacheError::BadURL("No servers specified".to_string()));
+        }
+
+        self.targets.extend(targets);
+        Ok(self)
     }
 
     /// Set the maximum number of connections managed by the pool.
@@ -532,7 +538,12 @@ impl ClientBuilder {
 
     /// Build the client. This will create a connection pool and return a client, or an error if the connection pool could not be created.
     pub fn build(self) -> Result<Client, MemcacheError> {
-        let urls = self.target.get_urls();
+        let urls = self.targets;
+
+        if urls.len() == 0 {
+            return Err(MemcacheError::BadURL("No servers specified".to_string()));
+        }
+
         let max_size = self.max_size;
         let min_idle = self.min_idle;
         let max_lifetime = self.max_lifetime;
@@ -586,6 +597,7 @@ mod tests {
     fn build_client_happy_path() {
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345")
+            .unwrap()
             .build()
             .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
@@ -595,7 +607,18 @@ mod tests {
     fn build_client_bad_url() {
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345:")
+            .unwrap()
             .build();
+        assert!(client.is_err());
+    }
+
+    #[test]
+    fn build_client_no_url() {
+        let client = super::Client::builder().build();
+        assert!(client.is_err());
+
+        let client = super::Client::builder().add_server(Vec::<String>::new());
+
         assert!(client.is_err());
     }
 
@@ -603,6 +626,7 @@ mod tests {
     fn build_client_with_large_pool_size() {
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345")
+            .unwrap()
             // This is a large pool size, but it should still be valid.
             // This does make the test run very slow however.
             .with_max_pool_size(100)
@@ -621,6 +645,7 @@ mod tests {
 
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345")
+            .unwrap()
             .with_hash_function(custom_hash_function)
             .build()
             .unwrap();
@@ -638,6 +663,7 @@ mod tests {
     fn build_client_zero_min_idle_conns() {
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345")
+            .unwrap()
             .with_min_idle_conns(0)
             .build();
         assert!(client.is_ok(), "Should handle zero min idle conns");
@@ -650,6 +676,7 @@ mod tests {
         };
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345")
+            .unwrap()
             .with_hash_function(invalid_hash_function)
             .build();
         assert!(client.is_ok(), "Should handle custom hash function gracefully");
@@ -659,6 +686,7 @@ mod tests {
     fn build_client_with_unsupported_protocol() {
         let client = super::Client::builder()
             .add_server("unsupported://localhost:12345")
+            .unwrap()
             .build();
         assert!(client.is_err(), "Expected error when using an unsupported protocol");
     }
@@ -667,6 +695,7 @@ mod tests {
     fn build_client_with_all_optional_parameters() {
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345")
+            .unwrap()
             .with_max_pool_size(10)
             .with_min_idle_conns(2)
             .with_max_conn_lifetime(Duration::from_secs(30))
@@ -682,24 +711,12 @@ mod tests {
     fn unix() {
         let client = super::Client::connect("memcache:///tmp/memcached.sock").unwrap();
         assert!(client.version().unwrap()[0].1 != "");
-
-        let client = super::Client::builder()
-            .add_server("memcache:///tmp/memcached.sock")
-            .build()
-            .unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
     }
 
     #[cfg(feature = "tls")]
     #[test]
     fn ssl_noverify() {
         let client = super::Client::connect("memcache+tls://localhost:12350?verify_mode=none").unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
-
-        let client = super::Client::builder()
-            .add_server("memcache+tls://localhost:12350?verify_mode=none")
-            .build()
-            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -710,23 +727,12 @@ mod tests {
             super::Client::connect("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
                 .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
-
-        let client = super::Client::builder()
-            .add_server("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
-            .build()
-            .unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
     }
 
     #[cfg(feature = "tls")]
     #[test]
     fn ssl_client_certs() {
         let client = super::Client::connect("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt").unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
-
-        let client = super::Client::builder().add_server("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
-            .build()
-            .unwrap();
         assert!(client.version().unwrap()[0].1 != "");
     }
 
@@ -736,27 +742,11 @@ mod tests {
         client.set("an_exists_key", "value", 0).unwrap();
         assert_eq!(client.delete("an_exists_key").unwrap(), true);
         assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
-
-        let client = super::Client::builder()
-            .add_server("memcache://localhost:12345")
-            .build()
-            .unwrap();
-        client.set("an_exists_key", "value", 0).unwrap();
-        assert_eq!(client.delete("an_exists_key").unwrap(), true);
-        assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
     }
 
     #[test]
     fn increment() {
         let client = super::Client::connect("memcache://localhost:12345").unwrap();
-        client.delete("counter").unwrap();
-        client.set("counter", 321, 0).unwrap();
-        assert_eq!(client.increment("counter", 123).unwrap(), 444);
-
-        let client = super::Client::builder()
-            .add_server("memcache://localhost:12345")
-            .build()
-            .unwrap();
         client.delete("counter").unwrap();
         client.set("counter", 321, 0).unwrap();
         assert_eq!(client.increment("counter", 123).unwrap(), 444);
