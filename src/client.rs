@@ -464,7 +464,7 @@ pub struct ClientBuilder {
     read_timeout: Option<Duration>,
     write_timeout: Option<Duration>,
     connection_timeout: Option<Duration>,
-    with_hash_function: fn(&str) -> u64,
+    hash_function: fn(&str) -> u64,
 }
 
 impl ClientBuilder {
@@ -472,13 +472,13 @@ impl ClientBuilder {
     pub fn new() -> Self {
         ClientBuilder {
             target: vec![],
-            with_max_size: 1,
-            with_min_idle: None,
-            with_max_lifetime: None,
-            with_read_timeout: None,
-            with_write_timeout: None,
-            with_connection_timeout: None,
-            with_hash_function: default_hash_function,
+            max_size: 1,
+            min_idle: None,
+            max_lifetime: None,
+            read_timeout: None,
+            write_timeout: None,
+            connection_timeout: None,
+            hash_function: default_hash_function,
         }
     }
 
@@ -490,53 +490,53 @@ impl ClientBuilder {
 
     /// Set the maximum number of connections managed by the pool.
     pub fn with_max_pool_size(mut self, max_size: u32) -> Self {
-        self.with_max_size = max_size;
+        self.max_size = max_size;
         self
     }
 
     /// Set the minimum number of idle connections to maintain in the pool.
     pub fn with_min_idle_conns(mut self, min_idle: u32) -> Self {
-        self.with_min_idle = Some(min_idle);
+        self.min_idle = Some(min_idle);
         self
     }
 
     /// Set the maximum lifetime of connections in the pool.
     pub fn with_max_conn_lifetime(mut self, max_lifetime: Duration) -> Self {
-        self.with_max_lifetime = Some(max_lifetime);
+        self.max_lifetime = Some(max_lifetime);
         self
     }
 
     /// Set the socket read timeout for TCP connections.
     pub fn with_read_timeout(mut self, read_timeout: Duration) -> Self {
-        self.with_read_timeout = Some(read_timeout);
+        self.read_timeout = Some(read_timeout);
         self
     }
 
     /// Set the socket write timeout for TCP connections.
     pub fn with_write_timeout(mut self, write_timeout: Duration) -> Self {
-        self.with_write_timeout = Some(write_timeout);
+        self.write_timeout = Some(write_timeout);
         self
     }
 
     /// Set the connection timeout for TCP connections.
     pub fn with_connection_timeout(mut self, connection_timeout: Duration) -> Self {
-        self.with_connection_timeout = Some(connection_timeout);
+        self.connection_timeout = Some(connection_timeout);
         self
     }
 
     /// Set the hash function for the client.
     pub fn with_hash_function(mut self, hash_function: fn(&str) -> u64) -> Self {
-        self.with_hash_function = hash_function;
+        self.hash_function = hash_function;
         self
     }
 
     /// Build the client. This will create a connection pool and return a client, or an error if the connection pool could not be created.
     pub fn build(self) -> Result<Client, MemcacheError> {
         let urls = self.target.get_urls();
-        let max_size = self.with_max_size;
-        let min_idle = self.with_min_idle;
-        let max_lifetime = self.with_max_lifetime;
-        let timeout = self.with_connection_timeout;
+        let max_size = self.max_size;
+        let min_idle = self.min_idle;
+        let max_lifetime = self.max_lifetime;
+        let timeout = self.connection_timeout;
 
         let mut connections = vec![];
 
@@ -561,11 +561,11 @@ impl ClientBuilder {
 
         let client = Client {
             connections,
-            hash_function: self.with_hash_function,
+            hash_function: self.hash_function,
         };
 
-        client.set_read_timeout(self.with_read_timeout)?;
-        client.set_write_timeout(self.with_write_timeout)?;
+        client.set_read_timeout(self.read_timeout)?;
+        client.set_write_timeout(self.write_timeout)?;
 
         Ok(client)
     }
@@ -594,6 +594,8 @@ mod tests {
     fn build_client_with_large_pool_size() {
         let client = super::Client::builder()
             .add_server("memcache://localhost:12345")
+            // This is a large pool size, but it should still be valid.
+            // This does make the test run very slow however.
             .with_max_pool_size(100)
             .build();
         assert!(
