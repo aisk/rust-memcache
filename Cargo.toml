@@ -10,8 +10,9 @@ keywords = ["memcache", "memcached", "driver", "cache", "database"]
 edition = "2018"
 
 [features]
-default = ["tls"]
+default = ["tls", "json"]
 tls = ["openssl"]
+json = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 byteorder = "1"
@@ -20,3 +21,5 @@ rand = "0.8"
 enum_dispatch = "0.3"
 openssl = { version = "^0.10", optional = true }
 r2d2 = "^0.8"
+serde = { version = "1.0.197", optional = true , features = ["derive"] }
+serde_json = { version = "1.0.115", optional = true }
