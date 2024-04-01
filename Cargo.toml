@@ -10,7 +10,7 @@ keywords = ["memcache", "memcached", "driver", "cache", "database"]
 edition = "2018"
 
 [features]
-default = ["tls", "json"]
+default = ["tls"]
 tls = ["openssl"]
 json = ["dep:serde", "dep:serde_json"]
 
