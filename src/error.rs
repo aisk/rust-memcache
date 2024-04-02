@@ -1,4 +1,3 @@
-use r2d2;
 use std::borrow::Cow;
 use std::error;
 use std::fmt;
@@ -6,7 +5,6 @@ use std::io;
 use std::num;
 use std::str;
 use std::string;
-use url;
 
 /// Client-side errors
 #[derive(Debug, PartialEq)]
