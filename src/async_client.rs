@@ -22,6 +22,20 @@ impl AsyncClient {
         Ok(Client::connect(target)?.into())
     }
 
+    /// Get a reference to the inner `Client` object.
+    /// This will allow you to call methods on the `Client` object synchronously.
+    ///
+    /// Example:
+    ///
+    /// ```rust
+    /// let client = memcache::AsyncClient::connect("memcache://localhost:12345").unwrap();
+    /// let blocking_client = client.blocking();
+    /// let _: Option<String> = blocking_client.get("foo").unwrap();
+    /// ```
+    pub fn blocking(&self) -> &Client {
+        &self.inner
+    }
+
     /// Set the socket read timeout for TCP connections.
     ///
     /// Example:
