@@ -130,7 +130,12 @@ impl AsyncClient {
     ///     client.flush().await.unwrap();
     /// };
     /// ```
-    pub async fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    pub async fn set<V: ToMemcacheValue<Stream>>(
+        &self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
         self.inner.set(key, value, expiration)
     }
 
@@ -174,7 +179,12 @@ impl AsyncClient {
     ///     client.flush().await.unwrap();
     /// };
     /// ```
-    pub async fn add<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    pub async fn add<V: ToMemcacheValue<Stream>>(
+        &self,
+        key: &str,
+        value: V,
+        expiration: u32,
+    ) -> Result<(), MemcacheError> {
         self.inner.add(key, value, expiration)
     }
 
@@ -448,9 +458,10 @@ mod tests {
     #[cfg(feature = "tls")]
     #[tokio::test]
     async fn ssl_verify() {
-        let client =
-            super::AsyncClient::connect("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
-                .unwrap();
+        let client = super::AsyncClient::connect(
+            "memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt",
+        )
+        .unwrap();
         assert!(client.version().await.unwrap()[0].1 != "");
     }
 
