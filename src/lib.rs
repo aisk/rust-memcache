@@ -73,12 +73,18 @@ extern crate r2d2;
 extern crate rand;
 extern crate url;
 
+#[cfg(feature = "async")]
+mod async_client;
+
 mod client;
 mod connection;
 mod error;
 mod protocol;
 mod stream;
 mod value;
+
+#[cfg(feature = "async")]
+pub use crate::async_client::AsyncClient;
 
 pub use crate::client::{Client, ClientBuilder, Connectable};
 pub use crate::connection::ConnectionManager;
@@ -100,4 +106,16 @@ pub type Pool = r2d2::Pool<connection::ConnectionManager>;
 /// ```
 pub fn connect<C: Connectable>(target: C) -> Result<Client, MemcacheError> {
     Client::connect(target)
+}
+
+/// Create an async memcached client instance and connect to memcached server.
+///
+/// Example:
+///
+/// ```rust
+/// let client = memcache::connect_async("memcache://localhost:12345").unwrap();
+/// ```
+#[cfg(feature = "async")]
+pub fn connect_async<C: Connectable>(target: C) -> Result<AsyncClient, MemcacheError> {
+    AsyncClient::connect(target)
 }

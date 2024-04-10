@@ -5,6 +5,9 @@ use std::time::Duration;
 
 use url::Url;
 
+#[cfg(feature = "async")]
+use crate::async_client::AsyncClient;
+
 use crate::connection::ConnectionManager;
 use crate::error::{ClientError, MemcacheError};
 use crate::protocol::{Protocol, ProtocolTrait};
@@ -66,7 +69,7 @@ impl Connectable for Vec<&str> {
 
 #[derive(Clone)]
 pub struct Client {
-    connections: Vec<Pool<ConnectionManager>>,
+    pub connections: Vec<Pool<ConnectionManager>>,
     pub hash_function: fn(&str) -> u64,
 }
 
@@ -131,7 +134,12 @@ impl Client {
         Self::builder().add_server(target)?.build()
     }
 
-    fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
+    #[cfg(feature = "async")]
+    pub fn connect_async<C: Connectable>(target: C) -> Result<AsyncClient, MemcacheError> {
+        Ok(Self::connect(target)?.into())
+    }
+
+    pub(super) fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
         let connections_count = self.connections.len();
         return self.connections[(self.hash_function)(key) as usize % connections_count].clone();
     }
@@ -586,6 +594,11 @@ impl ClientBuilder {
         client.set_write_timeout(self.write_timeout)?;
 
         Ok(client)
+    }
+
+    #[cfg(feature = "async")]
+    pub fn build_async(self) -> Result<AsyncClient, MemcacheError> {
+        Ok(self.build()?.into())
     }
 }
 
