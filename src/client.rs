@@ -69,7 +69,7 @@ impl Connectable for Vec<&str> {
 
 #[derive(Clone)]
 pub struct Client {
-    pub connections: Vec<Pool<ConnectionManager>>,
+    connections: Vec<Pool<ConnectionManager>>,
     pub hash_function: fn(&str) -> u64,
 }
 
