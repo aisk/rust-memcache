@@ -136,6 +136,26 @@ impl Client {
         &self.connections[(self.hash_function)(key) as usize % connections_count]
     }
 
+    /// Distributes the input `keys` to the available `connections`.
+    ///
+    /// This uses the `hash_function` internally, and the returned [`Vec`] matches
+    /// the available `connections`.
+    fn distribute_keys<'a>(&self, keys: &[&'a str]) -> Result<Vec<Vec<&'a str>>, MemcacheError> {
+        for key in keys {
+            check_key_len(key)?;
+        }
+
+        let connections_count = self.connections.len();
+        let mut con_keys = Vec::new();
+        con_keys.resize_with(connections_count, Vec::new);
+        for key in keys {
+            let connection_index = (self.hash_function)(key) as usize % connections_count;
+            con_keys[connection_index].push(*key);
+        }
+
+        Ok(con_keys)
+    }
+
     /// Set the socket read timeout for TCP connections.
     ///
     /// Example:
@@ -247,21 +267,13 @@ impl Client {
     /// assert_eq!(result["foo"], "42");
     /// ```
     pub fn gets<V: FromMemcacheValueExt>(&self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
-        for key in keys {
-            check_key_len(key)?;
-        }
-        let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
-        let mut result: HashMap<String, V> = HashMap::new();
-        let connections_count = self.connections.len();
+        let distributed_keys = self.distribute_keys(keys)?;
 
-        for key in keys {
-            let connection_index = (self.hash_function)(key) as usize % connections_count;
-            let array = con_keys.entry(connection_index).or_default();
-            array.push(key);
-        }
-        for (&connection_index, keys) in con_keys.iter() {
-            let connection = self.connections[connection_index].clone();
-            result.extend(connection.get()?.gets(keys)?);
+        let mut result: HashMap<String, V> = HashMap::new();
+        for (connection, keys) in self.connections.iter().zip(distributed_keys) {
+            if !keys.is_empty() {
+                result.extend(connection.get()?.gets(&keys)?);
+            }
         }
         Ok(result)
     }
