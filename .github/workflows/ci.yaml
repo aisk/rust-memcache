@@ -33,14 +33,14 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: build
-    - name: Run tests
+    - name: Run tests with async off
       uses: actions-rs/cargo@v1
       with:
         command: test
       env:
           CARGO_INCREMENTAL: 0
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off"
-    - name: Run tests
+    - name: Run tests with async on
       uses: actions-rs/cargo@v1
       with:
         command: test
