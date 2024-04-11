@@ -96,16 +96,13 @@ struct TcpOptions {
 
 #[cfg(feature = "tls")]
 fn get_param(url: &Url, key: &str) -> Option<String> {
-    return url
-        .query_pairs()
-        .find(|&(ref k, ref _v)| k == key)
-        .map(|(_k, v)| v.to_string());
+    url.query_pairs().find(|(k, _v)| k == key).map(|(_k, v)| v.to_string())
 }
 
 #[cfg(feature = "tls")]
 impl TlsOptions {
     fn from_url(url: &Url) -> Result<Self, MemcacheError> {
-        let verify_mode = match get_param(url, "verify_mode").as_ref().map(String::as_str) {
+        let verify_mode = match get_param(url, "verify_mode").as_deref() {
             Some("none") => SslVerifyMode::NONE,
             Some("peer") => SslVerifyMode::PEER,
             Some(_) => {
@@ -132,10 +129,10 @@ impl TlsOptions {
 
         Ok(TlsOptions {
             tcp_options: TcpOptions::from_url(url),
-            ca_path: ca_path,
-            key_path: key_path,
-            cert_path: cert_path,
-            verify_mode: verify_mode,
+            ca_path,
+            key_path,
+            cert_path,
+            verify_mode,
         })
     }
 }
@@ -147,21 +144,18 @@ impl TcpOptions {
             .any(|(ref k, ref v)| k == "tcp_nodelay" && v == "false");
         let timeout = url
             .query_pairs()
-            .find(|&(ref k, ref _v)| k == "timeout")
+            .find(|(k, _v)| k == "timeout")
             .and_then(|(ref _k, ref v)| v.parse::<f64>().ok())
             .map(Duration::from_secs_f64);
-        TcpOptions {
-            nodelay: nodelay,
-            timeout: timeout,
-        }
+        TcpOptions { nodelay, timeout }
     }
 }
 
 impl Transport {
     fn from_url(url: &Url) -> Result<Self, MemcacheError> {
-        let mut parts = url.scheme().splitn(2, "+");
+        let mut parts = url.scheme().splitn(2, '+');
         match parts.next() {
-            Some(part) if part == "memcache" => (),
+            Some("memcache") => (),
             _ => {
                 return Err(MemcacheError::BadURL(
                     "memcache URL's scheme should start with 'memcache'".into(),
@@ -191,7 +185,7 @@ impl Transport {
 
         #[cfg(unix)]
         {
-            if url.host().is_none() && url.port() == None {
+            if url.host().is_none() && url.port().is_none() {
                 return Ok(Transport::Unix);
             }
         }
@@ -254,12 +248,12 @@ impl Connection {
         let protocol = if is_ascii {
             Protocol::Ascii(AsciiProtocol::new(stream))
         } else {
-            Protocol::Binary(BinaryProtocol { stream: stream })
+            Protocol::Binary(BinaryProtocol { stream })
         };
 
         Ok(Connection {
             url: Arc::new(url.to_string()),
-            protocol: protocol,
+            protocol,
         })
     }
 }
@@ -273,7 +267,7 @@ mod tests {
         use url::Url;
         match Transport::from_url(&Url::parse("memcache:///tmp/memcached.sock").unwrap()).unwrap() {
             Transport::Unix => (),
-            _ => assert!(false, "transport is not unix"),
+            _ => panic!("transport is not unix"),
         }
     }
 }

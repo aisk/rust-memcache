@@ -102,7 +102,7 @@ impl Client {
             let parsed = Url::parse(url.as_str())?;
             let timeout = parsed
                 .query_pairs()
-                .find(|&(ref k, ref _v)| k == "connect_timeout")
+                .find(|(k, _v)| k == "connect_timeout")
                 .and_then(|(ref _k, ref v)| v.parse::<f64>().ok())
                 .map(Duration::from_secs_f64);
             let builder = r2d2::Pool::builder().max_size(size);
@@ -256,7 +256,7 @@ impl Client {
 
         for key in keys {
             let connection_index = (self.hash_function)(key) as usize % connections_count;
-            let array = con_keys.entry(connection_index).or_insert_with(Vec::new);
+            let array = con_keys.entry(connection_index).or_default();
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
@@ -467,6 +467,12 @@ pub struct ClientBuilder {
     hash_function: fn(&str) -> u64,
 }
 
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClientBuilder {
     /// Create an empty client builder.
     pub fn new() -> Self {
@@ -486,7 +492,7 @@ impl ClientBuilder {
     pub fn add_server<C: Connectable>(mut self, target: C) -> Result<Self, MemcacheError> {
         let targets = target.get_urls();
 
-        if targets.len() == 0 {
+        if targets.is_empty() {
             return Err(MemcacheError::BadURL("No servers specified".to_string()));
         }
 
@@ -540,7 +546,7 @@ impl ClientBuilder {
     pub fn build(self) -> Result<Client, MemcacheError> {
         let urls = self.targets;
 
-        if urls.len() == 0 {
+        if urls.is_empty() {
             return Err(MemcacheError::BadURL("No servers specified".to_string()));
         }
 
@@ -572,7 +578,7 @@ impl ClientBuilder {
 
             let connection = builder
                 .build(ConnectionManager::new(url))
-                .map_err(|e| MemcacheError::PoolError(e))?;
+                .map_err(MemcacheError::PoolError)?;
 
             connections.push(connection);
         }
@@ -600,7 +606,7 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
+        assert!(!client.version().unwrap()[0].1.is_empty());
     }
 
     #[test]
@@ -710,14 +716,14 @@ mod tests {
     #[test]
     fn unix() {
         let client = super::Client::connect("memcache:///tmp/memcached.sock").unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
+        assert!(!client.version().unwrap()[0].1.is_empty());
     }
 
     #[cfg(feature = "tls")]
     #[test]
     fn ssl_noverify() {
         let client = super::Client::connect("memcache+tls://localhost:12350?verify_mode=none").unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
+        assert!(!client.version().unwrap()[0].1.is_empty());
     }
 
     #[cfg(feature = "tls")]
@@ -726,22 +732,22 @@ mod tests {
         let client =
             super::Client::connect("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
                 .unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
+        assert!(!client.version().unwrap()[0].1.is_empty());
     }
 
     #[cfg(feature = "tls")]
     #[test]
     fn ssl_client_certs() {
         let client = super::Client::connect("memcache+tls://localhost:12351?key_path=tests/assets/client.key&cert_path=tests/assets/client.crt&ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt").unwrap();
-        assert!(client.version().unwrap()[0].1 != "");
+        assert!(!client.version().unwrap()[0].1.is_empty());
     }
 
     #[test]
     fn delete() {
         let client = super::Client::connect("memcache://localhost:12345").unwrap();
         client.set("an_exists_key", "value", 0).unwrap();
-        assert_eq!(client.delete("an_exists_key").unwrap(), true);
-        assert_eq!(client.delete("a_not_exists_key").unwrap(), false);
+        assert!(client.delete("an_exists_key").unwrap());
+        assert!(!client.delete("a_not_exists_key").unwrap());
     }
 
     #[test]
