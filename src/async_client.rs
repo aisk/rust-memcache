@@ -546,10 +546,9 @@ mod tests {
     #[cfg(feature = "tls")]
     #[tokio::test]
     async fn ssl_verify() {
-        let client = super::Client::connect(
-            "memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt",
-        )
-        .unwrap();
+        let client =
+            super::Client::connect("memcache+tls://localhost:12350?ca_path=tests/assets/RUST_MEMCACHE_TEST_CERT.crt")
+                .unwrap();
         assert!(client.version().await.unwrap()[0].1 != "");
     }
 

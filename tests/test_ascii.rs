@@ -63,7 +63,10 @@ async fn test_ascii() {
     assert_eq!(value, Some("bar".into()));
 
     client.set("ascii_baz", "qux", 0).await.unwrap();
-    let values: HashMap<String, (Vec<u8>, u32)> = client.gets(&["ascii_foo", "ascii_baz", "not_exists_key"]).await.unwrap();
+    let values: HashMap<String, (Vec<u8>, u32)> = client
+        .gets(&["ascii_foo", "ascii_baz", "not_exists_key"])
+        .await
+        .unwrap();
     assert_eq!(values.len(), 2);
     let ascii_foo_value = values.get("ascii_foo").unwrap();
     let ascii_baz_value = values.get("ascii_baz").unwrap();

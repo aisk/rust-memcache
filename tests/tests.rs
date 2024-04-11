@@ -410,42 +410,40 @@ mod nonblocking {
         // test with multiple udp connections
         let mut handles: Vec<tokio::task::JoinHandle<_>> = Vec::new();
         for i in 0..10 {
-            handles.push(tokio::spawn(
-                async move {
-                    let key = format!("key{}", i);
-                    let value = format!("value{}", i);
-                    let client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
-                    for j in 0..50 {
-                        let value = format!("{}{}", value, j);
-                        client.set(key.as_str(), &value, 0).await.unwrap();
-                        let result: Option<String> = client.get(key.as_str()).await.unwrap();
-                        assert_eq!(result.as_ref(), Some(&value));
+            handles.push(tokio::spawn(async move {
+                let key = format!("key{}", i);
+                let value = format!("value{}", i);
+                let client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
+                for j in 0..50 {
+                    let value = format!("{}{}", value, j);
+                    client.set(key.as_str(), &value, 0).await.unwrap();
+                    let result: Option<String> = client.get(key.as_str()).await.unwrap();
+                    assert_eq!(result.as_ref(), Some(&value));
 
-                        let result = client.add(key.as_str(), &value, 0).await;
-                        assert_eq!(result.is_err(), true);
+                    let result = client.add(key.as_str(), &value, 0).await;
+                    assert_eq!(result.is_err(), true);
 
-                        client.delete(key.as_str()).await.unwrap();
-                        let result: Option<String> = client.get(key.as_str()).await.unwrap();
-                        assert_eq!(result, None);
+                    client.delete(key.as_str()).await.unwrap();
+                    let result: Option<String> = client.get(key.as_str()).await.unwrap();
+                    assert_eq!(result, None);
 
-                        client.add(key.as_str(), &value, 0).await.unwrap();
-                        let result: Option<String> = client.get(key.as_str()).await.unwrap();
-                        assert_eq!(result.as_ref(), Some(&value));
+                    client.add(key.as_str(), &value, 0).await.unwrap();
+                    let result: Option<String> = client.get(key.as_str()).await.unwrap();
+                    assert_eq!(result.as_ref(), Some(&value));
 
-                        client.replace(key.as_str(), &value, 0).await.unwrap();
-                        let result: Option<String> = client.get(key.as_str()).await.unwrap();
-                        assert_eq!(result.as_ref(), Some(&value));
+                    client.replace(key.as_str(), &value, 0).await.unwrap();
+                    let result: Option<String> = client.get(key.as_str()).await.unwrap();
+                    assert_eq!(result.as_ref(), Some(&value));
 
-                        client.append(key.as_str(), &value).await.unwrap();
-                        let result: Option<String> = client.get(key.as_str()).await.unwrap();
-                        assert_eq!(result, Some(format!("{}{}", value, value)));
+                    client.append(key.as_str(), &value).await.unwrap();
+                    let result: Option<String> = client.get(key.as_str()).await.unwrap();
+                    assert_eq!(result, Some(format!("{}{}", value, value)));
 
-                        client.prepend(key.as_str(), &value).await.unwrap();
-                        let result: Option<String> = client.get(key.as_str()).await.unwrap();
-                        assert_eq!(result, Some(format!("{}{}{}", value, value, value)));
-                    }
+                    client.prepend(key.as_str(), &value).await.unwrap();
+                    let result: Option<String> = client.get(key.as_str()).await.unwrap();
+                    assert_eq!(result, Some(format!("{}{}{}", value, value, value)));
                 }
-            ));
+            }));
         }
 
         for handle in handles.into_iter() {
@@ -470,8 +468,10 @@ mod nonblocking {
 
             client.set("ascii_baz", "qux", 0).await.unwrap();
 
-            let values: HashMap<String, (Vec<u8>, u32, Option<u64>)> =
-                client.gets(&["ascii_foo", "ascii_baz", "not_exists_key"]).await.unwrap();
+            let values: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client
+                .gets(&["ascii_foo", "ascii_baz", "not_exists_key"])
+                .await
+                .unwrap();
             assert_eq!(values.len(), 2);
             let ascii_foo_value = values.get("ascii_foo").unwrap();
             let ascii_baz_value = values.get("ascii_baz").unwrap();
@@ -480,11 +480,17 @@ mod nonblocking {
             assert!(ascii_baz_value.2.is_some());
             assert_eq!(
                 true,
-                client.cas("ascii_foo", "bar2", 0, ascii_foo_value.2.unwrap()).await.unwrap()
+                client
+                    .cas("ascii_foo", "bar2", 0, ascii_foo_value.2.unwrap())
+                    .await
+                    .unwrap()
             );
             assert_eq!(
                 false,
-                client.cas("ascii_foo", "bar3", 0, ascii_foo_value.2.unwrap()).await.unwrap()
+                client
+                    .cas("ascii_foo", "bar3", 0, ascii_foo_value.2.unwrap())
+                    .await
+                    .unwrap()
             );
 
             assert_eq!(
