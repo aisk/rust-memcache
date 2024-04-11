@@ -13,7 +13,6 @@ use std::borrow::Cow;
 pub struct Options {
     pub noreply: bool,
     pub exptime: u32,
-    pub flags: u32,
     pub cas: Option<u64>,
 }
 
@@ -27,7 +26,7 @@ enum StoreCommand {
     Prepend,
 }
 
-const END: &'static str = "END\r\n";
+const END: &str = "END\r\n";
 
 impl fmt::Display for StoreCommand {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -45,15 +44,13 @@ impl fmt::Display for StoreCommand {
 struct CappedLineReader<C> {
     inner: C,
     filled: usize,
-    buf: [u8; 2048],
+    buf: Vec<u8>,
 }
 
 fn get_line(buf: &[u8]) -> Option<usize> {
     for (i, r) in buf.iter().enumerate() {
-        if *r == b'\r' {
-            if buf.get(i + 1) == Some(&b'\n') {
-                return Some(i + 2);
-            }
+        if *r == b'\r' && buf.get(i + 1) == Some(&b'\n') {
+            return Some(i + 2);
         }
     }
     None
@@ -64,7 +61,7 @@ impl<C: Read> CappedLineReader<C> {
         Self {
             inner,
             filled: 0,
-            buf: [0x0; 2048],
+            buf: vec![0x0; 2048],
         }
     }
 
@@ -77,7 +74,7 @@ impl<C: Read> CappedLineReader<C> {
         let (to_fill, rest) = buf.split_at_mut(min);
         to_fill.copy_from_slice(&self.buf[..min]);
         self.consume(min);
-        if rest.len() != 0 {
+        if !rest.is_empty() {
             self.inner.read_exact(&mut rest[..])?;
         }
         Ok(())
@@ -98,7 +95,7 @@ impl<C: Read> CappedLineReader<C> {
         }
         loop {
             let (_filled, buf) = self.buf.split_at_mut(self.filled);
-            if buf.len() == 0 {
+            if buf.is_empty() {
                 return Err(ClientError::Error(Cow::Borrowed("Ascii protocol response too long")))?;
             }
             let read = self.inner.read(&mut buf[..])?;
@@ -131,7 +128,7 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
     }
 
     fn version(&mut self) -> Result<String, MemcacheError> {
-        self.reader.get_mut().write(b"version\r\n")?;
+        self.reader.get_mut().write_all(b"version\r\n")?;
         self.reader.get_mut().flush()?;
         self.reader.read_line(|response| {
             let response = MemcacheError::try_from(response)?;
@@ -294,7 +291,7 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
     }
 
     fn stats(&mut self) -> Result<Stats, MemcacheError> {
-        self.reader.get_mut().write(b"stats\r\n")?;
+        self.reader.get_mut().write_all(b"stats\r\n")?;
         self.reader.get_mut().flush()?;
 
         enum Loop {
@@ -312,7 +309,7 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
                 if !s.starts_with("STAT") {
                     return Err(ServerError::BadResponse(Cow::Owned(s.into())))?;
                 }
-                let stat: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
+                let stat: Vec<_> = s.trim_end_matches("\r\n").split(' ').collect();
                 if stat.len() < 3 {
                     return Err(ServerError::BadResponse(Cow::Owned(s.into())).into());
                 }
@@ -348,12 +345,10 @@ impl AsciiProtocol<Stream> {
         value: V,
         options: &Options,
     ) -> Result<bool, MemcacheError> {
-        if command == StoreCommand::Cas {
-            if options.cas.is_none() {
-                Err(ClientError::Error(Cow::Borrowed(
-                    "cas_id should be present when using cas command",
-                )))?;
-            }
+        if command == StoreCommand::Cas && options.cas.is_none() {
+            Err(ClientError::Error(Cow::Borrowed(
+                "cas_id should be present when using cas command",
+            )))?;
         }
         let noreply = if options.noreply { " noreply" } else { "" };
         if options.cas.is_some() {
@@ -382,7 +377,7 @@ impl AsciiProtocol<Stream> {
         }
 
         value.write_to(self.reader.get_mut())?;
-        self.reader.get_mut().write(b"\r\n")?;
+        self.reader.get_mut().write_all(b"\r\n")?;
         self.reader.get_mut().flush()?;
 
         if options.noreply {
@@ -424,7 +419,7 @@ impl AsciiProtocol<Stream> {
             if !buf.starts_with("VALUE") {
                 return Err(ServerError::BadResponse(Cow::Owned(buf.into())))?;
             }
-            let mut header = buf.trim_end_matches("\r\n").split(" ");
+            let mut header = buf.trim_end_matches("\r\n").split(' ');
             let mut next_or_err = || {
                 header
                     .next()
@@ -481,7 +476,7 @@ mod tests {
             match self.reads.pop_front() {
                 Some(range) => {
                     let range = &self.data[range];
-                    (&mut buf[0..range.len()]).copy_from_slice(&range);
+                    buf[0..range.len()].copy_from_slice(range);
                     Ok(range.len())
                 }
                 None => Err(std::io::ErrorKind::WouldBlock.into()),

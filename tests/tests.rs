@@ -5,7 +5,6 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::iter;
 use std::thread;
-use std::thread::JoinHandle;
 use std::time;
 
 fn gen_random_key() -> String {
@@ -13,7 +12,7 @@ fn gen_random_key() -> String {
         .map(|()| thread_rng().sample(Alphanumeric))
         .take(10)
         .collect::<Vec<u8>>();
-    return String::from_utf8(bs).unwrap();
+    String::from_utf8(bs).unwrap()
 }
 
 #[test]
@@ -112,7 +111,7 @@ fn udp_test() {
 
     client.set("foo", "bar", 0).unwrap();
     let value = client.add("foo", "baz", 0);
-    assert_eq!(value.is_err(), true);
+    assert!(value.is_err());
 
     client.delete("foo").unwrap();
     let value: Option<String> = client.get("foo").unwrap();
@@ -143,12 +142,12 @@ fn udp_test() {
     let value: Option<String> = client.get("fooo").unwrap();
     assert_eq!(value, Some(String::from("0")));
 
-    assert_eq!(client.touch("foooo", 123).unwrap(), false);
-    assert_eq!(client.touch("fooo", 12345).unwrap(), true);
+    assert!(!client.touch("foooo", 123).unwrap());
+    assert!(client.touch("fooo", 12345).unwrap());
 
     // gets is not supported for udp
     let value: Result<std::collections::HashMap<String, String>, _> = client.gets(&["foo", "fooo"]);
-    assert_eq!(value.is_ok(), false);
+    assert!(value.is_err());
 
     let mut keys: Vec<String> = Vec::new();
     for _ in 0..1000 {
@@ -164,46 +163,47 @@ fn udp_test() {
     }
 
     // test with multiple udp connections
-    let mut handles: Vec<Option<JoinHandle<_>>> = Vec::new();
-    for i in 0..10 {
-        handles.push(Some(thread::spawn(move || {
-            let key = format!("key{}", i);
-            let value = format!("value{}", i);
-            let client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
-            for j in 0..50 {
-                let value = format!("{}{}", value, j);
-                client.set(key.as_str(), &value, 0).unwrap();
-                let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result.as_ref(), Some(&value));
+    let handles: Vec<_> = (0..10)
+        .map(|i| {
+            thread::spawn(move || {
+                let key = format!("key{}", i);
+                let value = format!("value{}", i);
+                let client = memcache::Client::connect("memcache://localhost:22345?udp=true").unwrap();
+                for j in 0..50 {
+                    let value = format!("{}{}", value, j);
+                    client.set(key.as_str(), &value, 0).unwrap();
+                    let result: Option<String> = client.get(key.as_str()).unwrap();
+                    assert_eq!(result.as_ref(), Some(&value));
 
-                let result = client.add(key.as_str(), &value, 0);
-                assert_eq!(result.is_err(), true);
+                    let result = client.add(key.as_str(), &value, 0);
+                    assert!(result.is_err());
 
-                client.delete(key.as_str()).unwrap();
-                let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result, None);
+                    client.delete(key.as_str()).unwrap();
+                    let result: Option<String> = client.get(key.as_str()).unwrap();
+                    assert_eq!(result, None);
 
-                client.add(key.as_str(), &value, 0).unwrap();
-                let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result.as_ref(), Some(&value));
+                    client.add(key.as_str(), &value, 0).unwrap();
+                    let result: Option<String> = client.get(key.as_str()).unwrap();
+                    assert_eq!(result.as_ref(), Some(&value));
 
-                client.replace(key.as_str(), &value, 0).unwrap();
-                let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result.as_ref(), Some(&value));
+                    client.replace(key.as_str(), &value, 0).unwrap();
+                    let result: Option<String> = client.get(key.as_str()).unwrap();
+                    assert_eq!(result.as_ref(), Some(&value));
 
-                client.append(key.as_str(), &value).unwrap();
-                let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result, Some(format!("{}{}", value, value)));
+                    client.append(key.as_str(), &value).unwrap();
+                    let result: Option<String> = client.get(key.as_str()).unwrap();
+                    assert_eq!(result, Some(format!("{}{}", value, value)));
 
-                client.prepend(key.as_str(), &value).unwrap();
-                let result: Option<String> = client.get(key.as_str()).unwrap();
-                assert_eq!(result, Some(format!("{}{}{}", value, value, value)));
-            }
-        })));
-    }
+                    client.prepend(key.as_str(), &value).unwrap();
+                    let result: Option<String> = client.get(key.as_str()).unwrap();
+                    assert_eq!(result, Some(format!("{}{}{}", value, value, value)));
+                }
+            })
+        })
+        .collect();
 
-    for i in 0..10 {
-        handles[i].take().unwrap().join().unwrap();
+    for handle in handles {
+        handle.join().unwrap();
     }
 }
 
@@ -232,21 +232,12 @@ fn test_cas() {
 
         assert!(ascii_foo_value.2.is_some());
         assert!(ascii_baz_value.2.is_some());
-        assert_eq!(
-            true,
-            client.cas("ascii_foo", "bar2", 0, ascii_foo_value.2.unwrap()).unwrap()
-        );
-        assert_eq!(
-            false,
-            client.cas("ascii_foo", "bar3", 0, ascii_foo_value.2.unwrap()).unwrap()
-        );
+        assert!(client.cas("ascii_foo", "bar2", 0, ascii_foo_value.2.unwrap()).unwrap());
+        assert!(!client.cas("ascii_foo", "bar3", 0, ascii_foo_value.2.unwrap()).unwrap());
 
-        assert_eq!(
-            false,
-            client
-                .cas("not_exists_key", "bar", 0, ascii_foo_value.2.unwrap())
-                .unwrap()
-        );
+        assert!(!client
+            .cas("not_exists_key", "bar", 0, ascii_foo_value.2.unwrap())
+            .unwrap());
         client.flush().unwrap();
     }
 }
