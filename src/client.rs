@@ -5,9 +5,6 @@ use std::time::Duration;
 
 use url::Url;
 
-#[cfg(feature = "async")]
-use crate::async_client::AsyncClient;
-
 use crate::connection::ConnectionManager;
 use crate::error::{ClientError, MemcacheError};
 use crate::protocol::{Protocol, ProtocolTrait};
@@ -134,11 +131,6 @@ impl Client {
         Self::builder().add_server(target)?.build()
     }
 
-    #[cfg(feature = "async")]
-    pub fn connect_async<C: Connectable>(target: C) -> Result<AsyncClient, MemcacheError> {
-        Ok(Self::connect(target)?.into())
-    }
-
     pub(super) fn get_connection(&self, key: &str) -> Pool<ConnectionManager> {
         let connections_count = self.connections.len();
         return self.connections[(self.hash_function)(key) as usize % connections_count].clone();
@@ -188,7 +180,14 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
     /// client.version().unwrap();
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.version().await.unwrap();
+    /// };
     /// ```
     pub fn version(&self) -> Result<Vec<(String, String)>, MemcacheError> {
         let mut result = Vec::with_capacity(self.connections.len());
@@ -206,7 +205,14 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
     /// client.flush().unwrap();
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn flush(&self) -> Result<(), MemcacheError> {
         for connection in self.connections.iter() {
@@ -221,7 +227,14 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
     /// client.flush_with_delay(10).unwrap();
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///    client.flush_with_delay(10).await.unwrap();
+    /// };
     /// ```
     pub fn flush_with_delay(&self, delay: u32) -> Result<(), MemcacheError> {
         for connection in self.connections.iter() {
@@ -236,7 +249,14 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
     /// let _: Option<String> = client.get("foo").unwrap();
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     let _: Option<String> = client.get("foo").await.unwrap();
+    /// };
     /// ```
     pub fn get<V: FromMemcacheValueExt>(&self, key: &str) -> Result<Option<V>, MemcacheError> {
         check_key_len(key)?;
@@ -249,10 +269,22 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.set("foo", "42", 0).unwrap();
-    /// let result: std::collections::HashMap<String, String> = client.gets(&["foo", "bar", "baz"]).unwrap();
-    /// assert_eq!(result.len(), 1);
-    /// assert_eq!(result["foo"], "42");
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.set("foo", "42", 0).unwrap();
+    ///     let result: std::collections::HashMap<String, String> = client.gets(&["foo", "bar", "baz"]).unwrap();
+    ///     assert_eq!(result.len(), 1);
+    ///     assert_eq!(result["foo"], "42");
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.set("foo", "42", 0).await.unwrap();
+    ///     let result: std::collections::HashMap<String, String> = client.gets(&["foo", "bar", "baz"]).await.unwrap();
+    ///     assert_eq!(result.len(), 1);
+    ///     assert_eq!(result["foo"], "42");
+    /// };
     /// ```
     pub fn gets<V: FromMemcacheValueExt>(&self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
@@ -280,8 +312,18 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.set("foo", "bar", 10).unwrap();
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.set("foo", "bar", 10).unwrap();
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.set("foo", "bar", 10).await.unwrap();
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         check_key_len(key)?;
@@ -296,12 +338,26 @@ impl Client {
     /// ```rust
     /// use std::collections::HashMap;
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.set("foo", "bar", 10).unwrap();
-    /// let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(&["foo"]).unwrap();
-    /// let (_, _, cas) = result.get("foo").unwrap();
-    /// let cas = cas.unwrap();
-    /// assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.set("foo", "bar", 10).unwrap();
+    ///     let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(&["foo"]).unwrap();
+    ///     let (_, _, cas) = result.get("foo").unwrap();
+    ///     let cas = cas.unwrap();
+    ///     assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.set("foo", "bar", 10).await.unwrap();
+    ///     let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(&["foo"]).await.unwrap();
+    ///     let (_, _, cas) = result.get("foo").unwrap();
+    ///     let cas = cas.unwrap();
+    ///     assert_eq!(true, client.cas("foo", "bar2", 10, cas).await.unwrap());
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn cas<V: ToMemcacheValue<Stream>>(
         &self,
@@ -321,9 +377,20 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// let key = "add_test";
-    /// client.delete(key).unwrap();
-    /// client.add(key, "bar", 100000000).unwrap();
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.delete(key).unwrap();
+    ///     client.add(key, "bar", 100000000).unwrap();
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.delete(key).await.unwrap();
+    ///     client.add(key, "bar", 100000000).await.unwrap();
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn add<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         check_key_len(key)?;
@@ -337,9 +404,20 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// let key = "replace_test";
-    /// client.set(key, "bar", 0).unwrap();
-    /// client.replace(key, "baz", 100000000).unwrap();
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.set(key, "bar", 0).unwrap();
+    ///     client.replace(key, "baz", 100000000).unwrap();
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.set(key, "bar", 0).await.unwrap();
+    ///     client.replace(key, "baz", 100000000).await.unwrap();
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn replace<V: ToMemcacheValue<Stream>>(
         &self,
@@ -358,11 +436,24 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// let key = "key_to_append";
-    /// client.set(key, "hello", 0).unwrap();
-    /// client.append(key, ", world!").unwrap();
-    /// let result: String = client.get(key).unwrap().unwrap();
-    /// assert_eq!(result, "hello, world!");
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.set(key, "hello", 0).unwrap();
+    ///     client.append(key, ", world!").unwrap();
+    ///     let result: String = client.get(key).unwrap().unwrap();
+    ///     assert_eq!(result, "hello, world!");
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.set(key, "hello", 0).await.unwrap();
+    ///     client.append(key, ", world!").await.unwrap();
+    ///     let result: String = client.get(key).await.unwrap().unwrap();
+    ///     assert_eq!(result, "hello, world!");
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn append<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
         check_key_len(key)?;
@@ -376,11 +467,24 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// let key = "key_to_append";
-    /// client.set(key, "world!", 0).unwrap();
-    /// client.prepend(key, "hello, ").unwrap();
-    /// let result: String = client.get(key).unwrap().unwrap();
-    /// assert_eq!(result, "hello, world!");
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.set(key, "world!", 0).unwrap();
+    ///     client.prepend(key, "hello, ").unwrap();
+    ///     let result: String = client.get(key).unwrap().unwrap();
+    ///     assert_eq!(result, "hello, world!");
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.set(key, "world!", 0).await.unwrap();
+    ///     client.prepend(key, "hello, ").await.unwrap();
+    ///     let result: String = client.get(key).await.unwrap().unwrap();
+    ///     assert_eq!(result, "hello, world!");
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn prepend<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
         check_key_len(key)?;
@@ -393,8 +497,18 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.delete("foo").unwrap();
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.delete("foo").unwrap();
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.delete("foo").await.unwrap();
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn delete(&self, key: &str) -> Result<bool, MemcacheError> {
         check_key_len(key)?;
@@ -407,8 +521,18 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.increment("counter", 42).unwrap();
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.increment("counter", 42).unwrap();
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.increment("counter", 42).await.unwrap();
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn increment(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         check_key_len(key)?;
@@ -421,8 +545,18 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// client.decrement("counter", 42).unwrap();
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     client.decrement("counter", 42).unwrap();
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     client.decrement("counter", 42).await.unwrap();
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn decrement(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         check_key_len(key)?;
@@ -435,10 +569,22 @@ impl Client {
     ///
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
-    /// assert_eq!(client.touch("not_exists_key", 12345).unwrap(), false);
-    /// client.set("foo", "bar", 123).unwrap();
-    /// assert_eq!(client.touch("foo", 12345).unwrap(), true);
-    /// # client.flush().unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
+    /// {
+    ///     assert_eq!(client.touch("not_exists_key", 12345).unwrap(), false);
+    ///     client.set("foo", "bar", 123).unwrap();
+    ///     assert_eq!(client.touch("foo", 12345).unwrap(), true);
+    ///     client.flush().unwrap();
+    /// }
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     assert_eq!(client.touch("not_exists_key", 12345).await.unwrap(), false);
+    ///     client.set("foo", "bar", 123).await.unwrap();
+    ///     assert_eq!(client.touch("foo", 12345).await.unwrap(), true);
+    ///     client.flush().await.unwrap();
+    /// };
     /// ```
     pub fn touch(&self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
         check_key_len(key)?;
@@ -450,7 +596,14 @@ impl Client {
     /// Example:
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    ///
+    /// #[cfg(not(feature = "async"))]
     /// let stats = client.stats().unwrap();
+    ///
+    /// #[cfg(feature = "async")]
+    /// async {
+    ///     let stats = client.stats().await.unwrap();
+    /// };
     /// ```
     pub fn stats(&self) -> Result<Vec<(String, Stats)>, MemcacheError> {
         let mut result: Vec<(String, HashMap<String, String>)> = vec![];
@@ -594,11 +747,6 @@ impl ClientBuilder {
         client.set_write_timeout(self.write_timeout)?;
 
         Ok(client)
-    }
-
-    #[cfg(feature = "async")]
-    pub fn build_async(self) -> Result<AsyncClient, MemcacheError> {
-        Ok(self.build()?.into())
     }
 }
 
