@@ -2,7 +2,6 @@ use std::net::TcpStream;
 use std::ops::{Deref, DerefMut};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
@@ -18,7 +17,7 @@ use r2d2::ManageConnection;
 /// A connection to the memcached server
 pub struct Connection {
     pub protocol: Protocol,
-    pub url: Arc<String>,
+    pub url: String,
 }
 
 impl DerefMut for Connection {
@@ -206,7 +205,7 @@ fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> 
 
 impl Connection {
     pub(crate) fn get_url(&self) -> String {
-        self.url.to_string()
+        self.url.clone()
     }
 
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
@@ -252,7 +251,7 @@ impl Connection {
         };
 
         Ok(Connection {
-            url: Arc::new(url.to_string()),
+            url: url.to_string(),
             protocol,
         })
     }
