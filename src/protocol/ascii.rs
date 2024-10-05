@@ -210,7 +210,7 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
         }
     }
 
-    fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, exptime: i64) -> Result<(), MemcacheError> {
         let options = Options {
             exptime: expiration,
             ..Default::default()
