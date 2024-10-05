@@ -289,8 +289,7 @@ impl Client {
     /// use std::collections::HashMap;
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar", 10).unwrap();
-    /// let result: HashMap<String, (Vec<u8>, u32, Option<u64>)> = client.gets(&["foo"]).unwrap();
-    /// let (_, _, cas) = result.get("foo").unwrap();
+    /// let (_, _, cas) = client.get("foo").unwrap().unwrap();
     /// let cas = cas.unwrap();
     /// assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());
     /// # client.flush().unwrap();
