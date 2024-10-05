@@ -127,6 +127,13 @@ impl Client {
         })
     }
 
+    pub fn with_pools(pools: Vec<Pool<ConnectionManager>>) -> Result<Self, MemcacheError> {
+        Ok(Client {
+            connections: pools,
+            hash_function: default_hash_function,
+        })
+    }
+
     pub fn connect<C: Connectable>(target: C) -> Result<Self, MemcacheError> {
         Self::builder().add_server(target)?.build()
     }
