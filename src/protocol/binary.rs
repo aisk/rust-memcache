@@ -113,7 +113,7 @@ impl ProtocolTrait for BinaryProtocol {
         binary_packet::parse_cas_response(&mut self.stream)
     }
 
-    fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, exptime: i64) -> Result<(), MemcacheError> {
         return self.store(Opcode::Set, key, value, expiration, None);
     }
 
