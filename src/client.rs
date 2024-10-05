@@ -275,9 +275,9 @@ impl Client {
     /// client.set("foo", "bar", 10).unwrap();
     /// # client.flush().unwrap();
     /// ```
-    pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+    pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, exptime: i64) -> Result<(), MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.set(key, value, expiration);
+        return self.get_connection(key).get()?.set(key, value, exptime);
     }
 
     /// Compare and swap a key with the associate value into memcached server with expiration seconds.
