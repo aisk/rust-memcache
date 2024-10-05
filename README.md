@@ -62,6 +62,11 @@ client.append("foo", "baz").unwrap();
 let value: String = client.get("foo").unwrap().unwrap();
 assert_eq!(value, "foobarbaz");
 
+// cas(check and set):
+let (_, _, cas_token) = client.get("foo").unwrap().unwrap();
+let cas_id = cas_id.unwrap();
+client.cas("foo", "qux", 0, cas_id).unwrap();
+
 // delete value:
 client.delete("foo").unwrap();
 
