@@ -25,7 +25,7 @@ pub trait ProtocolTrait {
     fn flush_with_delay(&mut self, delay: u32) -> Result<(), MemcacheError>;
     fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError>;
     fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError>;
-    fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError>;
+    fn set<V: ToMemcacheValue<Stream>>(&mut self, key: &str, value: V, exptime: i64) -> Result<(), MemcacheError>;
     fn cas<V: ToMemcacheValue<Stream>>(
         &mut self,
         key: &str,
