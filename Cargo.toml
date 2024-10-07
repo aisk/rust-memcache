@@ -1,7 +1,7 @@
 [package]
 name = "memcache"
-version = "0.17.2"
-authors = ["An Long <aisk1988@gmail.com>"]
+version = "0.18.0"
+authors = ["AN Long <aisk1988@gmail.com>"]
 repository = "https://github.com/aisk/rust-memcache"
 readme = "README.md"
 license = "MIT"
