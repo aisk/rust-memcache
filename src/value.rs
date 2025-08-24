@@ -148,6 +148,12 @@ impl FromMemcacheValue for Vec<u8> {
     }
 }
 
+impl FromMemcacheValue for (String, u32) {
+    fn from_memcache_value(value: Vec<u8>, flags: u32) -> MemcacheValue<Self> {
+        return Ok((String::from_utf8(value)?, flags));
+    }
+}
+
 impl FromMemcacheValue for String {
     fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
         return Ok(String::from_utf8(value)?);
@@ -160,6 +166,13 @@ macro_rules! impl_from_memcache_value_for_number {
             fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
                 let s: String = FromMemcacheValue::from_memcache_value(value, 0)?;
                 Ok(Self::from_str(s.as_str())?)
+            }
+        }
+
+        impl FromMemcacheValue for ($ty, u32) {
+            fn from_memcache_value(value: Vec<u8>, flags: u32) -> MemcacheValue<Self> {
+                let s: String = FromMemcacheValue::from_memcache_value(value, 0)?;
+                Ok(($ty::from_str(s.as_str())?, flags))
             }
         }
     };
