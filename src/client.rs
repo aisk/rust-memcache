@@ -280,7 +280,7 @@ impl Client {
     /// ```rust
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar", 10).unwrap();
-    /// # client.flush().unwrap();
+    /// client.flush().unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         check_key_len(key)?;
@@ -293,13 +293,12 @@ impl Client {
     /// Example:
     ///
     /// ```rust
-    /// use std::collections::HashMap;
     /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
     /// client.set("foo", "bar", 10).unwrap();
-    /// let (_, _, cas) = client.get("foo").unwrap().unwrap();
+    /// let (_, _, cas): (String, u32, Option<u64>) = client.get("foo").unwrap().unwrap();
     /// let cas = cas.unwrap();
     /// assert_eq!(true, client.cas("foo", "bar2", 10, cas).unwrap());
-    /// # client.flush().unwrap();
+    /// client.flush().unwrap();
     /// ```
     pub fn cas<V: ToMemcacheValue<Stream>>(
         &self,
