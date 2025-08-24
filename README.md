@@ -60,8 +60,9 @@ let value: String = client.get("foo").unwrap().unwrap();
 assert_eq!(value, "foobarbaz");
 
 // cas(check and set):
-let (_, _, cas_token) = client.get("foo").unwrap().unwrap();
-let cas_id = cas_id.unwrap();
+let (value, _flags, cas_token): (String, u32, Option<u64>) = client.get("foo").unwrap().unwrap();
+assert_eq!(value, "foobarbaz");
+let cas_id = cas_token.unwrap();
 client.cas("foo", "qux", 0, cas_id).unwrap();
 
 // delete value:

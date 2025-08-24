@@ -155,14 +155,20 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
     }
 
     fn get<V: FromMemcacheValueExt>(&mut self, key: &str) -> Result<Option<V>, MemcacheError> {
-        write!(self.reader.get_mut(), "get {}\r\n", key)?;
+        let (command, has_cas) = if V::requires_cas() {
+            ("gets", true)
+        } else {
+            ("get", false)
+        };
 
-        if let Some((k, v)) = self.parse_get_response(false)? {
+        write!(self.reader.get_mut(), "{} {}\r\n", command, key)?;
+
+        if let Some((k, v)) = self.parse_get_response(has_cas)? {
             if k != key {
                 Err(ServerError::BadResponse(Cow::Borrowed(
                     "key doesn't match in the response",
                 )))?
-            } else if self.parse_get_response::<V>(false)?.is_none() {
+            } else if self.parse_get_response::<V>(has_cas)?.is_none() {
                 Ok(Some(v))
             } else {
                 Err(ServerError::BadResponse(Cow::Borrowed("Expected end of get response")))?

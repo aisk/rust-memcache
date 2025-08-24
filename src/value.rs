@@ -122,6 +122,11 @@ pub trait FromMemcacheValue: Sized {
 
 pub trait FromMemcacheValueExt: Sized {
     fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self>;
+
+    /// Returns whether this type requires CAS token
+    fn requires_cas() -> bool {
+        false
+    }
 }
 
 impl<V: FromMemcacheValue> FromMemcacheValueExt for V {
@@ -134,6 +139,10 @@ impl FromMemcacheValueExt for (Vec<u8>, u32, Option<u64>) {
     fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self> {
         return Ok((value, flags, cas));
     }
+
+    fn requires_cas() -> bool {
+        true
+    }
 }
 
 impl FromMemcacheValue for (Vec<u8>, u32) {
@@ -145,6 +154,16 @@ impl FromMemcacheValue for (Vec<u8>, u32) {
 impl FromMemcacheValue for Vec<u8> {
     fn from_memcache_value(value: Vec<u8>, _: u32) -> MemcacheValue<Self> {
         return Ok(value);
+    }
+}
+
+impl FromMemcacheValueExt for (String, u32, Option<u64>) {
+    fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self> {
+        return Ok((String::from_utf8(value)?, flags, cas));
+    }
+
+    fn requires_cas() -> bool {
+        true
     }
 }
 
@@ -173,6 +192,17 @@ macro_rules! impl_from_memcache_value_for_number {
             fn from_memcache_value(value: Vec<u8>, flags: u32) -> MemcacheValue<Self> {
                 let s: String = FromMemcacheValue::from_memcache_value(value, 0)?;
                 Ok(($ty::from_str(s.as_str())?, flags))
+            }
+        }
+
+        impl FromMemcacheValueExt for ($ty, u32, Option<u64>) {
+            fn from_memcache_value(value: Vec<u8>, flags: u32, cas: Option<u64>) -> MemcacheValue<Self> {
+                let s: String = FromMemcacheValue::from_memcache_value(value, 0)?;
+                Ok(($ty::from_str(s.as_str())?, flags, cas))
+            }
+
+            fn requires_cas() -> bool {
+                true
             }
         }
     };

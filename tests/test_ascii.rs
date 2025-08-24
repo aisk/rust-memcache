@@ -87,6 +87,43 @@ fn test_get_with_flags() {
     // Test our new FromMemcacheValue implementation
     let value: Option<(String, u32)> = client.get("test_key").unwrap();
     assert_eq!(value, Some(("test_value".to_string(), 114514)));
+}
 
+#[test]
+fn test_get_with_cas() {
+    let client = memcache::connect("memcache://localhost:12345?protocol=ascii").unwrap();
     client.flush().unwrap();
+
+    // Set a value
+    client.set("test_key", "test_value", 0).unwrap();
+
+    // Test get with CAS token
+    let value: Option<(String, u32, Option<u64>)> = client.get("test_key").unwrap();
+    let (value_str, _flags, cas) = value.unwrap();
+    assert_eq!(value_str, "test_value");
+    assert!(cas.is_some(), "CAS token should be present");
+}
+
+#[test]
+fn test_cas() {
+    let client = memcache::Client::connect("memcache://localhost:12345?protocol=ascii").unwrap();
+    client.flush().unwrap();
+
+    // Test using get with CAS token for cas operation
+    client.set("test_cas_key", "initial_value", 0).unwrap();
+    let cas_value: Option<(String, u32, Option<u64>)> = client.get("test_cas_key").unwrap();
+    let (_, _, cas_token) = cas_value.unwrap();
+    assert!(cas_token.is_some(), "CAS token should be present from get");
+
+    // Use the CAS token from get to update the value
+    assert_eq!(
+        true,
+        client
+            .cas("test_cas_key", "updated_value", 0, cas_token.unwrap())
+            .unwrap()
+    );
+
+    // Verify the update worked
+    let updated_value: Option<String> = client.get("test_cas_key").unwrap();
+    assert_eq!(updated_value, Some("updated_value".into()));
 }

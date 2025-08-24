@@ -247,6 +247,25 @@ fn test_cas() {
                 .cas("not_exists_key", "bar", 0, ascii_foo_value.2.unwrap())
                 .unwrap()
         );
+
+        // Test using get with CAS token for cas operation
+        client.set("test_cas_key", "initial_value", 0).unwrap();
+        let cas_value: Option<(String, u32, Option<u64>)> = client.get("test_cas_key").unwrap();
+        let (_, _, cas_token) = cas_value.unwrap();
+        assert!(cas_token.is_some(), "CAS token should be present from get");
+
+        // Use the CAS token from get to update the value
+        assert_eq!(
+            true,
+            client
+                .cas("test_cas_key", "updated_value", 0, cas_token.unwrap())
+                .unwrap()
+        );
+
+        // Verify the update worked
+        let updated_value: Option<String> = client.get("test_cas_key").unwrap();
+        assert_eq!(updated_value, Some("updated_value".into()));
+
         client.flush().unwrap();
     }
 }
@@ -291,6 +310,4 @@ fn test_get_with_flags() {
     // Test our new FromMemcacheValue implementation
     let value: Option<(String, u32)> = client.get("test_key").unwrap();
     assert_eq!(value, Some(("test_value".to_string(), 114514)));
-
-    client.flush().unwrap();
 }
