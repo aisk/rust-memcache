@@ -1,19 +1,14 @@
 extern crate memcache;
 extern crate rand;
 
-use rand::distributions::Alphanumeric;
-use rand::{Rng, thread_rng};
-use std::iter;
+use rand::distr::{Alphanumeric, SampleString};
+use rand::rng;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time;
 
 fn gen_random_key() -> String {
-    let bs = iter::repeat(())
-        .map(|()| thread_rng().sample(Alphanumeric))
-        .take(10)
-        .collect::<Vec<u8>>();
-    return String::from_utf8(bs).unwrap();
+    Alphanumeric.sample_string(&mut rng(), 10)
 }
 
 #[test]
