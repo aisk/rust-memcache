@@ -10,10 +10,9 @@ use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
 use std::borrow::Cow;
 
 #[derive(Default)]
-pub struct Options {
+struct Options {
     pub noreply: bool,
     pub exptime: u32,
-    pub flags: u32,
     pub cas: Option<u64>,
 }
 
