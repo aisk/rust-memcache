@@ -111,7 +111,7 @@ impl TlsOptions {
             Some(_) => {
                 return Err(MemcacheError::BadURL(
                     "unknown verify_mode, expected 'none' or 'peer'".into(),
-                ))
+                ));
             }
             None => SslVerifyMode::PEER,
         };
@@ -165,7 +165,7 @@ impl Transport {
             _ => {
                 return Err(MemcacheError::BadURL(
                     "memcache URL's scheme should start with 'memcache'".into(),
-                ))
+                ));
             }
         }
 

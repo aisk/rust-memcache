@@ -24,24 +24,24 @@ pub enum Stream {
 impl Stream {
     pub(super) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         match self {
-            Stream::Tcp(ref conn) => conn.set_read_timeout(timeout)?,
+            &mut Stream::Tcp(ref conn) => conn.set_read_timeout(timeout)?,
             #[cfg(unix)]
-            Stream::Unix(ref conn) => conn.set_read_timeout(timeout)?,
+            &mut Stream::Unix(ref conn) => conn.set_read_timeout(timeout)?,
             #[cfg(feature = "tls")]
-            Stream::Tls(ref stream) => stream.get_ref().set_read_timeout(timeout)?,
-            Stream::Udp(ref conn) => conn.set_read_timeout(timeout)?,
+            &mut Stream::Tls(ref stream) => stream.get_ref().set_read_timeout(timeout)?,
+            &mut Stream::Udp(ref conn) => conn.set_read_timeout(timeout)?,
         }
         Ok(())
     }
 
     pub(super) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         match self {
-            Stream::Tcp(ref conn) => conn.set_write_timeout(timeout)?,
+            &mut Stream::Tcp(ref conn) => conn.set_write_timeout(timeout)?,
             #[cfg(unix)]
-            Stream::Unix(ref conn) => conn.set_write_timeout(timeout)?,
+            &mut Stream::Unix(ref conn) => conn.set_write_timeout(timeout)?,
             #[cfg(feature = "tls")]
-            Stream::Tls(ref stream) => stream.get_ref().set_write_timeout(timeout)?,
-            Stream::Udp(ref conn) => conn.set_write_timeout(timeout)?,
+            &mut Stream::Tls(ref stream) => stream.get_ref().set_write_timeout(timeout)?,
+            &mut Stream::Udp(ref conn) => conn.set_write_timeout(timeout)?,
         }
         Ok(())
     }
@@ -50,12 +50,12 @@ impl Stream {
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            Stream::Tcp(ref mut stream) => stream.read(buf),
-            Stream::Udp(ref mut stream) => stream.read(buf),
+            Stream::Tcp(stream) => stream.read(buf),
+            Stream::Udp(stream) => stream.read(buf),
             #[cfg(unix)]
-            Stream::Unix(ref mut stream) => stream.read(buf),
+            Stream::Unix(stream) => stream.read(buf),
             #[cfg(feature = "tls")]
-            Stream::Tls(ref mut stream) => stream.read(buf),
+            Stream::Tls(stream) => stream.read(buf),
         }
     }
 }
@@ -63,23 +63,23 @@ impl Read for Stream {
 impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
-            Stream::Tcp(ref mut stream) => stream.write(buf),
-            Stream::Udp(ref mut stream) => stream.write(buf),
+            Stream::Tcp(stream) => stream.write(buf),
+            Stream::Udp(stream) => stream.write(buf),
             #[cfg(unix)]
-            Stream::Unix(ref mut stream) => stream.write(buf),
+            Stream::Unix(stream) => stream.write(buf),
             #[cfg(feature = "tls")]
-            Stream::Tls(ref mut stream) => stream.write(buf),
+            Stream::Tls(stream) => stream.write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match self {
-            Stream::Tcp(ref mut stream) => stream.flush(),
-            Stream::Udp(ref mut stream) => stream.flush(),
+            Stream::Tcp(stream) => stream.flush(),
+            Stream::Udp(stream) => stream.flush(),
             #[cfg(unix)]
-            Stream::Unix(ref mut stream) => stream.flush(),
+            Stream::Unix(stream) => stream.flush(),
             #[cfg(feature = "tls")]
-            Stream::Tls(ref mut stream) => stream.flush(),
+            Stream::Tls(stream) => stream.flush(),
         }
     }
 }
