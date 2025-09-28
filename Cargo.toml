@@ -7,7 +7,7 @@ readme = "README.md"
 license = "MIT"
 description = "memcached client for rust"
 keywords = ["memcache", "memcached", "driver", "cache", "database"]
-edition = "2018"
+edition = "2024"
 
 [features]
 default = ["tls"]

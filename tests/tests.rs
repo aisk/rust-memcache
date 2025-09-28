@@ -2,7 +2,7 @@ extern crate memcache;
 extern crate rand;
 
 use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::iter;
 use std::thread;
 use std::thread::JoinHandle;

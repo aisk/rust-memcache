@@ -153,12 +153,12 @@ pub enum ParseError {
 impl error::Error for ParseError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            ParseError::Bool(ref e) => e.source(),
-            ParseError::Int(ref e) => e.source(),
-            ParseError::Float(ref e) => e.source(),
-            ParseError::String(ref e) => e.source(),
-            ParseError::Str(ref e) => e.source(),
-            ParseError::Url(ref e) => e.source(),
+            ParseError::Bool(e) => e.source(),
+            ParseError::Int(e) => e.source(),
+            ParseError::Float(e) => e.source(),
+            ParseError::String(e) => e.source(),
+            ParseError::Str(e) => e.source(),
+            ParseError::Url(e) => e.source(),
         }
     }
 }
@@ -166,12 +166,12 @@ impl error::Error for ParseError {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ParseError::Bool(ref e) => e.fmt(f),
-            ParseError::Int(ref e) => e.fmt(f),
-            ParseError::Float(ref e) => e.fmt(f),
-            ParseError::String(ref e) => e.fmt(f),
-            ParseError::Str(ref e) => e.fmt(f),
-            ParseError::Url(ref e) => e.fmt(f),
+            ParseError::Bool(e) => e.fmt(f),
+            ParseError::Int(e) => e.fmt(f),
+            ParseError::Float(e) => e.fmt(f),
+            ParseError::String(e) => e.fmt(f),
+            ParseError::Str(e) => e.fmt(f),
+            ParseError::Url(e) => e.fmt(f),
         }
     }
 }
