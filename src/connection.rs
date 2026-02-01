@@ -100,10 +100,7 @@ struct UdpOptions {
 
 impl UdpOptions {
     fn from_url(url: &Url) -> Self {
-        let bind_addr = url
-            .query_pairs()
-            .find(|(k, _)| k == "bind")
-            .map(|(_, v)| v.to_string());
+        let bind_addr = url.query_pairs().find(|(k, _)| k == "bind").map(|(_, v)| v.to_string());
         UdpOptions { bind_addr }
     }
 }
