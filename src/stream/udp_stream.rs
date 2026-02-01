@@ -16,9 +16,23 @@ pub struct UdpStream {
 }
 
 impl UdpStream {
-    pub fn new(addr: &Url) -> Result<Self, MemcacheError> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
-        socket.connect(&*addr.socket_addrs(|| None)?)?;
+    pub fn new(addr: &Url, bind_addr: Option<&str>) -> Result<Self, MemcacheError> {
+        let remote_addrs = addr.socket_addrs(|| None)?;
+
+        let bind = match bind_addr {
+            Some(addr) => format!("{}:0", addr),
+            None => {
+                // Auto-detect: use loopback if target is loopback
+                if remote_addrs.iter().any(|a| a.ip().is_loopback()) {
+                    "127.0.0.1:0".to_string()
+                } else {
+                    "0.0.0.0:0".to_string()
+                }
+            }
+        };
+
+        let socket = UdpSocket::bind(&bind)?;
+        socket.connect(&*remote_addrs)?;
         return Ok(UdpStream {
             socket,
             read_buf: Vec::new(),

@@ -73,7 +73,7 @@ impl ManageConnection for ConnectionManager {
 
 enum Transport {
     Tcp(TcpOptions),
-    Udp,
+    Udp(UdpOptions),
     #[cfg(unix)]
     Unix,
     #[cfg(feature = "tls")]
@@ -92,6 +92,20 @@ struct TlsOptions {
 struct TcpOptions {
     timeout: Option<Duration>,
     nodelay: bool,
+}
+
+struct UdpOptions {
+    bind_addr: Option<String>,
+}
+
+impl UdpOptions {
+    fn from_url(url: &Url) -> Self {
+        let bind_addr = url
+            .query_pairs()
+            .find(|(k, _)| k == "bind")
+            .map(|(_, v)| v.to_string());
+        UdpOptions { bind_addr }
+    }
 }
 
 #[cfg(feature = "tls")]
@@ -173,7 +187,7 @@ impl Transport {
         if let Some(proto) = parts.next() {
             return match proto {
                 "tcp" => Ok(Transport::Tcp(TcpOptions::from_url(url))),
-                "udp" => Ok(Transport::Udp),
+                "udp" => Ok(Transport::Udp(UdpOptions::from_url(url))),
                 #[cfg(unix)]
                 "unix" => Ok(Transport::Unix),
                 #[cfg(feature = "tls")]
@@ -186,7 +200,7 @@ impl Transport {
 
         let is_udp = url.query_pairs().any(|(ref k, ref v)| k == "udp" && v == "true");
         if is_udp {
-            return Ok(Transport::Udp);
+            return Ok(Transport::Udp(UdpOptions::from_url(url)));
         }
 
         #[cfg(unix)]
@@ -220,7 +234,7 @@ impl Connection {
         let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
         let stream: Stream = match transport {
             Transport::Tcp(options) => Stream::Tcp(tcp_stream(url, &options)?),
-            Transport::Udp => Stream::Udp(UdpStream::new(url)?),
+            Transport::Udp(options) => Stream::Udp(UdpStream::new(url, options.bind_addr.as_deref())?),
             #[cfg(unix)]
             Transport::Unix => Stream::Unix(UnixStream::connect(url.path())?),
             #[cfg(feature = "tls")]
