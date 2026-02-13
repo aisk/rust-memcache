@@ -12,6 +12,9 @@ use crate::stream::Stream;
 use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
 use r2d2::Pool;
 
+#[cfg(feature = "json")]
+use serde::{Deserialize, Serialize};
+
 pub type Stats = HashMap<String, String>;
 
 pub trait Connectable {
@@ -273,6 +276,47 @@ impl Client {
         return Ok(result);
     }
 
+    /// Get a key from memcached server and deserialize it as JSON. This function is only available when the `json` feature is enabled.
+    /// The value type should implement `FromMemcacheValueExt` and `serde::Deserialize`.
+    ///
+    /// Example:
+    /// ```rust
+    /// use serde::{Serialize, Deserialize};
+    ///
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct MyStruct {
+    ///     value: String,
+    ///     number: i32,
+    ///     flag: bool,
+    ///     array: Vec<i32>,
+    /// }
+    ///
+    /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let value = MyStruct {
+    ///     value: "hello".to_string(),
+    ///     number: 42,
+    ///     flag: true,
+    ///     array: vec![1, 2, 3],
+    /// };
+    /// client.set_json("foo", value, 10).unwrap();
+    /// let result: MyStruct = client.get_json("foo").unwrap().unwrap();
+    ///
+    /// assert_eq!(result.value, "hello");
+    /// assert_eq!(result.number, 42);
+    /// assert_eq!(result.flag, true);
+    /// assert_eq!(result.array, vec![1, 2, 3]);
+    /// ```
+    #[cfg(feature = "json")]
+    pub fn get_json<V: for<'a> Deserialize<'a>>(&self, key: &str) -> Result<Option<V>, MemcacheError> {
+        let value: Option<String> = self.get(key)?;
+        let value = match value {
+            Some(value) => value,
+            None => return Ok(None),
+        };
+
+        return serde_json::from_str(&value).map_err(|e| MemcacheError::JsonError(e));
+    }
+
     /// Set a key with associate value into memcached server with expiration seconds.
     ///
     /// Example:
@@ -285,6 +329,32 @@ impl Client {
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         check_key_len(key)?;
         return self.get_connection(key).get()?.set(key, value, expiration);
+    }
+
+    /// Set a key with associate value into memcached server with expiration seconds. The value will be serialized as JSON. This function is only available when the `json` feature is enabled.
+    ///
+    /// Example:
+    /// ```rust
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Serialize)]
+    /// struct MyStruct {
+    ///     value: String,
+    ///     number: i32,
+    /// }
+    ///
+    /// let client = memcache::Client::connect("memcache://localhost:12345").unwrap();
+    /// let value = MyStruct {
+    ///     value: "hello".to_string(),
+    ///     number: 42,
+    /// };
+    /// client.set_json("foo", value, 10).unwrap();
+    /// client.flush().unwrap();
+    /// ```
+    #[cfg(feature = "json")]
+    pub fn set_json<V: Serialize>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
+        let value = serde_json::to_string(&value).map_err(|e| MemcacheError::JsonError(e))?;
+        return self.set(key, value, expiration);
     }
 
     /// Compare and swap a key with the associate value into memcached server with expiration seconds.
