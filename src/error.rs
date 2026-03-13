@@ -237,6 +237,9 @@ pub enum MemcacheError {
     ParseError(ParseError),
     /// ConnectionPool errors
     PoolError(r2d2::Error),
+    /// Json errors (only available with `json` feature) for invalid json strings
+    #[cfg(feature = "json")]
+    JsonError(serde_json::Error),
 }
 
 impl fmt::Display for MemcacheError {
@@ -251,6 +254,8 @@ impl fmt::Display for MemcacheError {
             MemcacheError::ServerError(ref err) => err.fmt(f),
             MemcacheError::CommandError(ref err) => err.fmt(f),
             MemcacheError::PoolError(ref err) => err.fmt(f),
+            #[cfg(feature = "json")]
+            MemcacheError::JsonError(ref err) => err.fmt(f),
         }
     }
 }
@@ -267,6 +272,8 @@ impl error::Error for MemcacheError {
             MemcacheError::ServerError(_) => None,
             MemcacheError::CommandError(_) => None,
             MemcacheError::PoolError(ref p) => p.source(),
+            #[cfg(feature = "json")]
+            MemcacheError::JsonError(ref e) => e.source(),
         }
     }
 }

@@ -30,7 +30,8 @@ memcache = "*"
 - [ ] Encodings
   - [x] Typed interface
   - [ ] Automatically compress
-  - [ ] Automatically serialize to JSON / msgpack etc
+  - [x] Automatically serialize to JSON
+  - [ ] Automatically serialize to msgpack
 - [x] Memcached cluster support with custom key hash algorithm
 - [x] Authority
   - [x] Binary protocol (plain SASL authority plain)
