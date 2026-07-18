@@ -12,6 +12,7 @@ edition = "2024"
 [features]
 default = ["tls"]
 tls = ["openssl"]
+tokio = ["dep:tokio"]
 
 [dependencies]
 byteorder = "1"
@@ -20,3 +21,4 @@ rand = "0.10"
 enum_dispatch = "0.3"
 openssl = { version = "^0.10", optional = true }
 r2d2 = "^0.8"
+tokio = { version = "1", features = ["io-util", "net"], optional = true }
