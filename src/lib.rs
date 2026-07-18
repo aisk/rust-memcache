@@ -76,6 +76,7 @@ extern crate url;
 mod client;
 mod connection;
 mod error;
+pub mod exp;
 mod protocol;
 mod stream;
 mod value;
