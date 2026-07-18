@@ -6,7 +6,7 @@
 
 rust-memcache is a [memcached](https://memcached.org/) client written in pure rust.
 
-![logo](https://cloudflare-ipfs.com/ipfs/QmY2otmZFbrLfCQZ2JG8bsEsMGegHrh8WgupcyTcyoShiS)
+![logo](https://repository-images.githubusercontent.com/11312685/c184f380-2fc5-11ea-8d95-e0c6509adae7)
 
 ## Install
 
