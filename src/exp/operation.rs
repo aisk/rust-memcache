@@ -3,8 +3,9 @@
 //! An operation captures *what* the caller wants (key, value, conditions,
 //! requested metadata) independently of the wire encoding. The core layer
 //! turns operations into [`MetaCommand`](super::MetaCommand)s and pairs them
-//! with their responses. Construct with `new` and adjust fields with struct
-//! update syntax: `Get { touch: Some(60), ..Get::new("foo") }`.
+//! with their responses. Construct with `new` and chain builder methods:
+//! `Get::new("foo").touch(60).lease_ttl(30)`. The fields stay public for
+//! struct update syntax and pattern matching.
 
 use super::meta_api::{ArithmeticMode, SetMode};
 
@@ -34,6 +35,36 @@ impl Meta {
         last_access: true,
         hit_before: true,
     };
+
+    #[must_use]
+    pub fn cas(mut self) -> Meta {
+        self.cas = true;
+        self
+    }
+
+    #[must_use]
+    pub fn ttl(mut self) -> Meta {
+        self.ttl = true;
+        self
+    }
+
+    #[must_use]
+    pub fn size(mut self) -> Meta {
+        self.size = true;
+        self
+    }
+
+    #[must_use]
+    pub fn last_access(mut self) -> Meta {
+        self.last_access = true;
+        self
+    }
+
+    #[must_use]
+    pub fn hit_before(mut self) -> Meta {
+        self.hit_before = true;
+        self
+    }
 }
 
 /// A read operation (`mg`).
@@ -74,6 +105,55 @@ impl Get {
             refresh_before: None,
         }
     }
+
+    /// Fetch this metadata alongside the value.
+    #[must_use]
+    pub fn meta(mut self, meta: Meta) -> Get {
+        self.meta = meta;
+        self
+    }
+
+    /// Update the item TTL while reading.
+    #[must_use]
+    pub fn touch(mut self, ttl: u32) -> Get {
+        self.touch = Some(ttl);
+        self
+    }
+
+    /// Don't bump the item in the LRU.
+    #[must_use]
+    pub fn no_lru_bump(mut self) -> Get {
+        self.no_lru_bump = true;
+        self
+    }
+
+    /// Suppress the value when the item CAS still matches.
+    #[must_use]
+    pub fn unless_cas(mut self, cas: u64) -> Get {
+        self.unless_cas = Some(cas);
+        self
+    }
+
+    /// Fetch metadata only, without the value.
+    #[must_use]
+    pub fn without_value(mut self) -> Get {
+        self.value = false;
+        self
+    }
+
+    /// Vivify a missing key with this TTL and request a lease.
+    #[must_use]
+    pub fn lease_ttl(mut self, ttl: u32) -> Get {
+        self.lease_ttl = Some(ttl);
+        self
+    }
+
+    /// Also win the lease when the remaining TTL drops below this.
+    #[must_use]
+    pub fn refresh_before(mut self, ttl: u32) -> Get {
+        self.refresh_before = Some(ttl);
+        self
+    }
 }
 
 /// A store operation (`ms`). The value is raw bytes; serialization belongs
@@ -107,6 +187,70 @@ impl Set {
             vivify_ttl: None,
         }
     }
+
+    #[must_use]
+    pub fn ttl(mut self, ttl: u32) -> Set {
+        self.ttl = Some(ttl);
+        self
+    }
+
+    #[must_use]
+    pub fn mode(mut self, mode: SetMode) -> Set {
+        self.mode = mode;
+        self
+    }
+
+    /// Store only when the item does not exist.
+    #[must_use]
+    pub fn add(self) -> Set {
+        self.mode(SetMode::Add)
+    }
+
+    /// Store only when the item exists.
+    #[must_use]
+    pub fn replace(self) -> Set {
+        self.mode(SetMode::Replace)
+    }
+
+    /// Append raw bytes to the stored value.
+    #[must_use]
+    pub fn append(self) -> Set {
+        self.mode(SetMode::Append)
+    }
+
+    /// Prepend raw bytes to the stored value.
+    #[must_use]
+    pub fn prepend(self) -> Set {
+        self.mode(SetMode::Prepend)
+    }
+
+    /// Store only when the item CAS matches.
+    #[must_use]
+    pub fn compare_cas(mut self, cas: u64) -> Set {
+        self.compare_cas = Some(cas);
+        self
+    }
+
+    /// Replace the item CAS with this value.
+    #[must_use]
+    pub fn version(mut self, version: u64) -> Set {
+        self.version = Some(version);
+        self
+    }
+
+    /// Return the new item CAS in the result.
+    #[must_use]
+    pub fn return_cas(mut self) -> Set {
+        self.return_cas = true;
+        self
+    }
+
+    /// For append/prepend, vivify a missing item with this TTL.
+    #[must_use]
+    pub fn vivify_ttl(mut self, ttl: u32) -> Set {
+        self.vivify_ttl = Some(ttl);
+        self
+    }
 }
 
 /// A delete operation (`md`).
@@ -130,6 +274,27 @@ impl Delete {
             invalidate: false,
             stale_for: None,
         }
+    }
+
+    /// Delete only when the item CAS matches.
+    #[must_use]
+    pub fn compare_cas(mut self, cas: u64) -> Delete {
+        self.compare_cas = Some(cas);
+        self
+    }
+
+    /// Mark the item stale instead of removing it.
+    #[must_use]
+    pub fn invalidate(mut self) -> Delete {
+        self.invalidate = true;
+        self
+    }
+
+    /// For invalidate, how long the stale item stays readable.
+    #[must_use]
+    pub fn stale_for(mut self, ttl: u32) -> Delete {
+        self.stale_for = Some(ttl);
+        self
     }
 }
 
@@ -169,5 +334,99 @@ impl Arithmetic {
             return_cas: false,
             return_ttl: false,
         }
+    }
+
+    #[must_use]
+    pub fn delta(mut self, delta: u64) -> Arithmetic {
+        self.delta = delta;
+        self
+    }
+
+    /// Decrement instead of increment.
+    #[must_use]
+    pub fn decrement(mut self) -> Arithmetic {
+        self.mode = ArithmeticMode::Decrement;
+        self
+    }
+
+    /// Vivify a missing item with this value and TTL. The protocol requires
+    /// the pair, so they are set together.
+    #[must_use]
+    pub fn initial(mut self, value: u64, ttl: u32) -> Arithmetic {
+        self.initial = Some(value);
+        self.initial_ttl = Some(ttl);
+        self
+    }
+
+    /// Update the item TTL while applying the delta.
+    #[must_use]
+    pub fn ttl(mut self, ttl: u32) -> Arithmetic {
+        self.ttl = Some(ttl);
+        self
+    }
+
+    /// Apply only when the item CAS matches.
+    #[must_use]
+    pub fn compare_cas(mut self, cas: u64) -> Arithmetic {
+        self.compare_cas = Some(cas);
+        self
+    }
+
+    /// Replace the item CAS with this value.
+    #[must_use]
+    pub fn version(mut self, version: u64) -> Arithmetic {
+        self.version = Some(version);
+        self
+    }
+
+    /// Return the new item CAS in the result.
+    #[must_use]
+    pub fn return_cas(mut self) -> Arithmetic {
+        self.return_cas = true;
+        self
+    }
+
+    /// Return the remaining TTL in the result.
+    #[must_use]
+    pub fn return_ttl(mut self) -> Arithmetic {
+        self.return_ttl = true;
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builders_set_fields() {
+        let get = Get::new("foo")
+            .meta(Meta::NONE.cas().ttl())
+            .touch(60)
+            .no_lru_bump()
+            .lease_ttl(30)
+            .refresh_before(10);
+        assert!(get.meta.cas && get.meta.ttl && !get.meta.size);
+        assert_eq!(get.touch, Some(60));
+        assert!(get.no_lru_bump);
+        assert_eq!(get.lease_ttl, Some(30));
+        assert_eq!(get.refresh_before, Some(10));
+        assert!(!Get::new("foo").without_value().value);
+
+        let set = Set::new("foo", "bar").ttl(60).add().compare_cas(7).return_cas();
+        assert_eq!(set.ttl, Some(60));
+        assert_eq!(set.mode, SetMode::Add);
+        assert_eq!(set.compare_cas, Some(7));
+        assert!(set.return_cas);
+
+        let delete = Delete::new("foo").invalidate().stale_for(30);
+        assert!(delete.invalidate);
+        assert_eq!(delete.stale_for, Some(30));
+
+        let arithmetic = Arithmetic::new("counter").delta(2).decrement().initial(0, 60);
+        assert_eq!(arithmetic.delta, 2);
+        assert_eq!(arithmetic.mode, ArithmeticMode::Decrement);
+        assert_eq!(arithmetic.initial, Some(0));
+        assert_eq!(arithmetic.initial_ttl, Some(60));
     }
 }

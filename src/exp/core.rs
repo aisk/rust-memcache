@@ -17,6 +17,76 @@ use super::result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, ValueState,
 };
 
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::Get {}
+    impl Sealed for super::Set {}
+    impl Sealed for super::Delete {}
+    impl Sealed for super::Arithmetic {}
+}
+
+/// An executable semantic-layer operation, implemented by [`Get`], [`Set`],
+/// [`Delete`] and [`Arithmetic`]. Sealed: not implementable outside this
+/// crate.
+pub trait Operation: sealed::Sealed {
+    /// The typed result this operation produces.
+    type Output;
+
+    #[doc(hidden)]
+    fn prepare(&self) -> Result<MetaCommand, MemcacheError>;
+
+    #[doc(hidden)]
+    fn parse(&self, wire: MetaCommandResult) -> Result<Self::Output, MemcacheError>;
+}
+
+impl Operation for Get {
+    type Output = GetResult;
+
+    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+        prepare_get(self)
+    }
+
+    fn parse(&self, wire: MetaCommandResult) -> Result<GetResult, MemcacheError> {
+        parse_get(self, wire)
+    }
+}
+
+impl Operation for Set {
+    type Output = MutationResult;
+
+    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+        prepare_set(self)
+    }
+
+    fn parse(&self, wire: MetaCommandResult) -> Result<MutationResult, MemcacheError> {
+        parse_set(self, wire)
+    }
+}
+
+impl Operation for Delete {
+    type Output = MutationResult;
+
+    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+        prepare_delete(self)
+    }
+
+    fn parse(&self, wire: MetaCommandResult) -> Result<MutationResult, MemcacheError> {
+        parse_delete(self, wire)
+    }
+}
+
+impl Operation for Arithmetic {
+    type Output = ArithmeticResult;
+
+    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+        prepare_arithmetic(self)
+    }
+
+    fn parse(&self, wire: MetaCommandResult) -> Result<ArithmeticResult, MemcacheError> {
+        parse_arithmetic(self, wire)
+    }
+}
+
 fn invalid<T>(message: &'static str) -> Result<T, MemcacheError> {
     Err(ClientError::Error(Cow::Borrowed(message)).into())
 }

@@ -13,26 +13,28 @@ The module is layered bottom-up:
   No serialization and no semantic interpretation happens at this level.
 - Operations ([`Get`], [`Set`], [`Delete`], [`Arithmetic`]) and typed results
   ([`GetResult`], [`MutationResult`], [`ArithmeticResult`]): the semantic
-  layer, interpreting return codes and lease/stale flags. Values are raw
-  bytes.
+  layer, interpreting return codes and lease/stale flags. Each operation
+  implements [`Operation`] with a typed `Output`. Values are raw bytes.
 - [`MetaClient`] (blocking) and [`AsyncMetaClient`] (tokio, behind the
-  `tokio` feature): single-server clients running one operation at a time.
+  `tokio` feature): single-server clients whose verbs return lazy
+  [`Request`] builders, executed with `send()`.
 
-Transports are TCP only. Serialization, multi-server routing and pipelining
+Transports are TCP only. Serialization, multi-server routing and batching
 are not implemented yet.
 
 # Example
 
 ```no_run
-use memcache::exp::{Get, MetaClient, Set};
+use memcache::exp::MetaClient;
 
 let mut client = MetaClient::connect("127.0.0.1:11211").unwrap();
-client.set(&Set::new("foo", "bar")).unwrap();
-let result = client.get(&Get::new("foo")).unwrap();
+client.set("foo", "bar").send().unwrap();
+let result = client.get("foo").send().unwrap();
 assert_eq!(result.value.as_deref(), Some(&b"bar"[..]));
 
-// Fields not covered by `new` are set with struct update syntax:
-client.set(&Set { ttl: Some(60), ..Set::new("foo", "bar") }).unwrap();
+// Options are chained before send():
+client.set("foo", "bar").ttl(60).add().send().unwrap();
+let counter = client.increment("hits").delta(2).initial(0, 60).send().unwrap();
 ```
 
 The wire layer remains available for anything the clients do not cover:
@@ -56,6 +58,7 @@ mod core;
 mod meta_api;
 mod meta_command;
 mod operation;
+mod request;
 mod result;
 
 #[cfg(feature = "tokio")]
@@ -69,6 +72,7 @@ pub use async_client::AsyncMetaClient;
 pub use async_connection::AsyncMetaConnection;
 pub use client::MetaClient;
 pub use connection::MetaConnection;
+pub use core::Operation;
 pub use meta_api::{
     ArithmeticMode, ArithmeticOptions, DeleteOptions, GetOptions, MetaCommandResult, SetMode, SetOptions,
     build_arithmetic, build_debug, build_delete, build_get, build_noop, build_set, parse_debug_result,
@@ -76,6 +80,7 @@ pub use meta_api::{
 };
 pub use meta_command::{MAX_KEY_LENGTH, MetaCommand, MetaOp, MetaResponse, ReturnCode};
 pub use operation::{Arithmetic, Delete, Get, Meta, Set};
+pub use request::Request;
 pub use result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, ValueState,
 };
