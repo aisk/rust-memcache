@@ -13,7 +13,7 @@ fn gen_random_key() -> String {
 
 #[test]
 fn exp_set_get_delete() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     client.noop().unwrap();
@@ -36,7 +36,7 @@ fn exp_set_get_delete() {
 
 #[test]
 fn exp_store_modes() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     assert_eq!(
@@ -58,7 +58,7 @@ fn exp_store_modes() {
 
 #[test]
 fn exp_cas_flow() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     let stored = client.set(&*key, "one").return_cas().send().unwrap();
@@ -80,7 +80,7 @@ fn exp_cas_flow() {
 
 #[test]
 fn exp_arithmetic() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     assert_eq!(client.increment(&*key).send().unwrap().status, MutationStatus::NotFound);
@@ -97,7 +97,7 @@ fn exp_arithmetic() {
 
 #[test]
 fn exp_item_meta() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     client.set(&*key, "bar").ttl(100).send().unwrap();
@@ -119,7 +119,7 @@ fn exp_item_meta() {
 
 #[test]
 fn exp_binary_key() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = format!("{} with spaces\x01", gen_random_key());
 
     assert!(client.set(&*key, "bar").send().unwrap().stored());
@@ -130,7 +130,7 @@ fn exp_binary_key() {
 
 #[test]
 fn exp_run_batch() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key_a = gen_random_key();
     let key_b = gen_random_key();
 
@@ -152,7 +152,7 @@ fn exp_run_batch() {
 
 #[test]
 fn exp_lease() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     // First reader vivifies the key and wins the lease.
@@ -173,7 +173,7 @@ fn exp_lease() {
 
 #[test]
 fn exp_typed_values() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     // Numbers are stored as decimal ASCII, so arithmetic works on them.
@@ -193,7 +193,7 @@ fn exp_typed_values() {
 
 #[test]
 fn exp_multi_server() {
-    let mut client = MetaClient::connect_multiple(["localhost:12345", "localhost:12346"]).unwrap();
+    let client = MetaClient::connect_multiple(["localhost:12345", "localhost:12346"]).unwrap();
     client.noop().unwrap();
 
     let keys: Vec<String> = (0..20).map(|_| gen_random_key()).collect();
@@ -219,8 +219,27 @@ fn exp_multi_server() {
 }
 
 #[test]
+fn exp_concurrent_clients() {
+    let client = MetaClient::connect(SERVER).unwrap();
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            let client = client.clone();
+            scope.spawn(move || {
+                for _ in 0..10 {
+                    let key = gen_random_key();
+                    assert!(client.set(key.as_str(), "v").send().unwrap().stored());
+                    let fetched = client.get(key.as_str()).send().unwrap();
+                    assert_eq!(fetched.value.as_deref(), Some(&b"v"[..]));
+                    assert!(client.delete(key.as_str()).send().unwrap().stored());
+                }
+            });
+        }
+    });
+}
+
+#[test]
 fn exp_debug() {
-    let mut client = MetaClient::connect(SERVER).unwrap();
+    let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
     assert!(client.debug(&*key).unwrap().is_none());
@@ -236,7 +255,7 @@ mod async_tests {
 
     #[tokio::test]
     async fn exp_async_roundtrip() {
-        let mut client = AsyncMetaClient::connect(SERVER).await.unwrap();
+        let client = AsyncMetaClient::connect(SERVER).await.unwrap();
         let key = gen_random_key();
 
         client.noop().await.unwrap();
