@@ -394,6 +394,40 @@ impl Arithmetic {
     }
 }
 
+/// Any operation, for heterogeneous batches: `client.run_batch([op.into(),
+/// ...])`. Running an `Op` yields an [`OpResult`](super::OpResult).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Op {
+    Get(Get),
+    Set(Set),
+    Delete(Delete),
+    Arithmetic(Arithmetic),
+}
+
+impl From<Get> for Op {
+    fn from(operation: Get) -> Op {
+        Op::Get(operation)
+    }
+}
+
+impl From<Set> for Op {
+    fn from(operation: Set) -> Op {
+        Op::Set(operation)
+    }
+}
+
+impl From<Delete> for Op {
+    fn from(operation: Delete) -> Op {
+        Op::Delete(operation)
+    }
+}
+
+impl From<Arithmetic> for Op {
+    fn from(operation: Arithmetic) -> Op {
+        Op::Arithmetic(operation)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

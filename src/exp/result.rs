@@ -128,3 +128,36 @@ impl ArithmeticResult {
         self.status == MutationStatus::Stored
     }
 }
+
+/// Result of an [`Op`](super::Op) in a batch, one variant per operation
+/// kind ([`Set`](super::Set) and [`Delete`](super::Delete) both yield
+/// `Mutation`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpResult {
+    Get(GetResult),
+    Mutation(MutationResult),
+    Arithmetic(ArithmeticResult),
+}
+
+impl OpResult {
+    pub fn as_get(&self) -> Option<&GetResult> {
+        match self {
+            OpResult::Get(result) => Some(result),
+            _ => None,
+        }
+    }
+
+    pub fn as_mutation(&self) -> Option<&MutationResult> {
+        match self {
+            OpResult::Mutation(result) => Some(result),
+            _ => None,
+        }
+    }
+
+    pub fn as_arithmetic(&self) -> Option<&ArithmeticResult> {
+        match self {
+            OpResult::Arithmetic(result) => Some(result),
+            _ => None,
+        }
+    }
+}

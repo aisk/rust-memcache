@@ -62,6 +62,23 @@ impl AsyncMetaConnection {
         self.receive().await
     }
 
+    /// Write all commands in one payload, then read one response per
+    /// command. Quiet-mode (`q`) commands would desynchronize the stream and
+    /// must not be used here.
+    pub async fn execute_batch(&mut self, commands: &[MetaCommand]) -> Result<Vec<MetaResponse>, MemcacheError> {
+        let mut payload = Vec::new();
+        for command in commands {
+            command.encode_into(&mut payload)?;
+        }
+        self.reader.write_all(&payload).await?;
+        self.reader.flush().await?;
+        let mut responses = Vec::with_capacity(commands.len());
+        for _ in commands {
+            responses.push(self.receive().await?);
+        }
+        Ok(responses)
+    }
+
     async fn read_line(&mut self) -> Result<Vec<u8>, MemcacheError> {
         let mut line = Vec::new();
         self.reader.read_until(b'\n', &mut line).await?;

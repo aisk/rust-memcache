@@ -19,8 +19,13 @@ The module is layered bottom-up:
   `tokio` feature): single-server clients whose verbs return lazy
   [`Request`] builders, executed with `send()`.
 
-Transports are TCP only. Serialization, multi-server routing and batching
-are not implemented yet.
+Several operations can run in one round trip: `run_batch` takes
+heterogeneous [`Op`] values and returns [`OpResult`]s. Batched operations
+execute independently and in order on one connection — a batch is not a
+transaction.
+
+Transports are TCP only. Serialization and multi-server routing are not
+implemented yet.
 
 # Example
 
@@ -35,6 +40,12 @@ assert_eq!(result.value.as_deref(), Some(&b"bar"[..]));
 // Options are chained before send():
 client.set("foo", "bar").ttl(60).add().send().unwrap();
 let counter = client.increment("hits").delta(2).initial(0, 60).send().unwrap();
+
+// Several operations in one round trip:
+use memcache::exp::{Get, Set};
+let results = client
+    .run_batch(vec![Set::new("a", "1").ttl(60).into(), Get::new("b").into()])
+    .unwrap();
 ```
 
 The wire layer remains available for anything the clients do not cover:
@@ -79,8 +90,8 @@ pub use meta_api::{
     parse_meta_result,
 };
 pub use meta_command::{MAX_KEY_LENGTH, MetaCommand, MetaOp, MetaResponse, ReturnCode};
-pub use operation::{Arithmetic, Delete, Get, Meta, Set};
+pub use operation::{Arithmetic, Delete, Get, Meta, Op, Set};
 pub use request::Request;
 pub use result::{
-    ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, ValueState,
+    ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
 };

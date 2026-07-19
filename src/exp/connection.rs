@@ -60,6 +60,22 @@ impl MetaConnection {
         self.receive()
     }
 
+    /// Write all commands in one payload, then read one response per
+    /// command. Quiet-mode (`q`) commands would desynchronize the stream and
+    /// must not be used here.
+    pub fn execute_batch(&mut self, commands: &[MetaCommand]) -> Result<Vec<MetaResponse>, MemcacheError> {
+        let mut payload = Vec::new();
+        for command in commands {
+            command.encode_into(&mut payload)?;
+        }
+        self.reader.get_mut().write_all(&payload)?;
+        let mut responses = Vec::with_capacity(commands.len());
+        for _ in commands {
+            responses.push(self.receive()?);
+        }
+        Ok(responses)
+    }
+
     fn read_line(&mut self) -> Result<Vec<u8>, MemcacheError> {
         let mut line = Vec::new();
         self.reader.read_until(b'\n', &mut line)?;
