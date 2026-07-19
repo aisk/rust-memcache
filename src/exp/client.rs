@@ -12,6 +12,7 @@ use super::meta_command::ReturnCode;
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
+use super::value::ToValue;
 
 /// A blocking meta protocol client for a single server.
 ///
@@ -43,8 +44,9 @@ impl MetaClient {
         Request::new(self, Get::new(key))
     }
 
-    /// Store a value under a key.
-    pub fn set(&mut self, key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) -> Request<'_, MetaClient, Set> {
+    /// Store a value under a key; the value is encoded via
+    /// [`ToValue`](super::ToValue).
+    pub fn set(&mut self, key: impl Into<Vec<u8>>, value: impl ToValue) -> Request<'_, MetaClient, Set> {
         Request::new(self, Set::new(key, value))
     }
 
@@ -201,9 +203,9 @@ mod tests {
         client.noop().unwrap();
 
         let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms foo 3\r\n".to_vec());
+        assert_eq!(requests[0], b"ms foo 3 F16\r\n".to_vec());
         assert_eq!(requests[1], b"mg foo v f\r\n".to_vec());
-        assert_eq!(requests[2], b"ms foo 3 ME\r\n".to_vec());
+        assert_eq!(requests[2], b"ms foo 3 ME F16\r\n".to_vec());
         assert_eq!(requests[3], b"ma counter v D2\r\n".to_vec());
         assert_eq!(requests[4], b"md foo\r\n".to_vec());
         assert_eq!(requests[5], b"mn\r\n".to_vec());
@@ -228,7 +230,7 @@ mod tests {
 
         // All three commands were written before the first response was read.
         let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms a 1 T60\r\n".to_vec());
+        assert_eq!(requests[0], b"ms a 1 F16 T60\r\n".to_vec());
         assert_eq!(requests[1], b"mg b v f\r\n".to_vec());
         assert_eq!(requests[2], b"md c\r\n".to_vec());
     }
@@ -259,7 +261,7 @@ mod tests {
         assert_eq!(decremented.value, Some(1));
 
         let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms foo 3 T60\r\n".to_vec());
+        assert_eq!(requests[0], b"ms foo 3 F16 T60\r\n".to_vec());
         assert_eq!(requests[1], b"ma counter MD v D1\r\n".to_vec());
     }
 }

@@ -156,6 +156,8 @@ pub(crate) fn prepare_set(operation: &Set) -> Result<MetaCommand, MemcacheError>
         return invalid("vivify_ttl must be >= 1");
     }
     let options = SetOptions {
+        // An omitted F stores flags 0, so only non-zero flags go on the wire.
+        client_flags: (operation.client_flags != 0).then_some(operation.client_flags),
         ttl: operation.ttl,
         mode: operation.mode,
         compare_cas: operation.compare_cas,
@@ -223,6 +225,7 @@ pub(crate) fn parse_get(operation: &Get, wire: MetaCommandResult) -> Result<GetR
             key: operation.key.clone(),
             status: GetStatus::Miss,
             value: None,
+            client_flags: None,
             item: ItemMeta::default(),
             value_state: ValueState::Missing,
             lease_state: LeaseState::None,
@@ -274,6 +277,7 @@ pub(crate) fn parse_get(operation: &Get, wire: MetaCommandResult) -> Result<GetR
         key: operation.key.clone(),
         status,
         value,
+        client_flags: wire.client_flags,
         item,
         value_state,
         lease_state,
@@ -384,7 +388,11 @@ mod tests {
 
     #[test]
     fn prepare_set_wire_format() {
+        // A &str value carries FLAG_STR (16) from ToValue.
         let command = prepare_set(&Set::new("foo", "bar")).unwrap();
+        assert_eq!(command.encode().unwrap(), b"ms foo 3 F16\r\nbar\r\n".to_vec());
+
+        let command = prepare_set(&Set::new("foo", b"bar")).unwrap();
         assert_eq!(command.encode().unwrap(), b"ms foo 3\r\nbar\r\n".to_vec());
 
         let operation = Set {
@@ -394,7 +402,15 @@ mod tests {
             ..Set::new("foo", "bar")
         };
         let command = prepare_set(&operation).unwrap();
-        assert_eq!(command.encode().unwrap(), b"ms foo 3 ME c T60\r\nbar\r\n".to_vec());
+        assert_eq!(command.encode().unwrap(), b"ms foo 3 ME c F16 T60\r\nbar\r\n".to_vec());
+
+        // Non-zero client flags from ToValue go on the wire as F.
+        let operation = Set {
+            client_flags: 5,
+            ..Set::new("foo", "bar")
+        };
+        let command = prepare_set(&operation).unwrap();
+        assert_eq!(command.encode().unwrap(), b"ms foo 3 F5\r\nbar\r\n".to_vec());
     }
 
     #[test]

@@ -41,6 +41,10 @@ assert_eq!(result.value.as_deref(), Some(&b"bar"[..]));
 client.set("foo", "bar").ttl(60).add().send().unwrap();
 let counter = client.increment("hits").delta(2).initial(0, 60).send().unwrap();
 
+// Values are encoded via ToValue and decoded by the requested type:
+client.set("visits", 41u64).send().unwrap();
+let visits: Option<u64> = client.get("visits").send().unwrap().decode().unwrap();
+
 // Several operations in one round trip:
 use memcache::exp::{Get, Set};
 let results = client
@@ -71,6 +75,7 @@ mod meta_command;
 mod operation;
 mod request;
 mod result;
+mod value;
 
 #[cfg(feature = "tokio")]
 mod async_client;
@@ -95,3 +100,4 @@ pub use request::Request;
 pub use result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
 };
+pub use value::{FLAG_BYTES, FLAG_INT, FLAG_STR, FromValue, ToValue};

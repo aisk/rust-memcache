@@ -8,6 +8,7 @@
 //! struct update syntax and pattern matching.
 
 use super::meta_api::{ArithmeticMode, SetMode};
+use super::value::ToValue;
 
 /// Which item metadata a [`Get`] should fetch into
 /// [`ItemMeta`](super::ItemMeta).
@@ -156,12 +157,15 @@ impl Get {
     }
 }
 
-/// A store operation (`ms`). The value is raw bytes; serialization belongs
-/// to a higher layer.
+/// A store operation (`ms`). The value is encoded up front via
+/// [`ToValue`]; `value` holds the raw bytes and `client_flags` the flags
+/// stored with the item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Set {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
+    /// `F<flags>` — client flags stored with the item, from [`ToValue`].
+    pub client_flags: u32,
     pub ttl: Option<u32>,
     pub mode: SetMode,
     /// Store only when the item CAS matches.
@@ -175,10 +179,12 @@ pub struct Set {
 }
 
 impl Set {
-    pub fn new(key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) -> Set {
+    pub fn new(key: impl Into<Vec<u8>>, value: impl ToValue) -> Set {
+        let (value, client_flags) = value.to_value();
         Set {
             key: key.into(),
-            value: value.into(),
+            value,
+            client_flags,
             ttl: None,
             mode: SetMode::Set,
             compare_cas: None,
