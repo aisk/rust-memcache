@@ -22,6 +22,7 @@ memcache = "*"
 - [x] All memcached supported protocols
   - [x] Binary protocol
   - [x] ASCII protocol
+  - [x] Meta protocol (experimental, in the `exp` module)
 - [x] All memcached supported connections
   - [x] TCP connection
   - [x] UDP connection
@@ -87,6 +88,116 @@ client.hash_function = |key: &str| -> u64 {
     // your custom hashing function here
     return 1;
 };
+```
+
+## Experimental meta protocol client
+
+The `memcache::exp` module contains a new client built on memcached's
+[meta protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt).
+It is experimental and not feature-complete yet, but the main paths are
+covered: get / set / delete / counters with their protocol options, CAS,
+typed values, batches, multiple servers, connection pooling, timeouts, and
+an async client behind the `tokio` feature.
+
+The API may change between minor versions. Within a minor version it is
+guaranteed to stay compatible, so pin the minor version if you use it:
+
+```ini
+[dependencies]
+memcache = "0.20"  # >= 0.20.0, < 0.21.0
+```
+
+### Typical usage
+
+```rust
+use memcache::exp::MetaClient;
+
+let client = MetaClient::connect("127.0.0.1:11211")?;
+
+// Plain operations; options are chained before send():
+client.set("foo", "bar").ttl(60).send()?;
+let result = client.get("foo").send()?;
+assert_eq!(result.value.as_deref(), Some(&b"bar"[..]));
+client.delete("foo").send()?;
+
+// Store only when the key does not exist:
+client.set("lock", "1").ttl(30).add().send()?;
+
+// Typed values; numbers are stored as decimal ASCII and work with counters:
+client.set("visits", 41u64).send()?;
+client.increment("visits").send()?;
+let visits: Option<u64> = client.get("visits").send()?.decode()?;
+
+// Several operations in one round trip:
+use memcache::exp::{Get, Set};
+let results = client.run_batch(vec![
+    Set::new("a", "1").ttl(60).into(),
+    Get::new("b").into(),
+])?;
+```
+
+Clients are cheap to clone and shareable across threads or tasks; clones
+share per-server connection pools. Multiple servers, pool size and
+timeouts:
+
+```rust
+use std::time::Duration;
+
+let client = MetaClient::connect_multiple(["10.0.0.1:11211", "10.0.0.2:11211"])?
+    .with_max_idle(16)
+    .with_connect_timeout(Some(Duration::from_millis(200)))
+    .with_io_timeout(Some(Duration::from_millis(200)));
+```
+
+The async client has the same surface, behind the `tokio` feature:
+
+```rust
+use memcache::exp::AsyncMetaClient;
+
+let client = AsyncMetaClient::connect("127.0.0.1:11211").await?;
+client.set("foo", "bar").ttl(60).send().await?;
+let result = client.get("foo").send().await?;
+```
+
+### Advanced: cache stampede protection with leases
+
+When a hot key misses or is close to expiring, `lease_ttl` grants exactly
+one reader a lease to recompute the value; concurrent readers are told the
+refresh is pending (or keep serving the current value) instead of all
+hitting the backing store at once:
+
+```rust
+let result = client.get("hot").lease_ttl(30).refresh_before(10).send()?;
+if result.won_lease() {
+    // This reader owns the refresh; recompute and fill the placeholder.
+    let fresh = expensive_recompute();
+    client
+        .set("hot", fresh)
+        .ttl(300)
+        .compare_cas(result.item.cas.unwrap())
+        .send()?;
+} else if result.hit() {
+    // Serve the current value; another reader is refreshing it.
+} else {
+    // Miss with the lease held elsewhere: result.lease_busy() is true and
+    // the refresh is in flight; fall back or retry shortly.
+}
+```
+
+### Advanced: optimistic concurrency with CAS
+
+```rust
+use memcache::exp::{Meta, MutationStatus};
+
+let current = client.get("profile").meta(Meta::NONE.cas()).send()?;
+let updated = mutate(current.value.as_deref());
+let stored = client
+    .set("profile", updated)
+    .compare_cas(current.item.cas.unwrap())
+    .send()?;
+if stored.status == MutationStatus::CasMismatch {
+    // Someone else updated the key in between; reload and retry.
+}
 ```
 
 ## Contributing
