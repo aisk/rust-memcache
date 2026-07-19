@@ -4,8 +4,9 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::error::{ClientError, MemcacheError, ServerError};
 
@@ -59,11 +60,38 @@ struct Server {
 }
 
 impl Server {
-    fn checkout(&self) -> Result<MetaConnection, MemcacheError> {
-        if let Some(connection) = self.idle.lock().unwrap().pop() {
-            return Ok(connection);
-        }
-        MetaConnection::connect(self.addrs.as_slice())
+    fn checkout(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
+        let connection = match self.idle.lock().unwrap().pop() {
+            Some(connection) => connection,
+            None => self.dial(timeouts)?,
+        };
+        // The socket timeouts follow the client's current setting, also for
+        // connections dialed before it was configured.
+        connection.set_io_timeout(timeouts.io)?;
+        Ok(connection)
+    }
+
+    fn dial(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
+        let stream = match timeouts.connect {
+            Some(duration) => {
+                let mut last_error = None;
+                let mut connected = None;
+                for addr in &self.addrs {
+                    match TcpStream::connect_timeout(addr, duration) {
+                        Ok(stream) => {
+                            connected = Some(stream);
+                            break;
+                        }
+                        Err(error) => last_error = Some(error),
+                    }
+                }
+                // `addrs` is never empty, so a miss always has an error.
+                connected.ok_or_else(|| last_error.unwrap())?
+            }
+            None => TcpStream::connect(self.addrs.as_slice())?,
+        };
+        stream.set_nodelay(true)?;
+        Ok(MetaConnection::from_stream(stream))
     }
 
     fn put_back(&self, connection: MetaConnection, max_idle: usize) {
@@ -72,6 +100,12 @@ impl Server {
             idle.push(connection);
         }
     }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Timeouts {
+    pub(crate) connect: Option<Duration>,
+    pub(crate) io: Option<Duration>,
 }
 
 /// A blocking meta protocol client.
@@ -98,6 +132,7 @@ pub struct MetaClient {
     servers: Arc<Vec<Server>>,
     hash_function: fn(&[u8]) -> u64,
     max_idle: usize,
+    timeouts: Timeouts,
 }
 
 impl MetaClient {
@@ -106,18 +141,15 @@ impl MetaClient {
     }
 
     /// Connect to several servers; keys are distributed across them by the
-    /// hash function. One connection per server is dialed up front so
-    /// connection errors surface here.
+    /// hash function. Addresses are resolved here, but connections are
+    /// dialed lazily, so a down server surfaces at the first operation.
     pub fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<MetaClient, MemcacheError> {
         let mut servers = Vec::new();
         for addr in addrs {
-            let server = Server {
+            servers.push(Server {
                 addrs: resolve(addr)?,
                 idle: Mutex::new(Vec::new()),
-            };
-            let connection = MetaConnection::connect(server.addrs.as_slice())?;
-            server.idle.lock().unwrap().push(connection);
-            servers.push(server);
+            });
         }
         if servers.is_empty() {
             return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
@@ -126,6 +158,7 @@ impl MetaClient {
             servers: Arc::new(servers),
             hash_function: default_hash_function,
             max_idle: DEFAULT_MAX_IDLE,
+            timeouts: Timeouts::default(),
         })
     }
 
@@ -147,6 +180,23 @@ impl MetaClient {
         self
     }
 
+    /// Limit how long dialing a server may take (no limit by default).
+    /// Configure before cloning: clones share connections but not this
+    /// setting.
+    pub fn with_connect_timeout(mut self, timeout: Duration) -> MetaClient {
+        self.timeouts.connect = Some(timeout);
+        self
+    }
+
+    /// Limit how long a single socket read or write may take (no limit by
+    /// default). A timeout poisons the connection like any other transport
+    /// error. Configure before cloning: clones share connections but not
+    /// this setting.
+    pub fn with_io_timeout(mut self, timeout: Duration) -> MetaClient {
+        self.timeouts.io = Some(timeout);
+        self
+    }
+
     fn connection_index(&self, key: &[u8]) -> usize {
         jump_hash((self.hash_function)(key), self.servers.len())
     }
@@ -160,7 +210,7 @@ impl MetaClient {
         exchange: impl FnOnce(&mut MetaConnection) -> Result<T, MemcacheError>,
     ) -> Result<T, MemcacheError> {
         let server = &self.servers[server];
-        let mut connection = server.checkout()?;
+        let mut connection = server.checkout(&self.timeouts)?;
         let result = exchange(&mut connection);
         if result.is_ok() {
             server.put_back(connection, self.max_idle);
@@ -510,12 +560,53 @@ mod tests {
     }
 
     #[test]
+    fn io_timeout_poisons_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            // First connection: read the request but never respond, so the
+            // read times out and the connection is poisoned.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            // Second connection: respond normally.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+        });
+
+        let client = MetaClient::connect(addr)
+            .unwrap()
+            .with_io_timeout(Duration::from_millis(100));
+        let start = std::time::Instant::now();
+        assert!(client.delete("foo").send().is_err());
+        assert!(start.elapsed() < Duration::from_secs(5));
+        assert!(client.delete("foo").send().unwrap().stored());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn connect_timeout_fails_fast() {
+        // TEST-NET-1 (192.0.2.0/24) is reserved and unroutable, so the dial
+        // either times out or is rejected outright; it must not hang.
+        let client = MetaClient::connect("192.0.2.1:11211")
+            .unwrap()
+            .with_connect_timeout(Duration::from_millis(100));
+        let start = std::time::Instant::now();
+        assert!(client.delete("foo").send().is_err());
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
     fn poisoned_connection_is_not_reused() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            // First connection (dialed eagerly at connect): serve one bogus
-            // response, which must poison it.
+            // First connection (dialed by the first operation): serve one
+            // bogus response, which must poison it.
             let (stream, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(stream);
             let mut line = Vec::new();
@@ -553,9 +644,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            // With max_idle 0 nothing is retained after use: the first
-            // operation rides the eager connect-time dial, the second must
-            // arrive on a fresh connection.
+            // With max_idle 0 nothing is retained after use: every
+            // operation must arrive on its own fresh connection.
             for _ in 0..2 {
                 let (stream, _) = listener.accept().unwrap();
                 let mut reader = BufReader::new(stream);
