@@ -10,8 +10,9 @@ use super::async_connection::AsyncMetaConnection;
 use super::core::Operation;
 use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
 use super::meta_command::ReturnCode;
-use super::operation::{Arithmetic, Delete, Get, Set};
+use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
+use super::result::OpResult;
 
 /// The async counterpart of [`MetaClient`](super::MetaClient); the same
 /// request-builder surface over a tokio connection.
@@ -75,6 +76,35 @@ impl AsyncMetaClient {
         let command = operation.prepare()?;
         let wire = parse_meta_result(self.connection.execute(&command).await?)?;
         operation.parse(wire)
+    }
+
+    /// Run several operations in one round trip over this connection.
+    ///
+    /// All commands are validated before anything is written and executed
+    /// independently in order; one operation's semantic outcome (miss, CAS
+    /// mismatch, ...) shows up in its own result and does not stop the rest.
+    /// This is not a transaction.
+    pub async fn run_batch(
+        &mut self,
+        operations: impl IntoIterator<Item = Op>,
+    ) -> Result<Vec<OpResult>, MemcacheError> {
+        let operations: Vec<Op> = operations.into_iter().collect();
+        self.run_all(&operations).await
+    }
+
+    async fn run_all<O: Operation>(&mut self, operations: &[O]) -> Result<Vec<O::Output>, MemcacheError> {
+        // Validate every operation before writing the first byte, so a bad
+        // option never leaves half a batch on the wire.
+        let mut commands = Vec::with_capacity(operations.len());
+        for operation in operations {
+            commands.push(operation.prepare()?);
+        }
+        let responses = self.connection.execute_batch(&commands).await?;
+        operations
+            .iter()
+            .zip(responses)
+            .map(|(operation, response)| operation.parse(parse_meta_result(response)?))
+            .collect()
     }
 
     /// Round-trip an `mn` no-op; useful as a connection health check.

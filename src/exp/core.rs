@@ -12,9 +12,9 @@ use super::meta_api::{
     build_delete, build_get, build_set,
 };
 use super::meta_command::{MetaCommand, ReturnCode};
-use super::operation::{Arithmetic, Delete, Get, Set};
+use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::result::{
-    ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, ValueState,
+    ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
 };
 
 mod sealed {
@@ -23,6 +23,7 @@ mod sealed {
     impl Sealed for super::Set {}
     impl Sealed for super::Delete {}
     impl Sealed for super::Arithmetic {}
+    impl Sealed for super::Op {}
 }
 
 /// An executable semantic-layer operation, implemented by [`Get`], [`Set`],
@@ -84,6 +85,28 @@ impl Operation for Arithmetic {
 
     fn parse(&self, wire: MetaCommandResult) -> Result<ArithmeticResult, MemcacheError> {
         parse_arithmetic(self, wire)
+    }
+}
+
+impl Operation for Op {
+    type Output = OpResult;
+
+    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+        match self {
+            Op::Get(operation) => operation.prepare(),
+            Op::Set(operation) => operation.prepare(),
+            Op::Delete(operation) => operation.prepare(),
+            Op::Arithmetic(operation) => operation.prepare(),
+        }
+    }
+
+    fn parse(&self, wire: MetaCommandResult) -> Result<OpResult, MemcacheError> {
+        match self {
+            Op::Get(operation) => operation.parse(wire).map(OpResult::Get),
+            Op::Set(operation) => operation.parse(wire).map(OpResult::Mutation),
+            Op::Delete(operation) => operation.parse(wire).map(OpResult::Mutation),
+            Op::Arithmetic(operation) => operation.parse(wire).map(OpResult::Arithmetic),
+        }
     }
 }
 
