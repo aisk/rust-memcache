@@ -92,15 +92,9 @@ client.hash_function = |key: &str| -> u64 {
 
 ## Experimental meta protocol client
 
-The `memcache::exp` module contains a new client built on memcached's
-[meta protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt).
-It is experimental and not feature-complete yet, but the main paths are
-covered: get / set / delete / counters with their protocol options, CAS,
-typed values, batches, multiple servers, connection pooling, timeouts, and
-an async client behind the `tokio` feature.
+The `memcache::exp` module contains a new client built on memcached's [meta protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt). It is experimental and not feature-complete yet, but the main paths are covered: get / set / delete / counters with their protocol options, CAS, typed values, batches, multiple servers, connection pooling, timeouts, and an async client behind the `tokio` feature.
 
-The API may change between minor versions. Within a minor version it is
-guaranteed to stay compatible, so pin the minor version if you use it:
+The API may change between minor versions. Within a minor version it is guaranteed to stay compatible, so pin the minor version if you use it:
 
 ```ini
 [dependencies]
@@ -136,9 +130,7 @@ let results = client.run_batch(vec![
 ])?;
 ```
 
-Clients are cheap to clone and shareable across threads or tasks; clones
-share per-server connection pools. Multiple servers, pool size and
-timeouts:
+Clients are cheap to clone and shareable across threads or tasks; clones share per-server connection pools. Multiple servers, pool size and timeouts:
 
 ```rust
 use std::time::Duration;
@@ -161,10 +153,7 @@ let result = client.get("foo").send().await?;
 
 ### Advanced: cache stampede protection with leases
 
-When a hot key misses or is close to expiring, `lease_ttl` grants exactly
-one reader a lease to recompute the value; concurrent readers are told the
-refresh is pending (or keep serving the current value) instead of all
-hitting the backing store at once:
+When a hot key misses or is close to expiring, `lease_ttl` grants exactly one reader a lease to recompute the value; concurrent readers are told the refresh is pending (or keep serving the current value) instead of all hitting the backing store at once:
 
 ```rust
 let result = client.get("hot").lease_ttl(30).refresh_before(10).send()?;
@@ -205,7 +194,7 @@ if stored.status == MutationStatus::CasMismatch {
 Before sending pull request, please ensure:
 
 - `cargo fmt` is being run;
-- Commit message is using [gitmoji](https://gitmoji.carloscuesta.me/) with first character is lower cased, for example: `:sparkles: rust-memcache can print money now`.
+- Commit message is using [gitmoji](https://gitmoji.carloscuesta.me/), for example: `✨ rust-memcache can print money now`.
 
 ## Contributors
 
