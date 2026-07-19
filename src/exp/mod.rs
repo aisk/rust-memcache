@@ -28,6 +28,11 @@ Clients connected to several servers (`connect_multiple`) route each key by
 a pluggable hash function and split batches per server, one round trip
 each.
 
+Clients are cheap to clone and shareable across threads or tasks; clones
+share per-server pools of idle connections (capped by `with_max_idle`).
+Checkout never blocks: a busy pool just dials another connection. A
+connection that fails mid-exchange is dropped instead of reused.
+
 Transports are TCP only.
 
 # Example

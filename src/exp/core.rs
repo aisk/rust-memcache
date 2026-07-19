@@ -142,6 +142,34 @@ fn invalid<T>(message: &'static str) -> Result<T, MemcacheError> {
     Err(ClientError::Error(Cow::Borrowed(message)).into())
 }
 
+/// A validated batch: every operation prepared into a wire command, and the
+/// operation indexes grouped per server. Shared by both clients.
+pub(crate) struct BatchPlan {
+    /// One prepared command per operation; entries are taken as groups
+    /// execute.
+    pub(crate) commands: Vec<Option<MetaCommand>>,
+    /// Operation indexes per server, in input order.
+    pub(crate) groups: Vec<Vec<usize>>,
+}
+
+/// Prepare and group a batch. Validates every operation before anything is
+/// written, so a bad option never leaves half a batch on the wire.
+pub(crate) fn plan<O: Operation>(
+    operations: &[O],
+    servers: usize,
+    index_for: impl Fn(&[u8]) -> usize,
+) -> Result<BatchPlan, MemcacheError> {
+    let mut commands = Vec::with_capacity(operations.len());
+    for operation in operations {
+        commands.push(Some(operation.prepare()?));
+    }
+    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); servers];
+    for (index, operation) in operations.iter().enumerate() {
+        groups[index_for(operation.key())].push(index);
+    }
+    Ok(BatchPlan { commands, groups })
+}
+
 fn unexpected<T>(message: &'static str) -> Result<T, MemcacheError> {
     Err(ServerError::BadResponse(Cow::Borrowed(message)).into())
 }

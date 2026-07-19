@@ -13,12 +13,12 @@ use super::operation::{Arithmetic, Delete, Get, Meta, Set};
 /// An operation bound to a client, awaiting [`send`](Request::send).
 #[must_use = "a request does nothing until you call .send()"]
 pub struct Request<'a, C, O> {
-    pub(crate) client: &'a mut C,
+    pub(crate) client: &'a C,
     pub(crate) operation: O,
 }
 
 impl<'a, C, O> Request<'a, C, O> {
-    pub(crate) fn new(client: &'a mut C, operation: O) -> Request<'a, C, O> {
+    pub(crate) fn new(client: &'a C, operation: O) -> Request<'a, C, O> {
         Request { client, operation }
     }
 
