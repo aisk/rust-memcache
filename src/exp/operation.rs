@@ -164,7 +164,7 @@ impl Get {
 pub struct Set {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
-    /// `F<flags>` — client flags stored with the item, from [`ToValue`].
+    /// `F<flags>` - client flags stored with the item, from [`ToValue`].
     pub client_flags: u32,
     pub ttl: Option<u32>,
     pub mode: SetMode,

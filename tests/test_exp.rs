@@ -192,6 +192,33 @@ fn exp_typed_values() {
 }
 
 #[test]
+fn exp_multi_server() {
+    let mut client = MetaClient::connect_multiple(["localhost:12345", "localhost:12346"]).unwrap();
+    client.noop().unwrap();
+
+    let keys: Vec<String> = (0..20).map(|_| gen_random_key()).collect();
+    for key in &keys {
+        assert!(client.set(key.as_str(), key.as_str()).send().unwrap().stored());
+    }
+    for key in &keys {
+        let fetched = client.get(key.as_str()).send().unwrap();
+        assert_eq!(fetched.value.as_deref(), Some(key.as_bytes()));
+    }
+
+    // A batch spanning both servers comes back in input order.
+    let results = client
+        .run_batch(keys.iter().map(|key| Get::new(key.as_str()).into()))
+        .unwrap();
+    for (key, result) in keys.iter().zip(&results) {
+        assert_eq!(result.as_get().unwrap().value.as_deref(), Some(key.as_bytes()));
+    }
+
+    for key in &keys {
+        assert!(client.delete(key.as_str()).send().unwrap().stored());
+    }
+}
+
+#[test]
 fn exp_debug() {
     let mut client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();

@@ -34,6 +34,9 @@ pub trait Operation: sealed::Sealed {
     type Output;
 
     #[doc(hidden)]
+    fn key(&self) -> &[u8];
+
+    #[doc(hidden)]
     fn prepare(&self) -> Result<MetaCommand, MemcacheError>;
 
     #[doc(hidden)]
@@ -42,6 +45,10 @@ pub trait Operation: sealed::Sealed {
 
 impl Operation for Get {
     type Output = GetResult;
+
+    fn key(&self) -> &[u8] {
+        &self.key
+    }
 
     fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
         prepare_get(self)
@@ -55,6 +62,10 @@ impl Operation for Get {
 impl Operation for Set {
     type Output = MutationResult;
 
+    fn key(&self) -> &[u8] {
+        &self.key
+    }
+
     fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
         prepare_set(self)
     }
@@ -66,6 +77,10 @@ impl Operation for Set {
 
 impl Operation for Delete {
     type Output = MutationResult;
+
+    fn key(&self) -> &[u8] {
+        &self.key
+    }
 
     fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
         prepare_delete(self)
@@ -79,6 +94,10 @@ impl Operation for Delete {
 impl Operation for Arithmetic {
     type Output = ArithmeticResult;
 
+    fn key(&self) -> &[u8] {
+        &self.key
+    }
+
     fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
         prepare_arithmetic(self)
     }
@@ -90,6 +109,15 @@ impl Operation for Arithmetic {
 
 impl Operation for Op {
     type Output = OpResult;
+
+    fn key(&self) -> &[u8] {
+        match self {
+            Op::Get(operation) => &operation.key,
+            Op::Set(operation) => &operation.key,
+            Op::Delete(operation) => &operation.key,
+            Op::Arithmetic(operation) => &operation.key,
+        }
+    }
 
     fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
         match self {

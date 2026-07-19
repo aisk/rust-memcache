@@ -74,35 +74,35 @@ impl FlagBuilder {
 /// Options for [`build_get`] (`mg`). Each field maps to one protocol flag.
 #[derive(Debug, Clone)]
 pub struct GetOptions {
-    /// `v` — return the item value.
+    /// `v` - return the item value.
     pub value: bool,
-    /// `f` — return the client flags.
+    /// `f` - return the client flags.
     pub return_client_flags: bool,
-    /// `c` — return the item CAS.
+    /// `c` - return the item CAS.
     pub return_cas: bool,
-    /// `t` — return the remaining TTL.
+    /// `t` - return the remaining TTL.
     pub return_ttl: bool,
-    /// `s` — return the stored size.
+    /// `s` - return the stored size.
     pub return_size: bool,
-    /// `l` — return seconds since last access.
+    /// `l` - return seconds since last access.
     pub return_last_access: bool,
-    /// `h` — return whether the item was hit before.
+    /// `h` - return whether the item was hit before.
     pub return_hit_before: bool,
-    /// `k` — echo the key in the response.
+    /// `k` - echo the key in the response.
     pub return_key: bool,
-    /// `u` — don't bump the item in the LRU.
+    /// `u` - don't bump the item in the LRU.
     pub no_lru_bump: bool,
-    /// `T<ttl>` — update the item TTL.
+    /// `T<ttl>` - update the item TTL.
     pub touch: Option<u32>,
-    /// `N<ttl>` — vivify a missing item with this TTL and grant a lease.
+    /// `N<ttl>` - vivify a missing item with this TTL and grant a lease.
     pub vivify_ttl: Option<u32>,
-    /// `R<ttl>` — grant a recache lease when the remaining TTL is below this.
+    /// `R<ttl>` - grant a recache lease when the remaining TTL is below this.
     pub recache_ttl: Option<u32>,
-    /// `C<cas>` — suppress the value when the item CAS still matches.
+    /// `C<cas>` - suppress the value when the item CAS still matches.
     pub unless_cas: Option<u64>,
-    /// `E<cas>` — replace the item CAS with this value.
+    /// `E<cas>` - replace the item CAS with this value.
     pub new_cas: Option<u64>,
-    /// `O<token>` — opaque token echoed back in the response.
+    /// `O<token>` - opaque token echoed back in the response.
     pub opaque: Option<Vec<u8>>,
 }
 
@@ -159,13 +159,13 @@ pub enum SetMode {
     /// Unconditional store (the protocol default, no mode flag).
     #[default]
     Set,
-    /// `ME` — store only when the item does not exist.
+    /// `ME` - store only when the item does not exist.
     Add,
-    /// `MR` — store only when the item exists.
+    /// `MR` - store only when the item exists.
     Replace,
-    /// `MA` — append raw bytes to the stored value.
+    /// `MA` - append raw bytes to the stored value.
     Append,
-    /// `MP` — prepend raw bytes to the stored value.
+    /// `MP` - prepend raw bytes to the stored value.
     Prepend,
 }
 
@@ -184,27 +184,27 @@ impl SetMode {
 /// Options for [`build_set`] (`ms`). Each field maps to one protocol flag.
 #[derive(Debug, Clone, Default)]
 pub struct SetOptions {
-    /// `F<flags>` — client flags stored with the item.
+    /// `F<flags>` - client flags stored with the item.
     pub client_flags: Option<u32>,
-    /// `T<ttl>` — item TTL.
+    /// `T<ttl>` - item TTL.
     pub ttl: Option<u32>,
-    /// `M<mode>` — storage mode.
+    /// `M<mode>` - storage mode.
     pub mode: SetMode,
-    /// `C<cas>` — store only when the item CAS matches.
+    /// `C<cas>` - store only when the item CAS matches.
     pub compare_cas: Option<u64>,
-    /// `E<cas>` — replace the item CAS with this value.
+    /// `E<cas>` - replace the item CAS with this value.
     pub new_cas: Option<u64>,
-    /// `I` — invalidate: mark the item stale instead of replacing it.
+    /// `I` - invalidate: mark the item stale instead of replacing it.
     pub invalidate: bool,
-    /// `N<ttl>` — for append/prepend, vivify a missing item with this TTL.
+    /// `N<ttl>` - for append/prepend, vivify a missing item with this TTL.
     pub vivify_ttl: Option<u32>,
-    /// `c` — return the new item CAS.
+    /// `c` - return the new item CAS.
     pub return_cas: bool,
-    /// `s` — return the stored size.
+    /// `s` - return the stored size.
     pub return_size: bool,
-    /// `k` — echo the key in the response.
+    /// `k` - echo the key in the response.
     pub return_key: bool,
-    /// `O<token>` — opaque token echoed back in the response.
+    /// `O<token>` - opaque token echoed back in the response.
     pub opaque: Option<Vec<u8>>,
 }
 
@@ -250,19 +250,19 @@ pub fn build_set(
 /// Options for [`build_delete`] (`md`). Each field maps to one protocol flag.
 #[derive(Debug, Clone, Default)]
 pub struct DeleteOptions {
-    /// `C<cas>` — delete only when the item CAS matches.
+    /// `C<cas>` - delete only when the item CAS matches.
     pub compare_cas: Option<u64>,
-    /// `E<cas>` — for invalidate, replace the item CAS with this value.
+    /// `E<cas>` - for invalidate, replace the item CAS with this value.
     pub new_cas: Option<u64>,
-    /// `I` — invalidate: mark the item stale instead of removing it.
+    /// `I` - invalidate: mark the item stale instead of removing it.
     pub invalidate: bool,
-    /// `T<ttl>` — for invalidate, the TTL the stale item keeps.
+    /// `T<ttl>` - for invalidate, the TTL the stale item keeps.
     pub ttl: Option<u32>,
-    /// `x` — drop the value but keep the item.
+    /// `x` - drop the value but keep the item.
     pub drop_value: bool,
-    /// `k` — echo the key in the response.
+    /// `k` - echo the key in the response.
     pub return_key: bool,
-    /// `O<token>` — opaque token echoed back in the response.
+    /// `O<token>` - opaque token echoed back in the response.
     pub opaque: Option<Vec<u8>>,
 }
 
@@ -290,7 +290,7 @@ pub enum ArithmeticMode {
     /// Increment (the protocol default, no mode flag).
     #[default]
     Increment,
-    /// `MD` — decrement.
+    /// `MD` - decrement.
     Decrement,
 }
 
@@ -298,29 +298,29 @@ pub enum ArithmeticMode {
 /// flag.
 #[derive(Debug, Clone)]
 pub struct ArithmeticOptions {
-    /// `D<delta>` — the delta to apply (the server defaults to 1).
+    /// `D<delta>` - the delta to apply (the server defaults to 1).
     pub delta: Option<u64>,
-    /// `M<mode>` — increment or decrement.
+    /// `M<mode>` - increment or decrement.
     pub mode: ArithmeticMode,
-    /// `J<value>` — initial value when vivifying a missing item.
+    /// `J<value>` - initial value when vivifying a missing item.
     pub initial: Option<u64>,
-    /// `N<ttl>` — vivify a missing item with this TTL.
+    /// `N<ttl>` - vivify a missing item with this TTL.
     pub initial_ttl: Option<u32>,
-    /// `T<ttl>` — update the item TTL.
+    /// `T<ttl>` - update the item TTL.
     pub ttl: Option<u32>,
-    /// `C<cas>` — apply only when the item CAS matches.
+    /// `C<cas>` - apply only when the item CAS matches.
     pub compare_cas: Option<u64>,
-    /// `E<cas>` — replace the item CAS with this value.
+    /// `E<cas>` - replace the item CAS with this value.
     pub new_cas: Option<u64>,
-    /// `v` — return the new value.
+    /// `v` - return the new value.
     pub return_value: bool,
-    /// `t` — return the remaining TTL.
+    /// `t` - return the remaining TTL.
     pub return_ttl: bool,
-    /// `c` — return the new item CAS.
+    /// `c` - return the new item CAS.
     pub return_cas: bool,
-    /// `k` — echo the key in the response.
+    /// `k` - echo the key in the response.
     pub return_key: bool,
-    /// `O<token>` — opaque token echoed back in the response.
+    /// `O<token>` - opaque token echoed back in the response.
     pub opaque: Option<Vec<u8>>,
 }
 
@@ -395,27 +395,27 @@ pub struct MetaCommandResult {
     pub rc: ReturnCode,
     /// The raw data block, if any.
     pub value: Option<Vec<u8>>,
-    /// `c` — item CAS.
+    /// `c` - item CAS.
     pub cas: Option<u64>,
-    /// `t` — remaining TTL (`-1` means unlimited).
+    /// `t` - remaining TTL (`-1` means unlimited).
     pub ttl: Option<i64>,
-    /// `f` — client flags.
+    /// `f` - client flags.
     pub client_flags: Option<u32>,
-    /// `s` — stored size.
+    /// `s` - stored size.
     pub size: Option<u64>,
-    /// `l` — seconds since last access.
+    /// `l` - seconds since last access.
     pub last_access: Option<u64>,
-    /// `h` — whether the item was hit before.
+    /// `h` - whether the item was hit before.
     pub hit_before: Option<bool>,
-    /// `k` — the echoed key (base64-decoded when the `b` flag is present).
+    /// `k` - the echoed key (base64-decoded when the `b` flag is present).
     pub key: Option<Vec<u8>>,
-    /// `O` — the echoed opaque token.
+    /// `O` - the echoed opaque token.
     pub opaque: Option<Vec<u8>>,
-    /// `W` — this client won a vivify/recache lease.
+    /// `W` - this client won a vivify/recache lease.
     pub won: bool,
-    /// `Z` — another client holds the lease.
+    /// `Z` - another client holds the lease.
     pub busy: bool,
-    /// `X` — the value is stale.
+    /// `X` - the value is stale.
     pub stale: bool,
     /// The raw response flag tokens.
     pub flags: Vec<Vec<u8>>,
