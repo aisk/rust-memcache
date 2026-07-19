@@ -133,20 +133,20 @@ impl AsyncMetaClient {
         self
     }
 
-    /// Limit how long dialing a server may take (no limit by default).
-    /// Configure before cloning: clones share connections but not this
-    /// setting.
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> AsyncMetaClient {
-        self.timeouts.connect = Some(timeout);
+    /// Limit how long dialing a server may take (default 1 second; `None`
+    /// removes the limit). Configure before cloning: clones share
+    /// connections but not this setting.
+    pub fn with_connect_timeout(mut self, timeout: Option<Duration>) -> AsyncMetaClient {
+        self.timeouts.connect = timeout;
         self
     }
 
-    /// Limit how long one command or batch exchange may take (no limit by
-    /// default). A timeout poisons the connection like any other transport
-    /// error. Configure before cloning: clones share connections but not
-    /// this setting.
-    pub fn with_io_timeout(mut self, timeout: Duration) -> AsyncMetaClient {
-        self.timeouts.io = Some(timeout);
+    /// Limit how long one command or batch exchange may take (default 1
+    /// second; `None` removes the limit). A timeout poisons the connection
+    /// like any other transport error. Configure before cloning: clones
+    /// share connections but not this setting.
+    pub fn with_io_timeout(mut self, timeout: Option<Duration>) -> AsyncMetaClient {
+        self.timeouts.io = timeout;
         self
     }
 
@@ -297,7 +297,7 @@ mod tests {
         let client = AsyncMetaClient::connect(addr)
             .await
             .unwrap()
-            .with_io_timeout(Duration::from_millis(100));
+            .with_io_timeout(Some(Duration::from_millis(100)));
         assert!(client.delete("foo").send().await.is_err());
         assert!(client.delete("foo").send().await.unwrap().stored());
         handle.join().unwrap();

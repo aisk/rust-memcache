@@ -102,10 +102,24 @@ impl Server {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+/// Cache operations normally complete in milliseconds, so one second is
+/// already a generous bound; a hung cache server should fail fast rather
+/// than stall its callers.
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(1);
+
+#[derive(Clone, Copy)]
 pub(crate) struct Timeouts {
     pub(crate) connect: Option<Duration>,
     pub(crate) io: Option<Duration>,
+}
+
+impl Default for Timeouts {
+    fn default() -> Timeouts {
+        Timeouts {
+            connect: Some(DEFAULT_TIMEOUT),
+            io: Some(DEFAULT_TIMEOUT),
+        }
+    }
 }
 
 /// A blocking meta protocol client.
@@ -180,20 +194,20 @@ impl MetaClient {
         self
     }
 
-    /// Limit how long dialing a server may take (no limit by default).
-    /// Configure before cloning: clones share connections but not this
-    /// setting.
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> MetaClient {
-        self.timeouts.connect = Some(timeout);
+    /// Limit how long dialing a server may take (default 1 second; `None`
+    /// removes the limit). Configure before cloning: clones share
+    /// connections but not this setting.
+    pub fn with_connect_timeout(mut self, timeout: Option<Duration>) -> MetaClient {
+        self.timeouts.connect = timeout;
         self
     }
 
-    /// Limit how long a single socket read or write may take (no limit by
-    /// default). A timeout poisons the connection like any other transport
-    /// error. Configure before cloning: clones share connections but not
-    /// this setting.
-    pub fn with_io_timeout(mut self, timeout: Duration) -> MetaClient {
-        self.timeouts.io = Some(timeout);
+    /// Limit how long a single socket read or write may take (default 1
+    /// second; `None` removes the limit). A timeout poisons the connection
+    /// like any other transport error. Configure before cloning: clones
+    /// share connections but not this setting.
+    pub fn with_io_timeout(mut self, timeout: Option<Duration>) -> MetaClient {
+        self.timeouts.io = timeout;
         self
     }
 
@@ -580,7 +594,7 @@ mod tests {
 
         let client = MetaClient::connect(addr)
             .unwrap()
-            .with_io_timeout(Duration::from_millis(100));
+            .with_io_timeout(Some(Duration::from_millis(100)));
         let start = std::time::Instant::now();
         assert!(client.delete("foo").send().is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
@@ -594,7 +608,7 @@ mod tests {
         // either times out or is rejected outright; it must not hang.
         let client = MetaClient::connect("192.0.2.1:11211")
             .unwrap()
-            .with_connect_timeout(Duration::from_millis(100));
+            .with_connect_timeout(Some(Duration::from_millis(100)));
         let start = std::time::Instant::now();
         assert!(client.delete("foo").send().is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
