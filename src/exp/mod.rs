@@ -6,7 +6,7 @@ Everything in this module is experimental and may change without notice.
 
 The module is layered bottom-up:
 
-- [`MetaCommand`] / [`MetaResponse`]: framing — request assembly and response
+- [`MetaCommand`] / [`MetaResponse`]: framing - request assembly and response
   header parsing, including automatic base64 encoding of binary keys.
 - `build_*` / `parse_*` and the `*Options` structs: a typed 1:1 mapping of the
   protocol where every option field corresponds to exactly one protocol flag.
@@ -21,11 +21,14 @@ The module is layered bottom-up:
 
 Several operations can run in one round trip: `run_batch` takes
 heterogeneous [`Op`] values and returns [`OpResult`]s. Batched operations
-execute independently and in order on one connection — a batch is not a
+execute independently and in order per server - a batch is not a
 transaction.
 
-Transports are TCP only. Serialization and multi-server routing are not
-implemented yet.
+Clients connected to several servers (`connect_multiple`) route each key by
+a pluggable hash function and split batches per server, one round trip
+each.
+
+Transports are TCP only.
 
 # Example
 

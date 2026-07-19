@@ -9,8 +9,8 @@
 //! [`FLAG_BYTES`] (zero) for everything else.
 //!
 //! Decoding is driven purely by the requested type; the built-in
-//! implementations ignore the stored flags, so anything a client wrote —
-//! flagged or not — decodes as long as the bytes parse. Flags will start
+//! implementations ignore the stored flags, so anything a client wrote -
+//! flagged or not - decodes as long as the bytes parse. Flags will start
 //! participating in decoding once flag-bearing encodings (compression,
 //! JSON, ...) are supported; custom implementations can already use them.
 

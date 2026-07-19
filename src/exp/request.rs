@@ -5,7 +5,7 @@
 //! operation's builders; nothing touches the network until
 //! [`send`](Request::send). `Request` is generic over the client, so the
 //! option surface is written once and shared by the blocking and tokio
-//! clients — only `send` is implemented per client.
+//! clients - only `send` is implemented per client.
 
 use super::meta_api::SetMode;
 use super::operation::{Arithmetic, Delete, Get, Meta, Set};

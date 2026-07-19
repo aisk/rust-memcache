@@ -108,17 +108,17 @@ pub(crate) fn encode_key(key: &[u8]) -> Result<(Cow<'_, [u8]>, bool), MemcacheEr
 /// A meta protocol command code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaOp {
-    /// `mg` — meta get.
+    /// `mg` - meta get.
     Get,
-    /// `ms` — meta set.
+    /// `ms` - meta set.
     Set,
-    /// `md` — meta delete.
+    /// `md` - meta delete.
     Delete,
-    /// `ma` — meta arithmetic.
+    /// `ma` - meta arithmetic.
     Arithmetic,
-    /// `mn` — meta no-op, used as a pipeline barrier.
+    /// `mn` - meta no-op, used as a pipeline barrier.
     Noop,
-    /// `me` — meta debug.
+    /// `me` - meta debug.
     Debug,
 }
 
@@ -138,21 +138,21 @@ impl MetaOp {
 /// A meta protocol response return code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReturnCode {
-    /// `HD` — success without a value block.
+    /// `HD` - success without a value block.
     Hd,
-    /// `VA` — success with a value block.
+    /// `VA` - success with a value block.
     Va,
-    /// `EN` — miss.
+    /// `EN` - miss.
     En,
-    /// `NS` — not stored.
+    /// `NS` - not stored.
     Ns,
-    /// `EX` — item exists (CAS mismatch).
+    /// `EX` - item exists (CAS mismatch).
     Ex,
-    /// `NF` — not found.
+    /// `NF` - not found.
     Nf,
-    /// `MN` — no-op marker.
+    /// `MN` - no-op marker.
     Mn,
-    /// `ME` — debug line.
+    /// `ME` - debug line.
     Me,
 }
 
