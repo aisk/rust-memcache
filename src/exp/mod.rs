@@ -33,7 +33,8 @@ share per-server pools of idle connections (capped by `with_max_idle`).
 Checkout never blocks: a busy pool just dials another connection. A
 connection that fails mid-exchange is dropped instead of reused.
 Connections are dialed lazily; `with_connect_timeout` and
-`with_io_timeout` bound dialing and I/O (unbounded by default).
+`with_io_timeout` bound dialing and I/O (1 second by default, `None`
+removes the limit).
 
 Transports are TCP only.
 
