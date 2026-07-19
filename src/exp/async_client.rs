@@ -2,15 +2,17 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::net::{ToSocketAddrs, lookup_host};
 
 use crate::error::{ClientError, MemcacheError, ServerError};
 
 use super::async_connection::AsyncMetaConnection;
-use super::client::{DEFAULT_MAX_IDLE, default_hash_function, jump_hash};
+use super::client::{DEFAULT_MAX_IDLE, Timeouts, default_hash_function, jump_hash};
 use super::core::{self, Operation};
 use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
 use super::meta_command::{MetaCommand, ReturnCode};
@@ -18,6 +20,22 @@ use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
 use super::value::ToValue;
+
+/// Bound a transport future by a timeout; `None` means unbounded. A
+/// timeout surfaces as an io error and so poisons the connection like any
+/// other transport failure.
+async fn timed<T>(
+    timeout: Option<Duration>,
+    future: impl Future<Output = Result<T, MemcacheError>>,
+) -> Result<T, MemcacheError> {
+    match timeout {
+        Some(duration) => match tokio::time::timeout(duration, future).await {
+            Ok(result) => result,
+            Err(_) => Err(std::io::Error::from(std::io::ErrorKind::TimedOut).into()),
+        },
+        None => future.await,
+    }
+}
 
 /// One server: its resolved addresses and a stack of idle connections.
 /// The mutex is only held to pop/push, never across I/O.
@@ -27,12 +45,12 @@ struct AsyncServer {
 }
 
 impl AsyncServer {
-    async fn checkout(&self) -> Result<AsyncMetaConnection, MemcacheError> {
+    async fn checkout(&self, timeouts: &Timeouts) -> Result<AsyncMetaConnection, MemcacheError> {
         let reused = self.idle.lock().unwrap().pop();
         if let Some(connection) = reused {
             return Ok(connection);
         }
-        AsyncMetaConnection::connect(self.addrs.as_slice()).await
+        timed(timeouts.connect, AsyncMetaConnection::connect(self.addrs.as_slice())).await
     }
 
     fn put_back(&self, connection: AsyncMetaConnection, max_idle: usize) {
@@ -61,6 +79,7 @@ pub struct AsyncMetaClient {
     servers: Arc<Vec<AsyncServer>>,
     hash_function: fn(&[u8]) -> u64,
     max_idle: usize,
+    timeouts: Timeouts,
 }
 
 impl AsyncMetaClient {
@@ -69,8 +88,8 @@ impl AsyncMetaClient {
     }
 
     /// Connect to several servers; keys are distributed across them by the
-    /// hash function. One connection per server is dialed up front so
-    /// connection errors surface here.
+    /// hash function. Addresses are resolved here, but connections are
+    /// dialed lazily, so a down server surfaces at the first operation.
     pub async fn connect_multiple<A: ToSocketAddrs>(
         addrs: impl IntoIterator<Item = A>,
     ) -> Result<AsyncMetaClient, MemcacheError> {
@@ -80,13 +99,10 @@ impl AsyncMetaClient {
             if resolved.is_empty() {
                 return Err(ClientError::Error(Cow::Borrowed("address resolved to no socket addresses")).into());
             }
-            let server = AsyncServer {
+            servers.push(AsyncServer {
                 addrs: resolved,
                 idle: Mutex::new(Vec::new()),
-            };
-            let connection = AsyncMetaConnection::connect(server.addrs.as_slice()).await?;
-            server.idle.lock().unwrap().push(connection);
-            servers.push(server);
+            });
         }
         if servers.is_empty() {
             return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
@@ -95,6 +111,7 @@ impl AsyncMetaClient {
             servers: Arc::new(servers),
             hash_function: default_hash_function,
             max_idle: DEFAULT_MAX_IDLE,
+            timeouts: Timeouts::default(),
         })
     }
 
@@ -113,6 +130,23 @@ impl AsyncMetaClient {
     /// but not this setting.
     pub fn with_max_idle(mut self, max_idle: usize) -> AsyncMetaClient {
         self.max_idle = max_idle;
+        self
+    }
+
+    /// Limit how long dialing a server may take (no limit by default).
+    /// Configure before cloning: clones share connections but not this
+    /// setting.
+    pub fn with_connect_timeout(mut self, timeout: Duration) -> AsyncMetaClient {
+        self.timeouts.connect = Some(timeout);
+        self
+    }
+
+    /// Limit how long one command or batch exchange may take (no limit by
+    /// default). A timeout poisons the connection like any other transport
+    /// error. Configure before cloning: clones share connections but not
+    /// this setting.
+    pub fn with_io_timeout(mut self, timeout: Duration) -> AsyncMetaClient {
+        self.timeouts.io = Some(timeout);
         self
     }
 
@@ -155,10 +189,10 @@ impl AsyncMetaClient {
     pub async fn run<O: Operation>(&self, operation: O) -> Result<O::Output, MemcacheError> {
         let command = operation.prepare()?;
         let server = &self.servers[self.connection_index(operation.key())];
-        let mut connection = server.checkout().await?;
+        let mut connection = server.checkout(&self.timeouts).await?;
         // A failed exchange leaves the stream in an unknown state, so the
         // connection is dropped instead of returned to the pool.
-        let response = connection.execute(&command).await?;
+        let response = timed(self.timeouts.io, connection.execute(&command)).await?;
         server.put_back(connection, self.max_idle);
         operation.parse(parse_meta_result(response)?)
     }
@@ -187,8 +221,8 @@ impl AsyncMetaClient {
                 .map(|&index| plan.commands[index].take().unwrap())
                 .collect();
             let server = &self.servers[server];
-            let mut connection = server.checkout().await?;
-            let responses = connection.execute_batch(&commands).await?;
+            let mut connection = server.checkout(&self.timeouts).await?;
+            let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
             server.put_back(connection, self.max_idle);
             for (&index, response) in indices.iter().zip(responses) {
                 outputs[index] = Some(operations[index].parse(parse_meta_result(response)?)?);
@@ -204,8 +238,8 @@ impl AsyncMetaClient {
     /// health check.
     pub async fn noop(&self) -> Result<(), MemcacheError> {
         for server in self.servers.iter() {
-            let mut connection = server.checkout().await?;
-            let response = connection.execute(&build_noop()).await?;
+            let mut connection = server.checkout(&self.timeouts).await?;
+            let response = timed(self.timeouts.io, connection.execute(&build_noop())).await?;
             server.put_back(connection, self.max_idle);
             if response.rc != ReturnCode::Mn {
                 return Err(ServerError::BadResponse("unexpected no-op response".into()).into());
@@ -219,8 +253,8 @@ impl AsyncMetaClient {
         let key = key.into();
         let server = &self.servers[self.connection_index(&key)];
         let command = build_debug(key)?;
-        let mut connection = server.checkout().await?;
-        let response = connection.execute(&command).await?;
+        let mut connection = server.checkout(&self.timeouts).await?;
+        let response = timed(self.timeouts.io, connection.execute(&command)).await?;
         server.put_back(connection, self.max_idle);
         parse_debug_result(&response)
     }
@@ -231,5 +265,41 @@ impl<'a, O: Operation> Request<'a, AsyncMetaClient, O> {
     pub async fn send(self) -> Result<O::Output, MemcacheError> {
         let Request { client, operation } = self;
         client.run(operation).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn io_timeout_poisons_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            // First connection: read the request but never respond, so the
+            // exchange times out and the connection is poisoned.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            // Second connection: respond normally.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+        });
+
+        let client = AsyncMetaClient::connect(addr)
+            .await
+            .unwrap()
+            .with_io_timeout(Duration::from_millis(100));
+        assert!(client.delete("foo").send().await.is_err());
+        assert!(client.delete("foo").send().await.unwrap().stored());
+        handle.join().unwrap();
     }
 }

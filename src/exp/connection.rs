@@ -31,6 +31,13 @@ impl MetaConnection {
         }
     }
 
+    /// Set (or clear) the read/write timeouts on the underlying socket.
+    pub(crate) fn set_io_timeout(&self, timeout: Option<std::time::Duration>) -> Result<(), MemcacheError> {
+        self.reader.get_ref().set_read_timeout(timeout)?;
+        self.reader.get_ref().set_write_timeout(timeout)?;
+        Ok(())
+    }
+
     /// Encode and write a single command.
     pub fn send(&mut self, command: &MetaCommand) -> Result<(), MemcacheError> {
         let payload = command.encode()?;
