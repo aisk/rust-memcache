@@ -13,6 +13,7 @@ use super::meta_command::ReturnCode;
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
+use super::value::ToValue;
 
 /// The async counterpart of [`MetaClient`](super::MetaClient); the same
 /// request-builder surface over a tokio connection.
@@ -46,8 +47,9 @@ impl AsyncMetaClient {
         Request::new(self, Get::new(key))
     }
 
-    /// Store a value under a key.
-    pub fn set(&mut self, key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) -> Request<'_, AsyncMetaClient, Set> {
+    /// Store a value under a key; the value is encoded via
+    /// [`ToValue`](super::ToValue).
+    pub fn set(&mut self, key: impl Into<Vec<u8>>, value: impl ToValue) -> Request<'_, AsyncMetaClient, Set> {
         Request::new(self, Set::new(key, value))
     }
 

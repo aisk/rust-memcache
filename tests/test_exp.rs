@@ -172,6 +172,26 @@ fn exp_lease() {
 }
 
 #[test]
+fn exp_typed_values() {
+    let mut client = MetaClient::connect(SERVER).unwrap();
+    let key = gen_random_key();
+
+    // Numbers are stored as decimal ASCII, so arithmetic works on them.
+    client.set(&*key, 41u64).send().unwrap();
+    assert_eq!(client.increment(&*key).send().unwrap().value, Some(42));
+    let count: Option<u64> = client.get(&*key).send().unwrap().decode().unwrap();
+    assert_eq!(count, Some(42));
+
+    client.set(&*key, String::from("text")).send().unwrap();
+    let text: Option<String> = client.get(&*key).send().unwrap().decode().unwrap();
+    assert_eq!(text.as_deref(), Some("text"));
+    assert!(client.get(&*key).send().unwrap().decode::<u64>().is_err());
+
+    let missing: Option<String> = client.get(&*gen_random_key()).send().unwrap().decode().unwrap();
+    assert_eq!(missing, None);
+}
+
+#[test]
 fn exp_debug() {
     let mut client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
