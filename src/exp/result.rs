@@ -12,6 +12,7 @@ use super::value::FromValue;
 
 /// Outcome of a [`Get`](super::Get) operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GetStatus {
     /// The item was found (the value is present when it was requested).
     Hit,
@@ -26,6 +27,7 @@ pub enum GetStatus {
 /// Outcome of a mutation ([`Set`](super::Set) / [`Delete`](super::Delete) /
 /// [`Arithmetic`](super::Arithmetic)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MutationStatus {
     /// The mutation was applied.
     Stored,
@@ -39,6 +41,7 @@ pub enum MutationStatus {
 
 /// Freshness of a returned value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ValueState {
     Fresh,
     /// The item was invalidated and awaits a refresh.
@@ -48,6 +51,7 @@ pub enum ValueState {
 
 /// Lease outcome of a [`Get`](super::Get) with `lease_ttl`/`refresh_before`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LeaseState {
     /// No lease was requested or granted.
     None,
@@ -60,6 +64,7 @@ pub enum LeaseState {
 /// Item metadata requested via [`Meta`](super::Meta); a field is `None` when
 /// it was not requested or the server did not send it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ItemMeta {
     pub cas: Option<u64>,
     /// Remaining TTL in seconds; `-1` means unlimited.
@@ -71,6 +76,7 @@ pub struct ItemMeta {
 
 /// Result of a [`Get`](super::Get) operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GetResult {
     pub key: Vec<u8>,
     pub status: GetStatus,
@@ -120,6 +126,7 @@ impl GetResult {
 
 /// Result of a [`Set`](super::Set) or [`Delete`](super::Delete) operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MutationResult {
     pub key: Vec<u8>,
     pub status: MutationStatus,
@@ -135,6 +142,7 @@ impl MutationResult {
 
 /// Result of an [`Arithmetic`](super::Arithmetic) operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ArithmeticResult {
     pub key: Vec<u8>,
     pub status: MutationStatus,
@@ -153,6 +161,7 @@ impl ArithmeticResult {
 /// kind ([`Set`](super::Set) and [`Delete`](super::Delete) both yield
 /// `Mutation`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OpResult {
     Get(GetResult),
     Mutation(MutationResult),

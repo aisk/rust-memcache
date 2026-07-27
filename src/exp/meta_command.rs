@@ -107,6 +107,7 @@ pub(crate) fn encode_key(key: &[u8]) -> Result<(Cow<'_, [u8]>, bool), MemcacheEr
 
 /// A meta protocol command code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MetaOp {
     /// `mg` - meta get.
     Get,
@@ -136,7 +137,11 @@ impl MetaOp {
 }
 
 /// A meta protocol response return code.
+///
+/// Non-exhaustive: memcached adds return codes over time, so matches need a
+/// wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReturnCode {
     /// `HD` - success without a value block.
     Hd,
@@ -177,14 +182,18 @@ impl ReturnCode {
 }
 
 /// A meta protocol request: command code, key, flag tokens and optional data
-/// block. The data length token is derived from `value`; the base64 `b` flag
-/// is added automatically when the key requires it.
+/// block. The data length token is derived from the value; the base64 `b`
+/// flag is added automatically when the key requires it.
+///
+/// Construct with [`new`](Self::new) and chain [`flag`](Self::flag) /
+/// [`value`](Self::value); the `build_*` functions in
+/// [`super::meta_api`] cover the common commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetaCommand {
-    pub op: MetaOp,
-    pub key: Vec<u8>,
-    pub flags: Vec<Vec<u8>>,
-    pub value: Option<Vec<u8>>,
+    pub(crate) op: MetaOp,
+    pub(crate) key: Vec<u8>,
+    pub(crate) flags: Vec<Vec<u8>>,
+    pub(crate) value: Option<Vec<u8>>,
 }
 
 impl MetaCommand {
@@ -195,6 +204,20 @@ impl MetaCommand {
             flags: Vec::new(),
             value: None,
         }
+    }
+
+    /// Append a raw flag token (e.g. `"v"` or `"T60"`).
+    #[must_use]
+    pub fn flag(mut self, token: impl Into<Vec<u8>>) -> MetaCommand {
+        self.flags.push(token.into());
+        self
+    }
+
+    /// Set the data block sent after the request line.
+    #[must_use]
+    pub fn value(mut self, value: impl Into<Vec<u8>>) -> MetaCommand {
+        self.value = Some(value.into());
+        self
     }
 
     /// Encode the full request (header line plus data block) to wire bytes.
@@ -238,17 +261,36 @@ impl MetaCommand {
 }
 
 /// A lightly framed meta protocol response: return code, raw flag tokens and
-/// (for `VA`) the data block length. `value` is filled in by the transport
-/// after it reads the data block.
+/// (for `VA`) the data block, filled in by the transport after it reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetaResponse {
-    pub rc: ReturnCode,
-    pub datalen: Option<usize>,
-    pub flags: Vec<Vec<u8>>,
-    pub value: Option<Vec<u8>>,
+    pub(crate) rc: ReturnCode,
+    pub(crate) datalen: Option<usize>,
+    pub(crate) flags: Vec<Vec<u8>>,
+    pub(crate) value: Option<Vec<u8>>,
 }
 
 impl MetaResponse {
+    /// The wire return code.
+    pub fn rc(&self) -> ReturnCode {
+        self.rc
+    }
+
+    /// The raw response flag tokens.
+    pub fn flags(&self) -> impl Iterator<Item = &[u8]> {
+        self.flags.iter().map(Vec::as_slice)
+    }
+
+    /// The data block of a `VA` response.
+    pub fn value(&self) -> Option<&[u8]> {
+        self.value.as_deref()
+    }
+
+    /// Consume the response and take the data block of a `VA` response.
+    pub fn into_value(self) -> Option<Vec<u8>> {
+        self.value
+    }
+
     /// Parse a response header line (without the trailing CRLF).
     ///
     /// Legacy `ERROR` / `CLIENT_ERROR` / `SERVER_ERROR` lines are converted
@@ -309,16 +351,13 @@ mod tests {
 
     #[test]
     fn encode_get() {
-        let mut command = MetaCommand::new(MetaOp::Get, "foo");
-        command.flags = vec![b"v".to_vec(), b"t".to_vec()];
+        let command = MetaCommand::new(MetaOp::Get, "foo").flag("v").flag("t");
         assert_eq!(command.encode().unwrap(), b"mg foo v t\r\n".to_vec());
     }
 
     #[test]
     fn encode_set_with_value() {
-        let mut command = MetaCommand::new(MetaOp::Set, "foo");
-        command.flags = vec![b"T60".to_vec()];
-        command.value = Some(b"bar".to_vec());
+        let command = MetaCommand::new(MetaOp::Set, "foo").flag("T60").value("bar");
         assert_eq!(command.encode().unwrap(), b"ms foo 3 T60\r\nbar\r\n".to_vec());
     }
 
@@ -330,8 +369,7 @@ mod tests {
 
     #[test]
     fn encode_binary_key_adds_base64_flag() {
-        let mut command = MetaCommand::new(MetaOp::Get, b"a key".to_vec());
-        command.flags = vec![b"v".to_vec()];
+        let command = MetaCommand::new(MetaOp::Get, b"a key".to_vec()).flag("v");
         assert_eq!(command.encode().unwrap(), b"mg YSBrZXk= v b\r\n".to_vec());
     }
 

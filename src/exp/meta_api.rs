@@ -7,6 +7,9 @@
 //! the high-level client. Validation is limited to argument ranges and
 //! combinations the protocol silently ignores.
 //!
+//! The option structs are `#[non_exhaustive]`: start from `Default` and set
+//! the fields you need.
+//!
 //! The `q` (noreply) and `b` (base64 key) flags are intentionally not
 //! exposed: quiet semantics are an internal concern of the pipeline executor,
 //! and binary keys are base64-encoded automatically by
@@ -73,6 +76,7 @@ impl FlagBuilder {
 
 /// Options for [`build_get`] (`mg`). Each field maps to one protocol flag.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GetOptions {
     /// `v` - return the item value.
     pub value: bool,
@@ -155,6 +159,7 @@ pub fn build_get(key: impl Into<Vec<u8>>, options: &GetOptions) -> Result<MetaCo
 
 /// Storage mode for [`build_set`] (`ms` `M` flag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum SetMode {
     /// Unconditional store (the protocol default, no mode flag).
     #[default]
@@ -183,6 +188,7 @@ impl SetMode {
 
 /// Options for [`build_set`] (`ms`). Each field maps to one protocol flag.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct SetOptions {
     /// `F<flags>` - client flags stored with the item.
     pub client_flags: Option<u32>,
@@ -249,6 +255,7 @@ pub fn build_set(
 
 /// Options for [`build_delete`] (`md`). Each field maps to one protocol flag.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct DeleteOptions {
     /// `C<cas>` - delete only when the item CAS matches.
     pub compare_cas: Option<u64>,
@@ -286,6 +293,7 @@ pub fn build_delete(key: impl Into<Vec<u8>>, options: &DeleteOptions) -> Result<
 
 /// Arithmetic direction for [`build_arithmetic`] (`ma` `M` flag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ArithmeticMode {
     /// Increment (the protocol default, no mode flag).
     #[default]
@@ -297,6 +305,7 @@ pub enum ArithmeticMode {
 /// Options for [`build_arithmetic`] (`ma`). Each field maps to one protocol
 /// flag.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ArithmeticOptions {
     /// `D<delta>` - the delta to apply (the server defaults to 1).
     pub delta: Option<u64>,
@@ -388,8 +397,10 @@ pub fn build_debug(key: impl Into<Vec<u8>>) -> Result<MetaCommand, MemcacheError
 ///
 /// The typed fields are response flags decoded to native types; a field is
 /// `None` (or `false` for markers) when the server did not send the flag.
-/// `flags` keeps the raw tokens for anything this layer does not decode.
+/// [`raw_flags`](Self::raw_flags) keeps the raw tokens for anything this
+/// layer does not decode.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MetaCommandResult {
     /// The wire return code.
     pub rc: ReturnCode,
@@ -417,14 +428,19 @@ pub struct MetaCommandResult {
     pub busy: bool,
     /// `X` - the value is stale.
     pub stale: bool,
-    /// The raw response flag tokens.
-    pub flags: Vec<Vec<u8>>,
+    pub(crate) flags: Vec<Vec<u8>>,
 }
 
 impl MetaCommandResult {
     /// Whether the command succeeded (`HD` or `VA`).
     pub fn ok(&self) -> bool {
         matches!(self.rc, ReturnCode::Hd | ReturnCode::Va)
+    }
+
+    /// The raw response flag tokens, including any this layer does not
+    /// decode.
+    pub fn raw_flags(&self) -> impl Iterator<Item = &[u8]> {
+        self.flags.iter().map(Vec::as_slice)
     }
 }
 

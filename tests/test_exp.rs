@@ -103,12 +103,7 @@ fn exp_item_meta() {
     client.set(&*key, "bar").ttl(100).send().unwrap();
     let result = client
         .get(&*key)
-        .meta(Meta {
-            cas: true,
-            ttl: true,
-            size: true,
-            ..Meta::NONE
-        })
+        .meta(Meta::NONE.cas().ttl().size())
         .send()
         .unwrap();
     assert!(result.item.cas.is_some());

@@ -4,6 +4,10 @@ Experimental client built on the memcached
 
 Everything in this module is experimental and may change without notice.
 
+Public enums and structs are `#[non_exhaustive]`, so the protocol surface can
+grow without breaking callers: construct operations and options through
+`new`/`Default` and the builder methods, and give matches a wildcard arm.
+
 The module is layered bottom-up:
 
 - [`MetaCommand`] / [`MetaResponse`]: framing - request assembly and response

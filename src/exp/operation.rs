@@ -4,8 +4,9 @@
 //! requested metadata) independently of the wire encoding. The core layer
 //! turns operations into [`MetaCommand`](super::MetaCommand)s and pairs them
 //! with their responses. Construct with `new` and chain builder methods:
-//! `Get::new("foo").touch(60).lease_ttl(30)`. The fields stay public for
-//! struct update syntax and pattern matching.
+//! `Get::new("foo").touch(60).lease_ttl(30)`. The structs are
+//! `#[non_exhaustive]` so new options can be added without breaking callers;
+//! the fields stay public for reading and mutation.
 
 use super::meta_api::{ArithmeticMode, SetMode};
 use super::value::ToValue;
@@ -13,6 +14,7 @@ use super::value::ToValue;
 /// Which item metadata a [`Get`] should fetch into
 /// [`ItemMeta`](super::ItemMeta).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Meta {
     pub cas: bool,
     pub ttl: bool,
@@ -70,6 +72,7 @@ impl Meta {
 
 /// A read operation (`mg`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Get {
     pub key: Vec<u8>,
     /// Metadata to fetch alongside the value.
@@ -161,6 +164,7 @@ impl Get {
 /// [`ToValue`]; `value` holds the raw bytes and `client_flags` the flags
 /// stored with the item.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Set {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
@@ -261,6 +265,7 @@ impl Set {
 
 /// A delete operation (`md`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Delete {
     pub key: Vec<u8>,
     /// Delete only when the item CAS matches.
@@ -306,6 +311,7 @@ impl Delete {
 
 /// A counter operation (`ma`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Arithmetic {
     pub key: Vec<u8>,
     pub delta: u64,
@@ -403,6 +409,7 @@ impl Arithmetic {
 /// Any operation, for heterogeneous batches: `client.run_batch([op.into(),
 /// ...])`. Running an `Op` yields an [`OpResult`](super::OpResult).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Op {
     Get(Get),
     Set(Set),
