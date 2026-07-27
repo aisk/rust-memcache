@@ -12,7 +12,7 @@ use tokio::net::{ToSocketAddrs, lookup_host};
 use crate::error::{ClientError, MemcacheError, ServerError};
 
 use super::async_connection::AsyncMetaConnection;
-use super::client::{DEFAULT_MAX_IDLE, Timeouts, default_hash_function, jump_hash};
+use super::client::{MetaClientBuilder, Timeouts, jump_hash};
 use super::core::{self, Operation};
 use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
 use super::meta_command::{MetaCommand, ReturnCode};
@@ -63,7 +63,10 @@ impl AsyncServer {
 
 /// The async counterpart of [`MetaClient`](super::MetaClient); the same
 /// request-builder surface and pooling behavior over tokio connections.
-/// Cheap to clone and shareable across tasks.
+/// Cheap to clone and shareable across tasks; clones share the connection
+/// pools and configuration, which is set on
+/// [`MetaClientBuilder`](super::MetaClientBuilder) before connecting and
+/// stays fixed for the client's lifetime.
 ///
 /// ```no_run
 /// # use memcache::exp::AsyncMetaClient;
@@ -82,15 +85,17 @@ pub struct AsyncMetaClient {
     timeouts: Timeouts,
 }
 
-impl AsyncMetaClient {
-    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<AsyncMetaClient, MemcacheError> {
-        AsyncMetaClient::connect_multiple([addr]).await
+impl MetaClientBuilder {
+    /// Connect to one server with this configuration; the async
+    /// counterpart of [`connect`](Self::connect).
+    pub async fn connect_async<A: ToSocketAddrs>(self, addr: A) -> Result<AsyncMetaClient, MemcacheError> {
+        self.connect_multiple_async([addr]).await
     }
 
-    /// Connect to several servers; keys are distributed across them by the
-    /// hash function. Addresses are resolved here, but connections are
-    /// dialed lazily, so a down server surfaces at the first operation.
-    pub async fn connect_multiple<A: ToSocketAddrs>(
+    /// Connect to several servers with this configuration; the async
+    /// counterpart of [`connect_multiple`](Self::connect_multiple).
+    pub async fn connect_multiple_async<A: ToSocketAddrs>(
+        self,
         addrs: impl IntoIterator<Item = A>,
     ) -> Result<AsyncMetaClient, MemcacheError> {
         let mut servers = Vec::new();
@@ -109,45 +114,34 @@ impl AsyncMetaClient {
         }
         Ok(AsyncMetaClient {
             servers: Arc::new(servers),
-            hash_function: default_hash_function,
-            max_idle: DEFAULT_MAX_IDLE,
-            timeouts: Timeouts::default(),
+            hash_function: self.hash_function,
+            max_idle: self.max_idle,
+            timeouts: self.timeouts,
         })
     }
+}
 
-    /// Replace the function that hashes keys; the server is then picked by
-    /// jump consistent hash over that value. The default hashes with
-    /// `DefaultHasher`. Configure before cloning: clones share connections
-    /// but not this setting.
-    pub fn with_hash_function(mut self, hash_function: fn(&[u8]) -> u64) -> AsyncMetaClient {
-        self.hash_function = hash_function;
-        self
+impl AsyncMetaClient {
+    /// Connect to one server with the default configuration; use
+    /// [`builder`](Self::builder) to change it.
+    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<AsyncMetaClient, MemcacheError> {
+        AsyncMetaClient::connect_multiple([addr]).await
     }
 
-    /// Cap how many idle connections each server retains (default 8).
-    /// Concurrency above the cap dials extra connections, which are dropped
-    /// when returned. Configure before cloning: clones share connections
-    /// but not this setting.
-    pub fn with_max_idle(mut self, max_idle: usize) -> AsyncMetaClient {
-        self.max_idle = max_idle;
-        self
+    /// Connect to several servers with the default configuration; keys are
+    /// distributed across them by the hash function. Addresses are resolved
+    /// here, but connections are dialed lazily, so a down server surfaces
+    /// at the first operation.
+    pub async fn connect_multiple<A: ToSocketAddrs>(
+        addrs: impl IntoIterator<Item = A>,
+    ) -> Result<AsyncMetaClient, MemcacheError> {
+        AsyncMetaClient::builder().connect_multiple_async(addrs).await
     }
 
-    /// Limit how long dialing a server may take (default 1 second; `None`
-    /// removes the limit). Configure before cloning: clones share
-    /// connections but not this setting.
-    pub fn with_connect_timeout(mut self, timeout: Option<Duration>) -> AsyncMetaClient {
-        self.timeouts.connect = timeout;
-        self
-    }
-
-    /// Limit how long one command or batch exchange may take (default 1
-    /// second; `None` removes the limit). A timeout poisons the connection
-    /// like any other transport error. Configure before cloning: clones
-    /// share connections but not this setting.
-    pub fn with_io_timeout(mut self, timeout: Option<Duration>) -> AsyncMetaClient {
-        self.timeouts.io = timeout;
-        self
+    /// Start a [`MetaClientBuilder`](super::MetaClientBuilder) to configure
+    /// hashing, pooling and timeouts before connecting.
+    pub fn builder() -> MetaClientBuilder {
+        MetaClientBuilder::new()
     }
 
     fn connection_index(&self, key: &[u8]) -> usize {
@@ -294,10 +288,11 @@ mod tests {
             reader.get_mut().write_all(b"HD\r\n").unwrap();
         });
 
-        let client = AsyncMetaClient::connect(addr)
+        let client = AsyncMetaClient::builder()
+            .io_timeout(Some(Duration::from_millis(100)))
+            .connect_async(addr)
             .await
-            .unwrap()
-            .with_io_timeout(Some(Duration::from_millis(100)));
+            .unwrap();
         assert!(client.delete("foo").send().await.is_err());
         assert!(client.delete("foo").send().await.unwrap().stored());
         handle.join().unwrap();

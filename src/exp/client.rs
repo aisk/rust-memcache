@@ -122,6 +122,108 @@ impl Default for Timeouts {
     }
 }
 
+/// Configures a [`MetaClient`] (or the tokio `AsyncMetaClient`) before
+/// connecting.
+///
+/// The configuration is fixed once `connect*` builds the client: clones of
+/// the client share both the connection pools and these settings, so two
+/// clones can never route the same key differently or pool differently.
+///
+/// ```no_run
+/// # use memcache::exp::MetaClient;
+/// # use std::time::Duration;
+/// let client = MetaClient::builder()
+///     .max_idle(16)
+///     .io_timeout(Some(Duration::from_millis(200)))
+///     .connect("127.0.0.1:11211")
+///     .unwrap();
+/// ```
+#[derive(Clone)]
+pub struct MetaClientBuilder {
+    pub(crate) hash_function: fn(&[u8]) -> u64,
+    pub(crate) max_idle: usize,
+    pub(crate) timeouts: Timeouts,
+}
+
+impl MetaClientBuilder {
+    pub fn new() -> MetaClientBuilder {
+        MetaClientBuilder {
+            hash_function: default_hash_function,
+            max_idle: DEFAULT_MAX_IDLE,
+            timeouts: Timeouts::default(),
+        }
+    }
+
+    /// Replace the function that hashes keys; the server is then picked by
+    /// jump consistent hash over that value. The default hashes with
+    /// [`DefaultHasher`].
+    pub fn hash_function(mut self, hash_function: fn(&[u8]) -> u64) -> MetaClientBuilder {
+        self.hash_function = hash_function;
+        self
+    }
+
+    /// Cap how many idle connections each server retains (default 8).
+    /// Concurrency above the cap dials extra connections, which are dropped
+    /// when returned.
+    pub fn max_idle(mut self, max_idle: usize) -> MetaClientBuilder {
+        self.max_idle = max_idle;
+        self
+    }
+
+    /// Limit how long dialing a server may take (default 1 second; `None`
+    /// removes the limit).
+    pub fn connect_timeout(mut self, timeout: Option<Duration>) -> MetaClientBuilder {
+        self.timeouts.connect = timeout;
+        self
+    }
+
+    /// Limit I/O waiting (default 1 second; `None` removes the limit). The
+    /// blocking client applies it to each socket read or write; the tokio
+    /// client applies it to a whole command or batch exchange. A timeout
+    /// poisons the connection like any other transport error.
+    pub fn io_timeout(mut self, timeout: Option<Duration>) -> MetaClientBuilder {
+        self.timeouts.io = timeout;
+        self
+    }
+
+    /// Connect to one server with this configuration.
+    pub fn connect<A: ToSocketAddrs>(self, addr: A) -> Result<MetaClient, MemcacheError> {
+        self.connect_multiple([addr])
+    }
+
+    /// Connect to several servers with this configuration; keys are
+    /// distributed across them by the hash function. Addresses are resolved
+    /// here, but connections are dialed lazily, so a down server surfaces
+    /// at the first operation.
+    pub fn connect_multiple<A: ToSocketAddrs>(
+        self,
+        addrs: impl IntoIterator<Item = A>,
+    ) -> Result<MetaClient, MemcacheError> {
+        let mut servers = Vec::new();
+        for addr in addrs {
+            servers.push(Server {
+                addrs: resolve(addr)?,
+                idle: Mutex::new(Vec::new()),
+            });
+        }
+        if servers.is_empty() {
+            return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
+        }
+        Ok(MetaClient {
+            servers: Arc::new(servers),
+            hash_function: self.hash_function,
+            max_idle: self.max_idle,
+            timeouts: self.timeouts,
+        })
+    }
+}
+
+impl Default for MetaClientBuilder {
+    fn default() -> MetaClientBuilder {
+        MetaClientBuilder::new()
+    }
+}
+
 /// A blocking meta protocol client.
 ///
 /// The verbs return lazy [`Request`] builders; chain options and finish with
@@ -130,10 +232,13 @@ impl Default for Timeouts {
 /// server.
 ///
 /// The client is cheap to clone and shareable across threads; clones share
-/// the connection pools. Each server keeps a stack of idle connections
-/// (bounded by [`with_max_idle`](Self::with_max_idle)); a connection that
-/// fails mid-exchange is dropped instead of being reused, and the next
-/// operation dials a fresh one.
+/// the connection pools and configuration. Hashing, pooling and timeouts
+/// are set on [`MetaClientBuilder`] before connecting and stay fixed for
+/// the client's lifetime, so clones cannot diverge. Each server keeps a
+/// stack of idle connections (bounded by
+/// [`max_idle`](MetaClientBuilder::max_idle)); a connection that fails
+/// mid-exchange is dropped instead of being reused, and the next operation
+/// dials a fresh one.
 ///
 /// ```no_run
 /// # use memcache::exp::MetaClient;
@@ -150,65 +255,24 @@ pub struct MetaClient {
 }
 
 impl MetaClient {
+    /// Connect to one server with the default configuration; use
+    /// [`builder`](Self::builder) to change it.
     pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<MetaClient, MemcacheError> {
         MetaClient::connect_multiple([addr])
     }
 
-    /// Connect to several servers; keys are distributed across them by the
-    /// hash function. Addresses are resolved here, but connections are
-    /// dialed lazily, so a down server surfaces at the first operation.
+    /// Connect to several servers with the default configuration; keys are
+    /// distributed across them by the hash function. Addresses are resolved
+    /// here, but connections are dialed lazily, so a down server surfaces
+    /// at the first operation.
     pub fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<MetaClient, MemcacheError> {
-        let mut servers = Vec::new();
-        for addr in addrs {
-            servers.push(Server {
-                addrs: resolve(addr)?,
-                idle: Mutex::new(Vec::new()),
-            });
-        }
-        if servers.is_empty() {
-            return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
-        }
-        Ok(MetaClient {
-            servers: Arc::new(servers),
-            hash_function: default_hash_function,
-            max_idle: DEFAULT_MAX_IDLE,
-            timeouts: Timeouts::default(),
-        })
+        MetaClient::builder().connect_multiple(addrs)
     }
 
-    /// Replace the function that hashes keys; the server is then picked by
-    /// jump consistent hash over that value. The default hashes with
-    /// [`DefaultHasher`]. Configure before cloning: clones share
-    /// connections but not this setting.
-    pub fn with_hash_function(mut self, hash_function: fn(&[u8]) -> u64) -> MetaClient {
-        self.hash_function = hash_function;
-        self
-    }
-
-    /// Cap how many idle connections each server retains (default 8).
-    /// Concurrency above the cap dials extra connections, which are dropped
-    /// when returned. Configure before cloning: clones share connections
-    /// but not this setting.
-    pub fn with_max_idle(mut self, max_idle: usize) -> MetaClient {
-        self.max_idle = max_idle;
-        self
-    }
-
-    /// Limit how long dialing a server may take (default 1 second; `None`
-    /// removes the limit). Configure before cloning: clones share
-    /// connections but not this setting.
-    pub fn with_connect_timeout(mut self, timeout: Option<Duration>) -> MetaClient {
-        self.timeouts.connect = timeout;
-        self
-    }
-
-    /// Limit how long a single socket read or write may take (default 1
-    /// second; `None` removes the limit). A timeout poisons the connection
-    /// like any other transport error. Configure before cloning: clones
-    /// share connections but not this setting.
-    pub fn with_io_timeout(mut self, timeout: Option<Duration>) -> MetaClient {
-        self.timeouts.io = timeout;
-        self
+    /// Start a [`MetaClientBuilder`] to configure hashing, pooling and
+    /// timeouts before connecting.
+    pub fn builder() -> MetaClientBuilder {
+        MetaClientBuilder::new()
     }
 
     fn connection_index(&self, key: &[u8]) -> usize {
@@ -512,9 +576,10 @@ mod tests {
     fn multi_server_routes_by_key() {
         let (addr0, server0) = scripted_server(vec![b"HD\r\n", b"MN\r\n"]);
         let (addr1, server1) = scripted_server(vec![b"VA 1 f0\r\nx\r\n", b"MN\r\n"]);
-        let client = MetaClient::connect_multiple([addr0, addr1])
-            .unwrap()
-            .with_hash_function(first_byte);
+        let client = MetaClient::builder()
+            .hash_function(first_byte)
+            .connect_multiple([addr0, addr1])
+            .unwrap();
         let key0 = format!("{}a", char_for(0));
         let key1 = format!("{}b", char_for(1));
 
@@ -536,9 +601,10 @@ mod tests {
     fn multi_server_batch_splits_and_reorders() {
         let (addr0, server0) = scripted_server(vec![b"EN\r\n"]);
         let (addr1, server1) = scripted_server(vec![b"HD\r\n", b"NF\r\n"]);
-        let client = MetaClient::connect_multiple([addr0, addr1])
-            .unwrap()
-            .with_hash_function(first_byte);
+        let client = MetaClient::builder()
+            .hash_function(first_byte)
+            .connect_multiple([addr0, addr1])
+            .unwrap();
         let key_set = format!("{}a", char_for(1));
         let key_get = format!("{}b", char_for(0));
         let key_delete = format!("{}c", char_for(1));
@@ -592,9 +658,10 @@ mod tests {
             reader.get_mut().write_all(b"HD\r\n").unwrap();
         });
 
-        let client = MetaClient::connect(addr)
-            .unwrap()
-            .with_io_timeout(Some(Duration::from_millis(100)));
+        let client = MetaClient::builder()
+            .io_timeout(Some(Duration::from_millis(100)))
+            .connect(addr)
+            .unwrap();
         let start = std::time::Instant::now();
         assert!(client.delete("foo").send().is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
@@ -606,9 +673,10 @@ mod tests {
     fn connect_timeout_fails_fast() {
         // TEST-NET-1 (192.0.2.0/24) is reserved and unroutable, so the dial
         // either times out or is rejected outright; it must not hang.
-        let client = MetaClient::connect("192.0.2.1:11211")
-            .unwrap()
-            .with_connect_timeout(Some(Duration::from_millis(100)));
+        let client = MetaClient::builder()
+            .connect_timeout(Some(Duration::from_millis(100)))
+            .connect("192.0.2.1:11211")
+            .unwrap();
         let start = std::time::Instant::now();
         assert!(client.delete("foo").send().is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
@@ -669,7 +737,7 @@ mod tests {
             }
         });
 
-        let client = MetaClient::connect(addr).unwrap().with_max_idle(0);
+        let client = MetaClient::builder().max_idle(0).connect(addr).unwrap();
         assert!(client.delete("foo").send().unwrap().stored());
         assert!(client.delete("foo").send().unwrap().stored());
         handle.join().unwrap();

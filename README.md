@@ -130,15 +130,16 @@ let results = client.run_batch(vec![
 ])?;
 ```
 
-Clients are cheap to clone and shareable across threads or tasks; clones share per-server connection pools. Multiple servers, pool size and timeouts:
+Clients are cheap to clone and shareable across threads or tasks; clones share per-server connection pools and configuration. Pool size and timeouts are set on a builder before connecting and stay fixed for the client's lifetime:
 
 ```rust
 use std::time::Duration;
 
-let client = MetaClient::connect_multiple(["10.0.0.1:11211", "10.0.0.2:11211"])?
-    .with_max_idle(16)
-    .with_connect_timeout(Some(Duration::from_millis(200)))
-    .with_io_timeout(Some(Duration::from_millis(200)));
+let client = MetaClient::builder()
+    .max_idle(16)
+    .connect_timeout(Some(Duration::from_millis(200)))
+    .io_timeout(Some(Duration::from_millis(200)))
+    .connect_multiple(["10.0.0.1:11211", "10.0.0.2:11211"])?;
 ```
 
 The async client has the same surface, behind the `tokio` feature:

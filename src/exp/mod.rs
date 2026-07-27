@@ -33,12 +33,13 @@ a pluggable hash function and split batches per server, one round trip
 each.
 
 Clients are cheap to clone and shareable across threads or tasks; clones
-share per-server pools of idle connections (capped by `with_max_idle`).
-Checkout never blocks: a busy pool just dials another connection. A
-connection that fails mid-exchange is dropped instead of reused.
-Connections are dialed lazily; `with_connect_timeout` and
-`with_io_timeout` bound dialing and I/O (1 second by default, `None`
-removes the limit).
+share per-server pools of idle connections. Key hashing, the idle-pool
+cap and timeouts are set on [`MetaClientBuilder`] before connecting and
+stay fixed for the client's lifetime, so clones can never route or pool
+differently. Checkout never blocks: a busy pool just dials another
+connection. A connection that fails mid-exchange is dropped instead of
+reused. Connections are dialed lazily; connect and I/O timeouts default
+to one second (`None` removes the limit).
 
 Transports are TCP only.
 
@@ -101,7 +102,7 @@ mod async_connection;
 pub use async_client::AsyncMetaClient;
 #[cfg(feature = "tokio")]
 pub use async_connection::AsyncMetaConnection;
-pub use client::MetaClient;
+pub use client::{MetaClient, MetaClientBuilder};
 pub use connection::MetaConnection;
 pub use core::Operation;
 pub use meta_api::{
