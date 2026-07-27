@@ -33,13 +33,18 @@ a pluggable hash function and split batches per server, one round trip
 each.
 
 Clients are cheap to clone and shareable across threads or tasks; clones
-share per-server pools of idle connections. Key hashing, the idle-pool
-cap and timeouts are set on [`MetaClientBuilder`] before connecting and
-stay fixed for the client's lifetime, so clones can never route or pool
-differently. Checkout never blocks: a busy pool just dials another
-connection. A connection that fails mid-exchange is dropped instead of
-reused. Connections are dialed lazily; connect and I/O timeouts default
-to one second (`None` removes the limit).
+share per-server pools of idle connections. Key hashing, pool caps and
+timeouts are set on [`MetaClientBuilder`] before connecting and stay
+fixed for the client's lifetime, so clones can never route or pool
+differently. A busy pool dials extra connections, up to
+`max_connections` per server (default 128); at the cap an operation
+waits for a connection to come free within the connect timeout. Idle
+connections older than `idle_timeout` (default 60 seconds) are
+discarded, and a pooled connection that turns out dead at the first
+write is transparently redialed once. A connection that fails
+mid-exchange is dropped instead of reused. Connections are dialed
+lazily; connect and I/O timeouts default to one second (`None` removes
+the limit).
 
 Transports are TCP only.
 

@@ -35,7 +35,12 @@ impl AsyncMetaConnection {
     /// Encode and write a single command.
     pub async fn send(&mut self, command: &MetaCommand) -> Result<(), MemcacheError> {
         let payload = command.encode()?;
-        self.reader.write_all(&payload).await?;
+        self.write_payload(&payload).await
+    }
+
+    /// Write a pre-encoded payload of one or more commands.
+    pub(crate) async fn write_payload(&mut self, payload: &[u8]) -> Result<(), MemcacheError> {
+        self.reader.write_all(payload).await?;
         self.reader.flush().await?;
         Ok(())
     }

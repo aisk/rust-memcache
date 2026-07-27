@@ -41,7 +41,12 @@ impl MetaConnection {
     /// Encode and write a single command.
     pub fn send(&mut self, command: &MetaCommand) -> Result<(), MemcacheError> {
         let payload = command.encode()?;
-        self.reader.get_mut().write_all(&payload)?;
+        self.write_payload(&payload)
+    }
+
+    /// Write a pre-encoded payload of one or more commands.
+    pub(crate) fn write_payload(&mut self, payload: &[u8]) -> Result<(), MemcacheError> {
+        self.reader.get_mut().write_all(payload)?;
         Ok(())
     }
 

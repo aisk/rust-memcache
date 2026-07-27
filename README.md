@@ -130,7 +130,7 @@ let results = client.run_batch(vec![
 ])?;
 ```
 
-Clients are cheap to clone and shareable across threads or tasks; clones share per-server connection pools and configuration. Pool size and timeouts are set on a builder before connecting and stay fixed for the client's lifetime:
+Clients are cheap to clone and shareable across threads or tasks; clones share per-server connection pools and configuration. Pool caps and timeouts are set on a builder before connecting and stay fixed for the client's lifetime. In-flight connections per server are capped at 128 by default (`max_connections`), stale idle connections are aged out after 60 seconds (`idle_timeout`), and a pooled connection that died while idle is transparently redialed:
 
 ```rust
 use std::time::Duration;
