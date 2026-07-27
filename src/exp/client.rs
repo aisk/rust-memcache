@@ -5,21 +5,52 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::error::{ClientError, MemcacheError, ServerError};
 
 use super::connection::MetaConnection;
 use super::core::{self, Operation};
 use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
-use super::meta_command::{MetaCommand, ReturnCode};
+use super::meta_command::{MetaCommand, MetaResponse, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
 use super::value::ToValue;
 
 pub(crate) const DEFAULT_MAX_IDLE: usize = 8;
+
+/// Generous enough that no reasonable workload hits it, while still keeping
+/// the connection storm a server latency spike can cause well below
+/// memcached's own connection limit (1024 by default).
+pub(crate) const DEFAULT_MAX_CONNECTIONS: usize = 128;
+
+/// Idle connections are silently killed by NAT gateways, load balancers and
+/// server restarts, typically on timescales of a minute or more; anything
+/// older is redialed rather than trusted.
+pub(crate) const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// A reused connection is one the pool handed out again; a write failure on
+/// it with one of these kinds means the peer had already torn the
+/// connection down while it was idle.
+pub(crate) fn is_disconnect(error: &MemcacheError) -> bool {
+    use std::io::ErrorKind;
+    matches!(
+        error,
+        MemcacheError::IOError(io) if matches!(
+            io.kind(),
+            ErrorKind::BrokenPipe | ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted | ErrorKind::NotConnected
+        )
+    )
+}
+
+pub(crate) fn pool_exhausted() -> MemcacheError {
+    ClientError::Error(Cow::Borrowed(
+        "connection limit reached and no connection became free in time",
+    ))
+    .into()
+}
 
 pub(crate) fn default_hash_function(key: &[u8]) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -50,25 +81,72 @@ pub(crate) fn resolve<A: ToSocketAddrs>(addr: A) -> Result<Vec<SocketAddr>, Memc
     Ok(addrs)
 }
 
-/// One server: its resolved addresses and a stack of idle connections.
+/// The connection pool of one server: a stack of idle connections (each
+/// with the time it was returned) and the count of checked-out connections.
+struct Pool {
+    idle: Vec<(MetaConnection, Instant)>,
+    checked_out: usize,
+}
+
+/// One server: its resolved addresses and its connection pool.
 ///
-/// Checkout pops an idle connection or dials a new one; there is no cap on
-/// concurrent connections, only on how many idle ones are retained.
+/// Checkout takes an in-flight slot (waiting for one, bounded by the
+/// connect timeout, when `max_connections` are already out), then pops a
+/// fresh-enough idle connection or dials. Every checked-out connection is
+/// eventually accounted for by `put_back` or `discard`.
 struct Server {
     addrs: Vec<SocketAddr>,
-    idle: Mutex<Vec<MetaConnection>>,
+    pool: Mutex<Pool>,
+    /// Signaled whenever a checked-out connection is returned or dropped.
+    available: Condvar,
 }
 
 impl Server {
-    fn checkout(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
-        let connection = match self.idle.lock().unwrap().pop() {
-            Some(connection) => connection,
-            None => self.dial(timeouts)?,
-        };
-        // The socket timeouts follow the client's current setting, also for
-        // connections dialed before it was configured.
-        connection.set_io_timeout(timeouts.io)?;
-        Ok(connection)
+    fn new(addrs: Vec<SocketAddr>) -> Server {
+        Server {
+            addrs,
+            pool: Mutex::new(Pool {
+                idle: Vec::new(),
+                checked_out: 0,
+            }),
+            available: Condvar::new(),
+        }
+    }
+
+    /// Check out a connection; the flag is true when it came from the pool
+    /// rather than a fresh dial.
+    fn checkout(&self, config: &Config) -> Result<(MetaConnection, bool), MemcacheError> {
+        let cap = config.max_connections.unwrap_or(usize::MAX);
+        let deadline = config.timeouts.connect.map(|timeout| Instant::now() + timeout);
+        let mut pool = self.pool.lock().unwrap();
+        while pool.checked_out >= cap {
+            pool = match deadline {
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(pool_exhausted());
+                    };
+                    self.available.wait_timeout(pool, remaining).unwrap().0
+                }
+                None => self.available.wait(pool).unwrap(),
+            };
+        }
+        pool.checked_out += 1;
+        while let Some((connection, since)) = pool.idle.pop() {
+            if config.idle_timeout.is_some_and(|limit| since.elapsed() >= limit) {
+                // Too old to trust: an idle connection may have been torn
+                // down by a middlebox or server restart.
+                continue;
+            }
+            return Ok((connection, true));
+        }
+        drop(pool);
+        match self.dial(&config.timeouts) {
+            Ok(connection) => Ok((connection, false)),
+            Err(error) => {
+                self.discard();
+                Err(error)
+            }
+        }
     }
 
     fn dial(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
@@ -91,14 +169,28 @@ impl Server {
             None => TcpStream::connect(self.addrs.as_slice())?,
         };
         stream.set_nodelay(true)?;
-        Ok(MetaConnection::from_stream(stream))
+        let connection = MetaConnection::from_stream(stream);
+        // The configuration is immutable, so the socket timeouts are set
+        // once per connection.
+        connection.set_io_timeout(timeouts.io)?;
+        Ok(connection)
     }
 
-    fn put_back(&self, connection: MetaConnection, max_idle: usize) {
-        let mut idle = self.idle.lock().unwrap();
-        if idle.len() < max_idle {
-            idle.push(connection);
+    fn put_back(&self, connection: MetaConnection, config: &Config) {
+        let mut pool = self.pool.lock().unwrap();
+        if pool.idle.len() < config.max_idle {
+            pool.idle.push((connection, Instant::now()));
         }
+        pool.checked_out -= 1;
+        drop(pool);
+        self.available.notify_one();
+    }
+
+    /// Account for a checked-out connection that was dropped instead of
+    /// returned.
+    fn discard(&self) {
+        self.pool.lock().unwrap().checked_out -= 1;
+        self.available.notify_one();
     }
 }
 
@@ -122,6 +214,28 @@ impl Default for Timeouts {
     }
 }
 
+/// The full client configuration, frozen at connect time.
+#[derive(Clone, Copy)]
+pub(crate) struct Config {
+    pub(crate) hash_function: fn(&[u8]) -> u64,
+    pub(crate) max_idle: usize,
+    pub(crate) max_connections: Option<usize>,
+    pub(crate) idle_timeout: Option<Duration>,
+    pub(crate) timeouts: Timeouts,
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            hash_function: default_hash_function,
+            max_idle: DEFAULT_MAX_IDLE,
+            max_connections: Some(DEFAULT_MAX_CONNECTIONS),
+            idle_timeout: Some(DEFAULT_IDLE_TIMEOUT),
+            timeouts: Timeouts::default(),
+        }
+    }
+}
+
 /// Configures a [`MetaClient`] (or the tokio `AsyncMetaClient`) before
 /// connecting.
 ///
@@ -140,17 +254,13 @@ impl Default for Timeouts {
 /// ```
 #[derive(Clone)]
 pub struct MetaClientBuilder {
-    pub(crate) hash_function: fn(&[u8]) -> u64,
-    pub(crate) max_idle: usize,
-    pub(crate) timeouts: Timeouts,
+    pub(crate) config: Config,
 }
 
 impl MetaClientBuilder {
     pub fn new() -> MetaClientBuilder {
         MetaClientBuilder {
-            hash_function: default_hash_function,
-            max_idle: DEFAULT_MAX_IDLE,
-            timeouts: Timeouts::default(),
+            config: Config::default(),
         }
     }
 
@@ -158,7 +268,7 @@ impl MetaClientBuilder {
     /// jump consistent hash over that value. The default hashes with
     /// [`DefaultHasher`].
     pub fn hash_function(mut self, hash_function: fn(&[u8]) -> u64) -> MetaClientBuilder {
-        self.hash_function = hash_function;
+        self.config.hash_function = hash_function;
         self
     }
 
@@ -166,14 +276,35 @@ impl MetaClientBuilder {
     /// Concurrency above the cap dials extra connections, which are dropped
     /// when returned.
     pub fn max_idle(mut self, max_idle: usize) -> MetaClientBuilder {
-        self.max_idle = max_idle;
+        self.config.max_idle = max_idle;
+        self
+    }
+
+    /// Cap how many connections per server may be in flight at once
+    /// (default 128; `None` removes the limit). At the cap an operation
+    /// waits, within the connect timeout, for a connection to come free
+    /// instead of dialing yet another one; this bounds the connection
+    /// storm a server latency spike can otherwise cause. Idle connections
+    /// are capped separately by [`max_idle`](Self::max_idle).
+    pub fn max_connections(mut self, max_connections: Option<usize>) -> MetaClientBuilder {
+        self.config.max_connections = max_connections;
+        self
+    }
+
+    /// Drop pooled connections that have been idle for longer than this at
+    /// checkout (default 60 seconds; `None` keeps them indefinitely).
+    /// Middleboxes (NAT gateways, load balancers) and server restarts kill
+    /// idle connections silently; an age cap discards them before they
+    /// surface as errors.
+    pub fn idle_timeout(mut self, idle_timeout: Option<Duration>) -> MetaClientBuilder {
+        self.config.idle_timeout = idle_timeout;
         self
     }
 
     /// Limit how long dialing a server may take (default 1 second; `None`
     /// removes the limit).
     pub fn connect_timeout(mut self, timeout: Option<Duration>) -> MetaClientBuilder {
-        self.timeouts.connect = timeout;
+        self.config.timeouts.connect = timeout;
         self
     }
 
@@ -182,7 +313,7 @@ impl MetaClientBuilder {
     /// client applies it to a whole command or batch exchange. A timeout
     /// poisons the connection like any other transport error.
     pub fn io_timeout(mut self, timeout: Option<Duration>) -> MetaClientBuilder {
-        self.timeouts.io = timeout;
+        self.config.timeouts.io = timeout;
         self
     }
 
@@ -201,19 +332,14 @@ impl MetaClientBuilder {
     ) -> Result<MetaClient, MemcacheError> {
         let mut servers = Vec::new();
         for addr in addrs {
-            servers.push(Server {
-                addrs: resolve(addr)?,
-                idle: Mutex::new(Vec::new()),
-            });
+            servers.push(Server::new(resolve(addr)?));
         }
         if servers.is_empty() {
             return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
         }
         Ok(MetaClient {
             servers: Arc::new(servers),
-            hash_function: self.hash_function,
-            max_idle: self.max_idle,
-            timeouts: self.timeouts,
+            config: self.config,
         })
     }
 }
@@ -234,11 +360,17 @@ impl Default for MetaClientBuilder {
 /// The client is cheap to clone and shareable across threads; clones share
 /// the connection pools and configuration. Hashing, pooling and timeouts
 /// are set on [`MetaClientBuilder`] before connecting and stay fixed for
-/// the client's lifetime, so clones cannot diverge. Each server keeps a
-/// stack of idle connections (bounded by
-/// [`max_idle`](MetaClientBuilder::max_idle)); a connection that fails
-/// mid-exchange is dropped instead of being reused, and the next operation
-/// dials a fresh one.
+/// the client's lifetime, so clones cannot diverge.
+///
+/// Each server keeps a stack of idle connections (bounded by
+/// [`max_idle`](MetaClientBuilder::max_idle)) and dials extra ones under
+/// concurrency, up to [`max_connections`](MetaClientBuilder::max_connections);
+/// at that cap an operation waits for a connection to come free. Idle
+/// connections older than [`idle_timeout`](MetaClientBuilder::idle_timeout)
+/// are discarded at checkout, and a pooled connection that turns out dead
+/// at the first write is replaced by a fresh dial once, transparently. A
+/// connection that fails mid-exchange is dropped instead of being reused,
+/// and the next operation dials a fresh one.
 ///
 /// ```no_run
 /// # use memcache::exp::MetaClient;
@@ -249,9 +381,7 @@ impl Default for MetaClientBuilder {
 #[derive(Clone)]
 pub struct MetaClient {
     servers: Arc<Vec<Server>>,
-    hash_function: fn(&[u8]) -> u64,
-    max_idle: usize,
-    timeouts: Timeouts,
+    config: Config,
 }
 
 impl MetaClient {
@@ -276,24 +406,51 @@ impl MetaClient {
     }
 
     fn connection_index(&self, key: &[u8]) -> usize {
-        jump_hash((self.hash_function)(key), self.servers.len())
+        jump_hash((self.config.hash_function)(key), self.servers.len())
     }
 
-    /// Check out a connection, run one transport exchange on it and return
-    /// it to the pool. A failed exchange leaves the stream in an unknown
-    /// state, so the connection is dropped instead of returned.
-    fn with_connection<T>(
-        &self,
-        server: usize,
-        exchange: impl FnOnce(&mut MetaConnection) -> Result<T, MemcacheError>,
-    ) -> Result<T, MemcacheError> {
+    /// Check out a connection, write the payload, read `responses` framed
+    /// responses and return the connection to the pool.
+    ///
+    /// A pooled connection that fails the write with a disconnect error
+    /// was torn down while idle; the server cannot have executed anything,
+    /// so the exchange retries once on a freshly dialed connection. Any
+    /// other failure leaves the stream in an unknown state and drops the
+    /// connection instead of returning it.
+    fn exchange(&self, server: usize, payload: &[u8], responses: usize) -> Result<Vec<MetaResponse>, MemcacheError> {
         let server = &self.servers[server];
-        let mut connection = server.checkout(&self.timeouts)?;
-        let result = exchange(&mut connection);
-        if result.is_ok() {
-            server.put_back(connection, self.max_idle);
+        let (mut connection, reused) = server.checkout(&self.config)?;
+        if let Err(error) = connection.write_payload(payload) {
+            if !(reused && is_disconnect(&error)) {
+                server.discard();
+                return Err(error);
+            }
+            // The dead connection's live slot carries over to the redial.
+            drop(connection);
+            connection = match server.dial(&self.config.timeouts) {
+                Ok(connection) => connection,
+                Err(error) => {
+                    server.discard();
+                    return Err(error);
+                }
+            };
+            if let Err(error) = connection.write_payload(payload) {
+                server.discard();
+                return Err(error);
+            }
         }
-        result
+        let mut collected = Vec::with_capacity(responses);
+        for _ in 0..responses {
+            match connection.receive() {
+                Ok(response) => collected.push(response),
+                Err(error) => {
+                    server.discard();
+                    return Err(error);
+                }
+            }
+        }
+        server.put_back(connection, &self.config);
+        Ok(collected)
     }
 
     /// Read a key.
@@ -330,8 +487,12 @@ impl MetaClient {
     /// for this.
     pub fn run<O: Operation>(&self, operation: O) -> Result<O::Output, MemcacheError> {
         let command = operation.prepare()?;
+        let payload = command.encode()?;
         let index = self.connection_index(operation.key());
-        let response = self.with_connection(index, |connection| connection.execute(&command))?;
+        let response = self
+            .exchange(index, &payload, 1)?
+            .pop()
+            .expect("exchange returned no response");
         operation.parse(parse_meta_result(response)?)
     }
 
@@ -367,7 +528,11 @@ impl MetaClient {
                 .iter()
                 .map(|&index| plan.commands[index].take().unwrap())
                 .collect();
-            let responses = self.with_connection(server, |connection| connection.execute_batch(&commands))?;
+            let mut payload = Vec::new();
+            for command in &commands {
+                command.encode_into(&mut payload)?;
+            }
+            let responses = self.exchange(server, &payload, commands.len())?;
             for (&index, response) in indices.iter().zip(responses) {
                 outputs[index] = Some(operations[index].parse(parse_meta_result(response)?)?);
             }
@@ -381,8 +546,12 @@ impl MetaClient {
     /// Round-trip an `mn` no-op on every server; useful as a connection
     /// health check.
     pub fn noop(&self) -> Result<(), MemcacheError> {
+        let payload = build_noop().encode()?;
         for server in 0..self.servers.len() {
-            let response = self.with_connection(server, |connection| connection.execute(&build_noop()))?;
+            let response = self
+                .exchange(server, &payload, 1)?
+                .pop()
+                .expect("exchange returned no response");
             if response.rc != ReturnCode::Mn {
                 return Err(ServerError::BadResponse("unexpected no-op response".into()).into());
             }
@@ -394,8 +563,11 @@ impl MetaClient {
     pub fn debug(&self, key: impl Into<Vec<u8>>) -> Result<Option<HashMap<String, String>>, MemcacheError> {
         let key = key.into();
         let index = self.connection_index(&key);
-        let command = build_debug(key)?;
-        let response = self.with_connection(index, |connection| connection.execute(&command))?;
+        let payload = build_debug(key)?.encode()?;
+        let response = self
+            .exchange(index, &payload, 1)?
+            .pop()
+            .expect("exchange returned no response");
         parse_debug_result(&response)
     }
 }
@@ -719,6 +891,137 @@ mod tests {
         assert!(client.delete("foo").send().is_err());
         assert!(client.delete("foo").send().unwrap().stored());
         server.join().unwrap();
+    }
+
+    /// A listener that accepts any number of connections, counts them and
+    /// answers every request line with `HD`.
+    fn counting_server() -> (SocketAddr, Arc<std::sync::atomic::AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = accepted.clone();
+        std::thread::spawn(move || {
+            while let Ok((stream, _)) = listener.accept() {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream);
+                    let mut line = Vec::new();
+                    while reader.read_until(b'\n', &mut line).map(|n| n > 0).unwrap_or(false) {
+                        if reader.get_mut().write_all(b"HD\r\n").is_err() {
+                            break;
+                        }
+                        line.clear();
+                    }
+                });
+            }
+        });
+        (addr, accepted)
+    }
+
+    #[test]
+    fn max_connections_bounds_concurrent_dials() {
+        let (addr, accepted) = counting_server();
+        let client = MetaClient::builder().max_connections(Some(2)).connect(addr).unwrap();
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let client = client.clone();
+                scope.spawn(move || {
+                    for _ in 0..5 {
+                        assert!(client.delete("foo").send().unwrap().stored());
+                    }
+                });
+            }
+        });
+        assert!(accepted.load(std::sync::atomic::Ordering::SeqCst) <= 2);
+    }
+
+    #[test]
+    fn pool_exhaustion_fails_fast() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            // Accept one connection and go silent, so its holder blocks on
+            // the read until the io timeout fires.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            let _ = reader.read_until(b'\n', &mut line);
+            // Keep the connection (and the listener) open until the
+            // holder gives up and drops its end.
+            line.clear();
+            let _ = reader.read_until(b'\n', &mut line);
+        });
+
+        let client = MetaClient::builder()
+            .max_connections(Some(1))
+            .connect_timeout(Some(Duration::from_millis(100)))
+            .io_timeout(Some(Duration::from_millis(500)))
+            .connect(addr)
+            .unwrap();
+        std::thread::scope(|scope| {
+            let holder = scope.spawn(|| {
+                // Occupies the only slot until its io timeout.
+                assert!(client.delete("a").send().is_err());
+            });
+            std::thread::sleep(Duration::from_millis(100));
+            let start = std::time::Instant::now();
+            let error = client.delete("b").send().unwrap_err();
+            // Waited out the connect timeout, not the holder's io timeout.
+            assert!(start.elapsed() < Duration::from_millis(400));
+            assert!(matches!(error, MemcacheError::ClientError(_)), "{:?}", error);
+            holder.join().unwrap();
+        });
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn idle_timeout_zero_never_reuses() {
+        let (addr, accepted) = counting_server();
+        let client = MetaClient::builder()
+            .idle_timeout(Some(Duration::ZERO))
+            .connect(addr)
+            .unwrap();
+        assert!(client.delete("foo").send().unwrap().stored());
+        assert!(client.delete("foo").send().unwrap().stored());
+        assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn dead_pooled_connection_is_redialed() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            // First connection: answer one request, then close, leaving a
+            // dead connection in the pool.
+            {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut line = Vec::new();
+                reader.read_until(b'\n', &mut line).unwrap();
+                reader.get_mut().write_all(b"HD\r\n").unwrap();
+            }
+            // The big write must fail on the dead connection and be
+            // retried here, on a fresh one.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut header = Vec::new();
+            reader.read_until(b'\n', &mut header).unwrap();
+            let line = String::from_utf8(header).unwrap();
+            let datalen: usize = line.split_whitespace().nth(2).unwrap().parse().unwrap();
+            let mut value = vec![0u8; datalen + 2];
+            reader.read_exact(&mut value).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+        });
+
+        let client = MetaClient::connect(addr).unwrap();
+        assert!(client.delete("foo").send().unwrap().stored());
+        // Give the server's FIN time to arrive.
+        std::thread::sleep(Duration::from_millis(50));
+        // A value larger than the socket buffers guarantees the write
+        // itself fails (EPIPE/ECONNRESET) rather than the read after it.
+        let big = vec![b'x'; 8 * 1024 * 1024];
+        assert!(client.set("foo", &big[..]).send().unwrap().stored());
+        handle.join().unwrap();
     }
 
     #[test]

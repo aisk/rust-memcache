@@ -5,17 +5,18 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::net::{ToSocketAddrs, lookup_host};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::{ClientError, MemcacheError, ServerError};
 
 use super::async_connection::AsyncMetaConnection;
-use super::client::{MetaClientBuilder, Timeouts, jump_hash};
+use super::client::{Config, MetaClientBuilder, is_disconnect, jump_hash, pool_exhausted};
 use super::core::{self, Operation};
 use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
-use super::meta_command::{MetaCommand, ReturnCode};
+use super::meta_command::{MetaCommand, MetaResponse, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
@@ -38,26 +39,69 @@ async fn timed<T>(
 }
 
 /// One server: its resolved addresses and a stack of idle connections.
-/// The mutex is only held to pop/push, never across I/O.
+/// The mutex is only held to pop/push, never across I/O. The semaphore
+/// caps checked-out connections: every checkout holds a permit for as
+/// long as the connection is in flight, so dropping or returning the
+/// connection frees the slot either way.
 struct AsyncServer {
     addrs: Vec<SocketAddr>,
-    idle: Mutex<Vec<AsyncMetaConnection>>,
+    idle: Mutex<Vec<(AsyncMetaConnection, Instant)>>,
+    slots: Arc<Semaphore>,
 }
 
 impl AsyncServer {
-    async fn checkout(&self, timeouts: &Timeouts) -> Result<AsyncMetaConnection, MemcacheError> {
-        let reused = self.idle.lock().unwrap().pop();
-        if let Some(connection) = reused {
-            return Ok(connection);
+    fn new(addrs: Vec<SocketAddr>, config: &Config) -> AsyncServer {
+        let cap = config.max_connections.unwrap_or(Semaphore::MAX_PERMITS);
+        AsyncServer {
+            addrs,
+            idle: Mutex::new(Vec::new()),
+            slots: Arc::new(Semaphore::new(cap.min(Semaphore::MAX_PERMITS))),
         }
-        timed(timeouts.connect, AsyncMetaConnection::connect(self.addrs.as_slice())).await
     }
 
-    fn put_back(&self, connection: AsyncMetaConnection, max_idle: usize) {
-        let mut idle = self.idle.lock().unwrap();
-        if idle.len() < max_idle {
-            idle.push(connection);
+    /// Check out a connection with its in-flight permit; the flag is true
+    /// when it came from the pool rather than a fresh dial.
+    async fn checkout(
+        &self,
+        config: &Config,
+    ) -> Result<(AsyncMetaConnection, OwnedSemaphorePermit, bool), MemcacheError> {
+        let permit = match self.slots.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            // At the connection cap: wait for a put_back or drop.
+            Err(_) => {
+                let acquire = async { Ok(self.slots.clone().acquire_owned().await.expect("semaphore closed")) };
+                match timed(config.timeouts.connect, acquire).await {
+                    Ok(permit) => permit,
+                    Err(_) => return Err(pool_exhausted()),
+                }
+            }
+        };
+        loop {
+            let popped = self.idle.lock().unwrap().pop();
+            let Some((connection, since)) = popped else { break };
+            if config.idle_timeout.is_some_and(|limit| since.elapsed() >= limit) {
+                // Too old to trust: an idle connection may have been torn
+                // down by a middlebox or server restart.
+                continue;
+            }
+            return Ok((connection, permit, true));
         }
+        let connection = timed(
+            config.timeouts.connect,
+            AsyncMetaConnection::connect(self.addrs.as_slice()),
+        )
+        .await?;
+        Ok((connection, permit, false))
+    }
+
+    fn put_back(&self, connection: AsyncMetaConnection, permit: OwnedSemaphorePermit, config: &Config) {
+        let mut idle = self.idle.lock().unwrap();
+        if idle.len() < config.max_idle {
+            idle.push((connection, Instant::now()));
+        }
+        drop(idle);
+        // Explicitly: returning the connection frees its in-flight slot.
+        drop(permit);
     }
 }
 
@@ -80,9 +124,7 @@ impl AsyncServer {
 #[derive(Clone)]
 pub struct AsyncMetaClient {
     servers: Arc<Vec<AsyncServer>>,
-    hash_function: fn(&[u8]) -> u64,
-    max_idle: usize,
-    timeouts: Timeouts,
+    config: Config,
 }
 
 impl MetaClientBuilder {
@@ -104,19 +146,14 @@ impl MetaClientBuilder {
             if resolved.is_empty() {
                 return Err(ClientError::Error(Cow::Borrowed("address resolved to no socket addresses")).into());
             }
-            servers.push(AsyncServer {
-                addrs: resolved,
-                idle: Mutex::new(Vec::new()),
-            });
+            servers.push(AsyncServer::new(resolved, &self.config));
         }
         if servers.is_empty() {
             return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
         }
         Ok(AsyncMetaClient {
             servers: Arc::new(servers),
-            hash_function: self.hash_function,
-            max_idle: self.max_idle,
-            timeouts: self.timeouts,
+            config: self.config,
         })
     }
 }
@@ -145,7 +182,54 @@ impl AsyncMetaClient {
     }
 
     fn connection_index(&self, key: &[u8]) -> usize {
-        jump_hash((self.hash_function)(key), self.servers.len())
+        jump_hash((self.config.hash_function)(key), self.servers.len())
+    }
+
+    /// Check out a connection, write the payload, read `responses` framed
+    /// responses (all under one whole-exchange deadline) and return the
+    /// connection to the pool.
+    ///
+    /// A pooled connection that fails the write with a disconnect error
+    /// was torn down while idle; the server cannot have executed anything,
+    /// so the exchange retries once on a freshly dialed connection. Any
+    /// other failure leaves the stream in an unknown state and drops the
+    /// connection (and its slot permit) instead of returning it.
+    async fn exchange(
+        &self,
+        server: usize,
+        payload: &[u8],
+        responses: usize,
+    ) -> Result<Vec<MetaResponse>, MemcacheError> {
+        let server = &self.servers[server];
+        let (mut connection, permit, reused) = server.checkout(&self.config).await?;
+        let result = timed(self.config.timeouts.io, async {
+            if let Err(error) = connection.write_payload(payload).await {
+                if !(reused && is_disconnect(&error)) {
+                    return Err(error);
+                }
+                // The dead connection's permit carries over to the redial.
+                connection = timed(
+                    self.config.timeouts.connect,
+                    AsyncMetaConnection::connect(server.addrs.as_slice()),
+                )
+                .await?;
+                connection.write_payload(payload).await?;
+            }
+            let mut collected = Vec::with_capacity(responses);
+            for _ in 0..responses {
+                collected.push(connection.receive().await?);
+            }
+            Ok(collected)
+        })
+        .await;
+        match result {
+            Ok(collected) => {
+                server.put_back(connection, permit, &self.config);
+                Ok(collected)
+            }
+            // The connection and its permit drop here.
+            Err(error) => Err(error),
+        }
     }
 
     /// Read a key.
@@ -182,12 +266,13 @@ impl AsyncMetaClient {
     /// for this.
     pub async fn run<O: Operation>(&self, operation: O) -> Result<O::Output, MemcacheError> {
         let command = operation.prepare()?;
-        let server = &self.servers[self.connection_index(operation.key())];
-        let mut connection = server.checkout(&self.timeouts).await?;
-        // A failed exchange leaves the stream in an unknown state, so the
-        // connection is dropped instead of returned to the pool.
-        let response = timed(self.timeouts.io, connection.execute(&command)).await?;
-        server.put_back(connection, self.max_idle);
+        let payload = command.encode()?;
+        let index = self.connection_index(operation.key());
+        let response = self
+            .exchange(index, &payload, 1)
+            .await?
+            .pop()
+            .expect("exchange returned no response");
         operation.parse(parse_meta_result(response)?)
     }
 
@@ -214,10 +299,11 @@ impl AsyncMetaClient {
                 .iter()
                 .map(|&index| plan.commands[index].take().unwrap())
                 .collect();
-            let server = &self.servers[server];
-            let mut connection = server.checkout(&self.timeouts).await?;
-            let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
-            server.put_back(connection, self.max_idle);
+            let mut payload = Vec::new();
+            for command in &commands {
+                command.encode_into(&mut payload)?;
+            }
+            let responses = self.exchange(server, &payload, commands.len()).await?;
             for (&index, response) in indices.iter().zip(responses) {
                 outputs[index] = Some(operations[index].parse(parse_meta_result(response)?)?);
             }
@@ -231,10 +317,13 @@ impl AsyncMetaClient {
     /// Round-trip an `mn` no-op on every server; useful as a connection
     /// health check.
     pub async fn noop(&self) -> Result<(), MemcacheError> {
-        for server in self.servers.iter() {
-            let mut connection = server.checkout(&self.timeouts).await?;
-            let response = timed(self.timeouts.io, connection.execute(&build_noop())).await?;
-            server.put_back(connection, self.max_idle);
+        let payload = build_noop().encode()?;
+        for server in 0..self.servers.len() {
+            let response = self
+                .exchange(server, &payload, 1)
+                .await?
+                .pop()
+                .expect("exchange returned no response");
             if response.rc != ReturnCode::Mn {
                 return Err(ServerError::BadResponse("unexpected no-op response".into()).into());
             }
@@ -245,11 +334,13 @@ impl AsyncMetaClient {
     /// Fetch `me` debug fields for a key; `None` on a miss.
     pub async fn debug(&self, key: impl Into<Vec<u8>>) -> Result<Option<HashMap<String, String>>, MemcacheError> {
         let key = key.into();
-        let server = &self.servers[self.connection_index(&key)];
-        let command = build_debug(key)?;
-        let mut connection = server.checkout(&self.timeouts).await?;
-        let response = timed(self.timeouts.io, connection.execute(&command)).await?;
-        server.put_back(connection, self.max_idle);
+        let index = self.connection_index(&key);
+        let payload = build_debug(key)?.encode()?;
+        let response = self
+            .exchange(index, &payload, 1)
+            .await?
+            .pop()
+            .expect("exchange returned no response");
         parse_debug_result(&response)
     }
 }
@@ -268,6 +359,49 @@ mod tests {
     use std::net::TcpListener;
 
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn max_connections_bounds_concurrent_dials() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = accepted.clone();
+        std::thread::spawn(move || {
+            while let Ok((stream, _)) = listener.accept() {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream);
+                    let mut line = Vec::new();
+                    while reader.read_until(b'\n', &mut line).map(|n| n > 0).unwrap_or(false) {
+                        if reader.get_mut().write_all(b"HD\r\n").is_err() {
+                            break;
+                        }
+                        line.clear();
+                    }
+                });
+            }
+        });
+
+        let client = AsyncMetaClient::builder()
+            .max_connections(Some(2))
+            .connect_async(addr)
+            .await
+            .unwrap();
+        let tasks: Vec<_> = (0..4)
+            .map(|_| {
+                let client = client.clone();
+                tokio::spawn(async move {
+                    for _ in 0..5 {
+                        assert!(client.delete("foo").send().await.unwrap().stored());
+                    }
+                })
+            })
+            .collect();
+        for task in tasks {
+            task.await.unwrap();
+        }
+        assert!(accepted.load(std::sync::atomic::Ordering::SeqCst) <= 2);
+    }
 
     #[tokio::test]
     async fn io_timeout_poisons_connection() {

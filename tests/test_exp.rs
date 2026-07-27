@@ -101,11 +101,7 @@ fn exp_item_meta() {
     let key = gen_random_key();
 
     client.set(&*key, "bar").ttl(100).send().unwrap();
-    let result = client
-        .get(&*key)
-        .meta(Meta::NONE.cas().ttl().size())
-        .send()
-        .unwrap();
+    let result = client.get(&*key).meta(Meta::NONE.cas().ttl().size()).send().unwrap();
     assert!(result.item.cas.is_some());
     assert_eq!(result.item.size, Some(3));
     let ttl = result.item.ttl.unwrap();
