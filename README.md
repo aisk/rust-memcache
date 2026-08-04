@@ -122,12 +122,15 @@ client.set("visits", 41u64).send()?;
 client.increment("visits").send()?;
 let visits: Option<u64> = client.get("visits").send()?.decode()?;
 
-// Several operations in one round trip:
+// Several operations in one round trip; each gets its own result:
 use memcache::exp::{Get, Set};
 let results = client.run_batch(vec![
     Set::new("a", "1").ttl(60).into(),
     Get::new("b").into(),
 ])?;
+
+// Typed batches of one operation kind (the multiget):
+let fetched = client.run_many(["a", "b"].map(Get::new))?;
 ```
 
 Clients are cheap to clone and shareable across threads or tasks; clones share per-server connection pools and configuration. Pool size and timeouts are set on a builder before connecting and stay fixed for the client's lifetime:
