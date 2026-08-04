@@ -238,6 +238,18 @@ impl AsyncMetaClient {
         self.run_all(&operations).await
     }
 
+    /// Run several operations of one kind with typed results - a batch
+    /// without the [`Op`]/[`OpResult`] wrapping. The multiget:
+    /// `client.run_many(keys.iter().map(Get::new))`. Execution and failure
+    /// semantics are those of [`run_batch`](Self::run_batch).
+    pub async fn run_many<O: Operation>(
+        &self,
+        operations: impl IntoIterator<Item = O>,
+    ) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
+        let operations: Vec<O> = operations.into_iter().collect();
+        self.run_all(&operations).await
+    }
+
     async fn run_all<O: Operation>(
         &self,
         operations: &[O],

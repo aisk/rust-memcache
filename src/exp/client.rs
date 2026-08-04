@@ -364,6 +364,18 @@ impl MetaClient {
         self.run_all(&operations)
     }
 
+    /// Run several operations of one kind with typed results - a batch
+    /// without the [`Op`]/[`OpResult`] wrapping. The multiget:
+    /// `client.run_many(keys.iter().map(Get::new))`. Execution and failure
+    /// semantics are those of [`run_batch`](Self::run_batch).
+    pub fn run_many<O: Operation>(
+        &self,
+        operations: impl IntoIterator<Item = O>,
+    ) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
+        let operations: Vec<O> = operations.into_iter().collect();
+        self.run_all(&operations)
+    }
+
     fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
         let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
         let mut outputs: Vec<Option<Result<O::Output, MemcacheError>>> = (0..operations.len()).map(|_| None).collect();

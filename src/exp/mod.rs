@@ -25,8 +25,9 @@ The module is layered bottom-up:
 
 Several operations can run in one round trip: `run_batch` takes
 heterogeneous [`Op`] values and returns one `Result<`[`OpResult`]`, _>` per
-operation. Batched operations execute independently and in order per
-server; a transport failure fails only the operations of that server's
+operation; `run_many` is the typed variant for a batch of one operation
+kind (the multiget). Batched operations execute independently and in order
+per server; a transport failure fails only the operations of that server's
 group, the rest still run. A batch is not a transaction.
 
 Clients connected to several servers (`connect_multiple`) route each key by
@@ -68,6 +69,10 @@ let results = client
     .run_batch(vec![Set::new("a", "1").ttl(60).into(), Get::new("b").into()])
     .unwrap();
 assert!(results[0].is_ok());
+
+// Batches of one operation kind keep their types (here: the multiget):
+let fetched = client.run_many(["a", "b"].map(Get::new)).unwrap();
+assert!(fetched[0].as_ref().unwrap().hit());
 ```
 
 The wire layer remains available for anything the clients do not cover:

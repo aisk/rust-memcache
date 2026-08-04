@@ -145,6 +145,22 @@ fn exp_run_batch() {
 }
 
 #[test]
+fn exp_run_many() {
+    let client = MetaClient::connect(SERVER).unwrap();
+    let keys: Vec<String> = (0..4).map(|_| gen_random_key()).collect();
+
+    let stored = client
+        .run_many(keys.iter().map(|key| Set::new(key.as_str(), key.as_str())))
+        .unwrap();
+    assert!(stored.iter().all(|result| result.as_ref().unwrap().stored()));
+
+    let fetched = client.run_many(keys.iter().map(|key| Get::new(key.as_str()))).unwrap();
+    for (key, result) in keys.iter().zip(fetched) {
+        assert_eq!(result.unwrap().value.as_deref(), Some(key.as_bytes()));
+    }
+}
+
+#[test]
 fn exp_lease() {
     let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
