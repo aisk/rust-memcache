@@ -6,7 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::error::{ClientError, MemcacheError, ServerError};
 
@@ -72,18 +72,25 @@ impl Server {
                 return Ok(connection);
             }
         }
-        let connection = self.dial(timeouts)?;
-        connection.set_io_timeout(timeouts.io)?;
-        Ok(connection)
+        self.dial(timeouts)
     }
 
     fn dial(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
         let stream = match timeouts.connect {
             Some(duration) => {
+                // One deadline shared by all resolved addresses, matching
+                // the tokio client's behavior.
+                let deadline = Instant::now() + duration;
                 let mut last_error = None;
                 let mut connected = None;
                 for addr in &self.addrs {
-                    match TcpStream::connect_timeout(addr, duration) {
+                    let remaining = deadline
+                        .checked_duration_since(Instant::now())
+                        .filter(|remaining| !remaining.is_zero());
+                    let Some(remaining) = remaining else {
+                        break;
+                    };
+                    match TcpStream::connect_timeout(addr, remaining) {
                         Ok(stream) => {
                             connected = Some(stream);
                             break;
@@ -97,7 +104,9 @@ impl Server {
             None => TcpStream::connect(self.addrs.as_slice())?,
         };
         stream.set_nodelay(true)?;
-        Ok(MetaConnection::from_stream(stream))
+        let mut connection = MetaConnection::from_stream(stream);
+        connection.set_io_timeout(timeouts.io);
+        Ok(connection)
     }
 
     fn put_back(&self, connection: MetaConnection, max_idle: usize) {
@@ -183,10 +192,11 @@ impl MetaClientBuilder {
         self
     }
 
-    /// Limit I/O waiting (default 1 second; `None` removes the limit). The
-    /// blocking client applies it to each socket read or write; the tokio
-    /// client applies it to a whole command or batch exchange. A timeout
-    /// poisons the connection like any other transport error.
+    /// Limit how long an exchange may take (default 1 second; `None`
+    /// removes the limit). Both clients apply it to a whole command or
+    /// batch exchange - request write plus response reads - not to
+    /// individual socket operations. A timeout poisons the connection like
+    /// any other transport error.
     pub fn io_timeout(mut self, timeout: Option<Duration>) -> MetaClientBuilder {
         self.timeouts.io = timeout;
         self
@@ -731,6 +741,43 @@ mod tests {
         assert!(client.delete("foo").send().is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
         assert!(client.delete("foo").send().unwrap().stored());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn io_timeout_bounds_whole_batch_exchange() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            for _ in 0..3 {
+                line.clear();
+                reader.read_until(b'\n', &mut line).unwrap();
+            }
+            // Trickle one response every 60ms: each read on its own stays
+            // under the limit, but the whole exchange exceeds it.
+            for _ in 0..3 {
+                std::thread::sleep(Duration::from_millis(60));
+                let _ = reader.get_mut().write_all(b"NF\r\n");
+            }
+        });
+
+        let client = MetaClient::builder()
+            .io_timeout(Some(Duration::from_millis(100)))
+            .connect(addr)
+            .unwrap();
+        let start = std::time::Instant::now();
+        let results = client
+            .run_batch(vec![
+                Delete::new("a").into(),
+                Delete::new("b").into(),
+                Delete::new("c").into(),
+            ])
+            .unwrap();
+        assert!(results.iter().any(|result| result.is_err()));
+        assert!(start.elapsed() < Duration::from_secs(2));
         handle.join().unwrap();
     }
 
