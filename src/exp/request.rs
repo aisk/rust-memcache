@@ -114,9 +114,10 @@ impl<'a, C> Request<'a, C, Set> {
         self
     }
 
-    /// Replace the item CAS with this value.
-    pub fn version(mut self, version: u64) -> Self {
-        self.operation = self.operation.version(version);
+    /// Overwrite the item CAS with this value (protocol `E` flag) - for
+    /// replicating or restoring items, not for normal CAS loops.
+    pub fn force_cas(mut self, cas: u64) -> Self {
+        self.operation = self.operation.force_cas(cas);
         self
     }
 
@@ -177,9 +178,10 @@ impl<'a, C> Request<'a, C, Arithmetic> {
         self
     }
 
-    /// Replace the item CAS with this value.
-    pub fn version(mut self, version: u64) -> Self {
-        self.operation = self.operation.version(version);
+    /// Overwrite the item CAS with this value (protocol `E` flag) - for
+    /// replicating or restoring items, not for normal CAS loops.
+    pub fn force_cas(mut self, cas: u64) -> Self {
+        self.operation = self.operation.force_cas(cas);
         self
     }
 

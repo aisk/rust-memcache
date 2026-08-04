@@ -174,8 +174,10 @@ pub struct Set {
     pub mode: SetMode,
     /// Store only when the item CAS matches.
     pub compare_cas: Option<u64>,
-    /// Replace the item CAS with this value instead of a server-chosen one.
-    pub version: Option<u64>,
+    /// Overwrite the item CAS with this value instead of a server-chosen one
+    /// (protocol `E` flag) - for replicating or restoring items with a known
+    /// CAS, not for normal CAS loops (use `compare_cas`).
+    pub force_cas: Option<u64>,
     /// Return the new item CAS in the result.
     pub return_cas: bool,
     /// For append/prepend, vivify a missing item with this TTL. Must be >= 1.
@@ -192,7 +194,7 @@ impl Set {
             ttl: None,
             mode: SetMode::Set,
             compare_cas: None,
-            version: None,
+            force_cas: None,
             return_cas: false,
             vivify_ttl: None,
         }
@@ -241,10 +243,11 @@ impl Set {
         self
     }
 
-    /// Replace the item CAS with this value.
+    /// Overwrite the item CAS with this value (protocol `E` flag) - for
+    /// replicating or restoring items, not for normal CAS loops.
     #[must_use]
-    pub fn version(mut self, version: u64) -> Set {
-        self.version = Some(version);
+    pub fn force_cas(mut self, cas: u64) -> Set {
+        self.force_cas = Some(cas);
         self
     }
 
@@ -324,8 +327,10 @@ pub struct Arithmetic {
     pub ttl: Option<u32>,
     /// Apply only when the item CAS matches.
     pub compare_cas: Option<u64>,
-    /// Replace the item CAS with this value instead of a server-chosen one.
-    pub version: Option<u64>,
+    /// Overwrite the item CAS with this value instead of a server-chosen one
+    /// (protocol `E` flag) - for replicating or restoring items with a known
+    /// CAS, not for normal CAS loops (use `compare_cas`).
+    pub force_cas: Option<u64>,
     /// Return the new item CAS in the result.
     pub return_cas: bool,
     /// Return the remaining TTL in the result.
@@ -342,7 +347,7 @@ impl Arithmetic {
             initial_ttl: None,
             ttl: None,
             compare_cas: None,
-            version: None,
+            force_cas: None,
             return_cas: false,
             return_ttl: false,
         }
@@ -384,10 +389,11 @@ impl Arithmetic {
         self
     }
 
-    /// Replace the item CAS with this value.
+    /// Overwrite the item CAS with this value (protocol `E` flag) - for
+    /// replicating or restoring items, not for normal CAS loops.
     #[must_use]
-    pub fn version(mut self, version: u64) -> Arithmetic {
-        self.version = Some(version);
+    pub fn force_cas(mut self, cas: u64) -> Arithmetic {
+        self.force_cas = Some(cas);
         self
     }
 
