@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::task::Poll;
 use std::time::Duration;
 
 use tokio::net::{ToSocketAddrs, lookup_host};
@@ -35,6 +36,32 @@ async fn timed<T>(
         },
         None => future.await,
     }
+}
+
+/// Await every future concurrently and collect their outputs in order. A
+/// tiny fixed-purpose join (every pending future is re-polled on each wake)
+/// so the crate needs neither a futures dependency nor a spawned task; fine
+/// for the handful of per-server exchanges a batch produces.
+async fn join_all<F: Future>(futures: Vec<F>) -> Vec<F::Output> {
+    let mut futures: Vec<_> = futures.into_iter().map(|future| Some(Box::pin(future))).collect();
+    let mut outputs: Vec<Option<F::Output>> = futures.iter().map(|_| None).collect();
+    std::future::poll_fn(|context| {
+        let mut ready = true;
+        for (slot, output) in futures.iter_mut().zip(outputs.iter_mut()) {
+            if let Some(future) = slot {
+                match future.as_mut().poll(context) {
+                    Poll::Ready(value) => {
+                        *output = Some(value);
+                        *slot = None;
+                    }
+                    Poll::Pending => ready = false,
+                }
+            }
+        }
+        if ready { Poll::Ready(()) } else { Poll::Pending }
+    })
+    .await;
+    outputs.into_iter().map(|output| output.unwrap()).collect()
 }
 
 /// One server: its resolved addresses and a stack of idle connections.
@@ -191,8 +218,9 @@ impl AsyncMetaClient {
         operation.parse(parse_meta_result(response)?)
     }
 
-    /// Run several operations, split per server and pipelined with one
-    /// round trip per server.
+    /// Run several operations, split per server and pipelined; the
+    /// per-server groups are exchanged concurrently, so a multi-server
+    /// batch costs about one round trip in total.
     ///
     /// All operations are validated before anything is written; a validation
     /// failure is the outer error and guarantees nothing executed. After
@@ -216,22 +244,31 @@ impl AsyncMetaClient {
     ) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
         let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
         let mut outputs: Vec<Option<Result<O::Output, MemcacheError>>> = (0..operations.len()).map(|_| None).collect();
-        for (server, indices) in plan.groups.iter().enumerate() {
-            if indices.is_empty() {
-                continue;
-            }
-            let commands: Vec<MetaCommand> = indices
-                .iter()
-                .map(|&index| plan.commands[index].take().unwrap())
-                .collect();
-            let server = &self.servers[server];
-            let exchange = async {
-                let mut connection = server.checkout(&self.timeouts).await?;
-                let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
-                server.put_back(connection, self.max_idle);
-                Ok::<_, MemcacheError>(responses)
-            };
-            match exchange.await {
+        // One exchange future per non-empty server group, run concurrently:
+        // the batch takes one round trip total, not one per server.
+        let exchanges = plan
+            .groups
+            .iter()
+            .enumerate()
+            .filter(|(_, indices)| !indices.is_empty())
+            .map(|(server, indices)| {
+                let commands: Vec<MetaCommand> = indices
+                    .iter()
+                    .map(|&index| plan.commands[index].take().unwrap())
+                    .collect();
+                let server = &self.servers[server];
+                async move {
+                    let mut connection = server.checkout(&self.timeouts).await?;
+                    let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
+                    server.put_back(connection, self.max_idle);
+                    Ok::<_, MemcacheError>(responses)
+                }
+            })
+            .collect();
+        let results = join_all(exchanges).await;
+        let groups = plan.groups.iter().filter(|indices| !indices.is_empty());
+        for (indices, result) in groups.zip(results) {
+            match result {
                 Ok(responses) => {
                     for (&index, response) in indices.iter().zip(responses) {
                         outputs[index] =
@@ -319,5 +356,57 @@ mod tests {
         assert!(client.delete("foo").send().await.is_err());
         assert!(client.delete("foo").send().await.unwrap().stored());
         handle.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_batch_exchanges_servers_concurrently() {
+        use std::sync::mpsc;
+
+        fn first_byte(key: &[u8]) -> u64 {
+            key[0] as u64
+        }
+        let char_for = |bucket: usize| (b'0'..=b'z').find(|&byte| jump_hash(byte as u64, 2) == bucket).unwrap() as char;
+
+        let (sender, receiver) = mpsc::channel();
+
+        // Server 0 answers only after server 1 has seen its request. With
+        // sequential group execution the batch would deadlock into the io
+        // timeout; concurrent exchanges satisfy the gate.
+        let listener0 = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr0 = listener0.local_addr().unwrap();
+        let gate0 = std::thread::spawn(move || {
+            let (stream, _) = listener0.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            reader.get_mut().write_all(b"EN\r\n").unwrap();
+        });
+
+        let listener1 = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr1 = listener1.local_addr().unwrap();
+        let gate1 = std::thread::spawn(move || {
+            let (stream, _) = listener1.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            sender.send(()).unwrap();
+            reader.get_mut().write_all(b"EN\r\n").unwrap();
+        });
+
+        let client = AsyncMetaClient::builder()
+            .hash_function(first_byte)
+            .connect_multiple_async([addr0, addr1])
+            .await
+            .unwrap();
+        let key0 = format!("{}a", char_for(0));
+        let key1 = format!("{}b", char_for(1));
+        let results = client
+            .run_batch(vec![Get::new(&*key0).into(), Get::new(&*key1).into()])
+            .await
+            .unwrap();
+        assert!(results.iter().all(|result| result.is_ok()));
+        gate0.join().unwrap();
+        gate1.join().unwrap();
     }
 }
