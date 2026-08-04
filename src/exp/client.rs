@@ -28,9 +28,10 @@ pub(crate) fn default_hash_function(key: &[u8]) -> u64 {
 }
 
 /// Jump consistent hash (Lamping & Veach, 2014): maps a key hash to a
-/// bucket in `[0, buckets)`. When the bucket count changes from n to n+1,
-/// only 1/(n+1) of the keys move, so resizing the server list relocates as
-/// few keys as possible.
+/// bucket in `[0, buckets)`. The minimal-relocation guarantee is
+/// positional: growing or shrinking the bucket count at the tail moves
+/// only 1/(n+1) of the keys, but removing an entry from the middle of the
+/// list shifts every later bucket and reroutes all their keys.
 pub(crate) fn jump_hash(mut key: u64, buckets: usize) -> usize {
     let mut b: i64 = -1;
     let mut j: i64 = 0;
@@ -208,9 +209,11 @@ impl MetaClientBuilder {
     }
 
     /// Connect to several servers with this configuration; keys are
-    /// distributed across them by the hash function. Addresses are resolved
+    /// distributed across them by jump consistent hash, so the list order
+    /// is part of the routing contract: append or drop servers at the
+    /// tail to move the minimal share of keys. Addresses are resolved
     /// here, but connections are dialed lazily, so a down server surfaces
-    /// at the first operation.
+    /// at the first operation; `noop()` verifies connectivity eagerly.
     pub fn connect_multiple<A: ToSocketAddrs>(
         self,
         addrs: impl IntoIterator<Item = A>,
@@ -278,9 +281,12 @@ impl MetaClient {
     }
 
     /// Connect to several servers with the default configuration; keys are
-    /// distributed across them by the hash function. Addresses are resolved
+    /// distributed across them by jump consistent hash, so the list order
+    /// is part of the routing contract: append or drop servers at the
+    /// tail to move the minimal share of keys. Addresses are resolved
     /// here, but connections are dialed lazily, so a down server surfaces
-    /// at the first operation.
+    /// at the first operation; [`noop`](Self::noop) verifies connectivity
+    /// eagerly.
     pub fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<MetaClient, MemcacheError> {
         MetaClient::builder().connect_multiple(addrs)
     }

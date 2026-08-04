@@ -23,7 +23,7 @@ impl<'a, C, O> Request<'a, C, O> {
     }
 
     /// Detach the operation as a standalone value, dropping the client
-    /// binding. Useful to build operations for a future batch API.
+    /// binding - to build operations for `run_batch` / `run_many`.
     pub fn into_operation(self) -> O {
         self.operation
     }
@@ -74,6 +74,8 @@ impl<'a, C> Request<'a, C, Get> {
 }
 
 impl<'a, C> Request<'a, C, Set> {
+    /// Item TTL in seconds: `0` (and the protocol default) never expires,
+    /// and a value above 30 days is an absolute unix timestamp.
     pub fn ttl(mut self, ttl: u32) -> Self {
         self.operation = self.operation.ttl(ttl);
         self

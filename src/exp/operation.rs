@@ -88,7 +88,8 @@ pub struct Get {
     pub value: bool,
     /// Vivify a missing key with this TTL and request a lease; a miss then
     /// reports [`LeaseState::Granted`](super::LeaseState::Granted) to exactly
-    /// one client. Must be >= 1.
+    /// one client. Must be >= 1. This is the protocol `N` flag, the same
+    /// mechanism as [`Set::vivify_ttl`] and [`Arithmetic::initial`]'s TTL.
     pub lease_ttl: Option<u32>,
     /// Also win the lease when the remaining TTL drops below this, to
     /// refresh the value before it expires. Requires `lease_ttl`; must
@@ -117,7 +118,8 @@ impl Get {
         self
     }
 
-    /// Update the item TTL while reading.
+    /// Update the item TTL while reading. Seconds: `0` never expires, and
+    /// a value above 30 days is an absolute unix timestamp.
     #[must_use]
     pub fn touch(mut self, ttl: u32) -> Get {
         self.touch = Some(ttl);
@@ -180,7 +182,9 @@ pub struct Set {
     pub force_cas: Option<u64>,
     /// Return the new item CAS in the result.
     pub return_cas: bool,
-    /// For append/prepend, vivify a missing item with this TTL. Must be >= 1.
+    /// For append/prepend, vivify a missing item with this TTL. Must be
+    /// >= 1. This is the protocol `N` flag, the same mechanism as
+    /// [`Get::lease_ttl`] and [`Arithmetic::initial`]'s TTL.
     pub vivify_ttl: Option<u32>,
 }
 
@@ -200,6 +204,8 @@ impl Set {
         }
     }
 
+    /// Item TTL in seconds: `0` (and the protocol default) never expires,
+    /// and a value above 30 days is an absolute unix timestamp.
     #[must_use]
     pub fn ttl(mut self, ttl: u32) -> Set {
         self.ttl = Some(ttl);
@@ -329,7 +335,9 @@ pub struct Arithmetic {
     pub mode: ArithmeticMode,
     /// Initial value when vivifying a missing item; requires `initial_ttl`.
     pub initial: Option<u64>,
-    /// TTL for the vivified item; requires `initial`. Must be >= 1.
+    /// TTL for the vivified item; requires `initial`. Must be >= 1. This
+    /// is the protocol `N` flag, the same mechanism as [`Get::lease_ttl`]
+    /// and [`Set::vivify_ttl`].
     pub initial_ttl: Option<u32>,
     /// Update the item TTL while applying the delta.
     pub ttl: Option<u32>,
@@ -383,7 +391,8 @@ impl Arithmetic {
         self
     }
 
-    /// Update the item TTL while applying the delta.
+    /// Update the item TTL while applying the delta. Seconds: `0` never
+    /// expires, and a value above 30 days is an absolute unix timestamp.
     #[must_use]
     pub fn ttl(mut self, ttl: u32) -> Arithmetic {
         self.ttl = Some(ttl);

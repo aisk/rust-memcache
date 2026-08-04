@@ -11,12 +11,21 @@ use crate::error::MemcacheError;
 use super::value::FromValue;
 
 /// Outcome of a [`Get`](super::Get) operation.
+///
+/// A vivified placeholder is recognized as "empty value plus a lease
+/// flag". The protocol cannot distinguish that from a *genuinely stored*
+/// empty value while a lease happens to be outstanding on it (a
+/// `refresh_before` window, or an invalidation raced by this read), so
+/// such a read reports `Miss`/`Pending` instead of a hit. Storing
+/// non-empty values sidesteps the ambiguity entirely.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GetStatus {
     /// The item was found (the value is present when it was requested).
     Hit,
-    /// The item was not found.
+    /// The item was not found. A lease read that vivified the key also
+    /// reports `Miss`, paired with
+    /// [`LeaseState::Granted`]: this client should fill the value.
     Miss,
     /// The item is a placeholder another client is currently filling.
     Pending,
@@ -76,6 +85,25 @@ pub struct ItemMeta {
 }
 
 /// Result of a [`Get`](super::Get) operation.
+///
+/// `status`, `value_state` and `lease_state` mirror orthogonal wire
+/// flags; the combinations that actually occur:
+///
+/// | scenario | `status` | `value_state` | `lease_state` |
+/// |---|---|---|---|
+/// | plain hit | `Hit` | `Fresh` | `None` |
+/// | plain miss | `Miss` | `Missing` | `None` |
+/// | lease read on a missing key, this client won | `Miss` | `Missing` | `Granted` |
+/// | placeholder another client is filling | `Pending` | `Missing` | `Busy` |
+/// | invalidated item, this client should refresh | `Hit` | `Stale` | `Granted` |
+/// | invalidated item, another client is refreshing | `Hit` | `Stale` | `Busy` |
+/// | `refresh_before` window, this client should refresh | `Hit` | `Fresh` | `Granted` |
+/// | `unless_cas` matched | `Unchanged` | `Fresh` | `None` |
+///
+/// Rows with a value (`Hit`) can be served as-is, stale or not; recompute
+/// only when [`won_lease`](Self::won_lease) is true, and store the fresh
+/// value with `compare_cas` (a lease read fetches the CAS automatically)
+/// so a concurrent delete or competing fill is not overwritten.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct GetResult {
@@ -102,7 +130,7 @@ impl GetResult {
     ///
     /// ```no_run
     /// # use memcache::exp::MetaClient;
-    /// # let mut client = MetaClient::connect("127.0.0.1:11211").unwrap();
+    /// # let client = MetaClient::connect("127.0.0.1:11211").unwrap();
     /// let count: Option<u64> = client.get("hits").send().unwrap().decode().unwrap();
     /// ```
     pub fn decode<V: FromValue>(self) -> Result<Option<V>, MemcacheError> {

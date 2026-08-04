@@ -3,7 +3,7 @@
 //! [`MetaCommand`] assembles a request line (and optional data block) from a
 //! command code, key, flag tokens and value. [`MetaResponse`] parses a
 //! response header line. Neither type interprets flags; that belongs to the
-//! typed layer in [`super::meta_api`].
+//! typed API layer (the `build_*` / `parse_*` functions).
 
 use std::borrow::Cow;
 
@@ -187,7 +187,7 @@ impl ReturnCode {
 ///
 /// Construct with [`new`](Self::new) and chain [`flag`](Self::flag) /
 /// [`value`](Self::value); the `build_*` functions in
-/// [`super::meta_api`] cover the common commands.
+/// this module's typed API cover the common commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetaCommand {
     pub(crate) op: MetaOp,

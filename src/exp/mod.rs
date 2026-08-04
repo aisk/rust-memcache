@@ -31,8 +31,14 @@ per server; a transport failure fails only the operations of that server's
 group, the rest still run. A batch is not a transaction.
 
 Clients connected to several servers (`connect_multiple`) route each key by
-a pluggable hash function and split batches per server, one round trip
-each.
+jump consistent hash over a pluggable key hash and split batches per
+server. Routing is positional: append or drop servers at the tail of the
+list to move the minimal share of keys; removing an entry from the middle
+reroutes every key of the servers after it.
+
+TTLs are in seconds and follow the protocol's rules: `0` means "never
+expires", and a value above 30 days (2592000) is taken as an absolute unix
+timestamp instead of a duration.
 
 Clients are cheap to clone and shareable across threads or tasks; clones
 share per-server pools of idle connections. Key hashing, the idle-pool
@@ -50,7 +56,7 @@ Transports are TCP only.
 ```no_run
 use memcache::exp::MetaClient;
 
-let mut client = MetaClient::connect("127.0.0.1:11211").unwrap();
+let client = MetaClient::connect("127.0.0.1:11211").unwrap();
 client.set("foo", "bar").send().unwrap();
 let result = client.get("foo").send().unwrap();
 assert_eq!(result.value.as_deref(), Some(&b"bar"[..]));
@@ -74,6 +80,42 @@ assert!(results[0].is_ok());
 let fetched = client.run_many(["a", "b"].map(Get::new)).unwrap();
 assert!(fetched[0].as_ref().unwrap().hit());
 ```
+
+# Cache-aside with leases
+
+A lease read (`lease_ttl`, optionally `refresh_before`) makes exactly one
+client recompute a missing or expiring value while the others keep
+serving the old one. A lease read fetches the item CAS automatically so
+the refill can be CAS-guarded:
+
+```no_run
+use memcache::exp::MetaClient;
+
+let client = MetaClient::connect("127.0.0.1:11211").unwrap();
+let result = client
+    .get("report")
+    .lease_ttl(30)
+    .refresh_before(10)
+    .send()
+    .unwrap();
+if result.won_lease() {
+    // This client recomputes; compare_cas keeps a concurrent delete or
+    // competing fill from being silently overwritten.
+    let fresh = String::from("recomputed here");
+    client
+        .set("report", &fresh)
+        .ttl(300)
+        .compare_cas(result.item.cas.unwrap())
+        .send()
+        .unwrap();
+} else if let Some(old) = &result.value {
+    // A hit - possibly stale while another client refreshes: serve it.
+    let _ = old;
+}
+```
+
+The legal combinations of `status`, `value_state` and `lease_state` are
+listed on [`GetResult`].
 
 The wire layer remains available for anything the clients do not cover:
 

@@ -163,9 +163,12 @@ impl AsyncMetaClient {
     }
 
     /// Connect to several servers with the default configuration; keys are
-    /// distributed across them by the hash function. Addresses are resolved
+    /// distributed across them by jump consistent hash, so the list order
+    /// is part of the routing contract: append or drop servers at the
+    /// tail to move the minimal share of keys. Addresses are resolved
     /// here, but connections are dialed lazily, so a down server surfaces
-    /// at the first operation.
+    /// at the first operation; [`noop`](Self::noop) verifies connectivity
+    /// eagerly.
     pub async fn connect_multiple<A: ToSocketAddrs>(
         addrs: impl IntoIterator<Item = A>,
     ) -> Result<AsyncMetaClient, MemcacheError> {
