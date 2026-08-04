@@ -61,12 +61,18 @@ struct Server {
 
 impl Server {
     fn checkout(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
-        let connection = match self.idle.lock().unwrap().pop() {
-            Some(connection) => connection,
-            None => self.dial(timeouts)?,
-        };
-        // The socket timeouts follow the client's current setting, also for
-        // connections dialed before it was configured.
+        // Idle connections may have been closed by the server or a
+        // middlebox while pooled; probe and discard instead of handing a
+        // dead connection to the caller.
+        loop {
+            let Some(mut connection) = self.idle.lock().unwrap().pop() else {
+                break;
+            };
+            if connection.is_reusable() {
+                return Ok(connection);
+            }
+        }
+        let connection = self.dial(timeouts)?;
         connection.set_io_timeout(timeouts.io)?;
         Ok(connection)
     }
@@ -778,6 +784,35 @@ mod tests {
         assert!(client.delete("foo").send().is_err());
         assert!(client.delete("foo").send().unwrap().stored());
         server.join().unwrap();
+    }
+
+    #[test]
+    fn stale_pooled_connection_is_discarded() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            // First connection: serve one operation, then close while the
+            // connection sits in the pool.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+            drop(reader);
+            // The next operation must arrive on a fresh connection.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+        });
+
+        let client = MetaClient::connect(addr).unwrap();
+        assert!(client.delete("foo").send().unwrap().stored());
+        // Give the server's FIN time to arrive before the next checkout.
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(client.delete("foo").send().unwrap().stored());
+        handle.join().unwrap();
     }
 
     #[test]

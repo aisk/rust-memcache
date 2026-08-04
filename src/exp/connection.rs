@@ -38,6 +38,28 @@ impl MetaConnection {
         Ok(())
     }
 
+    /// Whether an idle connection is still fit for reuse. A synchronized
+    /// stream is quiet between exchanges, so any buffered or pending bytes
+    /// mean desynchronization, and a readable EOF means the peer (server
+    /// restart, LB, NAT) closed the connection while it sat in the pool.
+    /// The check is a non-blocking peek: no round trip.
+    pub(crate) fn is_reusable(&mut self) -> bool {
+        if !self.reader.buffer().is_empty() {
+            return false;
+        }
+        let stream = self.reader.get_ref();
+        if stream.set_nonblocking(true).is_err() {
+            return false;
+        }
+        let mut probe = [0u8; 1];
+        let reusable = match stream.peek(&mut probe) {
+            // 0 is EOF, anything else is a stray byte: dead either way.
+            Ok(_) => false,
+            Err(error) => error.kind() == io::ErrorKind::WouldBlock,
+        };
+        stream.set_nonblocking(false).is_ok() && reusable
+    }
+
     /// Encode and write a single command.
     pub fn send(&mut self, command: &MetaCommand) -> Result<(), MemcacheError> {
         let payload = command.encode()?;

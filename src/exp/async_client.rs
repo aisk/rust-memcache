@@ -73,9 +73,16 @@ struct AsyncServer {
 
 impl AsyncServer {
     async fn checkout(&self, timeouts: &Timeouts) -> Result<AsyncMetaConnection, MemcacheError> {
-        let reused = self.idle.lock().unwrap().pop();
-        if let Some(connection) = reused {
-            return Ok(connection);
+        // Idle connections may have been closed by the server or a
+        // middlebox while pooled; probe and discard instead of handing a
+        // dead connection to the caller.
+        loop {
+            let Some(connection) = self.idle.lock().unwrap().pop() else {
+                break;
+            };
+            if connection.is_reusable() {
+                return Ok(connection);
+            }
         }
         timed(timeouts.connect, AsyncMetaConnection::connect(self.addrs.as_slice())).await
     }
@@ -366,6 +373,35 @@ mod tests {
             .await
             .unwrap();
         assert!(client.delete("foo").send().await.is_err());
+        assert!(client.delete("foo").send().await.unwrap().stored());
+        handle.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn stale_pooled_connection_is_discarded() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            // First connection: serve one operation, then close while the
+            // connection sits in the pool.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+            drop(reader);
+            // The next operation must arrive on a fresh connection.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+        });
+
+        let client = AsyncMetaClient::connect(addr).await.unwrap();
+        assert!(client.delete("foo").send().await.unwrap().stored());
+        // Give the server's FIN time to arrive before the next checkout.
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(client.delete("foo").send().await.unwrap().stored());
         handle.join().unwrap();
     }
