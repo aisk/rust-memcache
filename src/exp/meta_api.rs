@@ -132,7 +132,7 @@ impl Default for GetOptions {
     }
 }
 
-pub fn build_get(key: impl Into<Vec<u8>>, options: &GetOptions) -> Result<MetaCommand, MemcacheError> {
+pub fn build_get(key: impl AsRef<[u8]>, options: &GetOptions) -> Result<MetaCommand, MemcacheError> {
     if options.recache_ttl == Some(0) {
         return invalid("recache_ttl must be >= 1");
     }
@@ -152,7 +152,7 @@ pub fn build_get(key: impl Into<Vec<u8>>, options: &GetOptions) -> Result<MetaCo
     flags.token(b'C', options.unless_cas);
     flags.token(b'E', options.new_cas);
     flags.opaque(options.opaque.as_deref())?;
-    let mut command = MetaCommand::new(MetaOp::Get, key);
+    let mut command = MetaCommand::new(MetaOp::Get, key.as_ref());
     command.flags = flags.into_inner();
     Ok(command)
 }
@@ -215,7 +215,7 @@ pub struct SetOptions {
 }
 
 pub fn build_set(
-    key: impl Into<Vec<u8>>,
+    key: impl AsRef<[u8]>,
     value: impl Into<Vec<u8>>,
     options: &SetOptions,
 ) -> Result<MetaCommand, MemcacheError> {
@@ -247,7 +247,7 @@ pub fn build_set(
     flags.token(b'E', options.new_cas);
     flags.token(b'N', options.vivify_ttl.map(u64::from));
     flags.opaque(options.opaque.as_deref())?;
-    let mut command = MetaCommand::new(MetaOp::Set, key);
+    let mut command = MetaCommand::new(MetaOp::Set, key.as_ref());
     command.flags = flags.into_inner();
     command.value = Some(value.into());
     Ok(command)
@@ -273,7 +273,7 @@ pub struct DeleteOptions {
     pub opaque: Option<Vec<u8>>,
 }
 
-pub fn build_delete(key: impl Into<Vec<u8>>, options: &DeleteOptions) -> Result<MetaCommand, MemcacheError> {
+pub fn build_delete(key: impl AsRef<[u8]>, options: &DeleteOptions) -> Result<MetaCommand, MemcacheError> {
     if options.ttl.is_some() && !options.invalidate {
         // The server only applies T when paired with I; reject the no-op.
         return invalid("ttl is only applied when invalidate is set");
@@ -286,7 +286,7 @@ pub fn build_delete(key: impl Into<Vec<u8>>, options: &DeleteOptions) -> Result<
     flags.token(b'E', options.new_cas);
     flags.token(b'T', options.ttl.map(u64::from));
     flags.opaque(options.opaque.as_deref())?;
-    let mut command = MetaCommand::new(MetaOp::Delete, key);
+    let mut command = MetaCommand::new(MetaOp::Delete, key.as_ref());
     command.flags = flags.into_inner();
     Ok(command)
 }
@@ -352,7 +352,7 @@ impl Default for ArithmeticOptions {
     }
 }
 
-pub fn build_arithmetic(key: impl Into<Vec<u8>>, options: &ArithmeticOptions) -> Result<MetaCommand, MemcacheError> {
+pub fn build_arithmetic(key: impl AsRef<[u8]>, options: &ArithmeticOptions) -> Result<MetaCommand, MemcacheError> {
     if options.initial.is_some() && options.initial_ttl.is_none() {
         // J is silently ignored without N; reject the no-op.
         return invalid("initial requires initial_ttl to vivify on miss");
@@ -370,7 +370,7 @@ pub fn build_arithmetic(key: impl Into<Vec<u8>>, options: &ArithmeticOptions) ->
     flags.token(b'C', options.compare_cas);
     flags.token(b'E', options.new_cas);
     flags.opaque(options.opaque.as_deref())?;
-    let mut command = MetaCommand::new(MetaOp::Arithmetic, key);
+    let mut command = MetaCommand::new(MetaOp::Arithmetic, key.as_ref());
     command.flags = flags.into_inner();
     Ok(command)
 }
@@ -381,8 +381,8 @@ pub fn build_noop() -> MetaCommand {
 }
 
 /// Build an `me` debug command.
-pub fn build_debug(key: impl Into<Vec<u8>>) -> Result<MetaCommand, MemcacheError> {
-    let key = key.into();
+pub fn build_debug(key: impl AsRef<[u8]>) -> Result<MetaCommand, MemcacheError> {
+    let key = key.as_ref().to_vec();
     let (_, needs_base64) = encode_key(&key)?;
     if needs_base64 {
         // protocol.txt documents the `b` flag for `me`, but real servers

@@ -183,28 +183,33 @@ impl AsyncMetaClient {
     }
 
     /// Read a key.
-    pub fn get(&self, key: impl Into<Vec<u8>>) -> Request<'_, AsyncMetaClient, Get> {
+    pub fn get(&self, key: impl AsRef<[u8]>) -> Request<'_, AsyncMetaClient, Get> {
         Request::new(self, Get::new(key))
     }
 
-    /// Store a value under a key; the value is encoded via
-    /// [`ToValue`](super::ToValue).
-    pub fn set(&self, key: impl Into<Vec<u8>>, value: impl ToValue) -> Request<'_, AsyncMetaClient, Set> {
+    /// Store a value under a key. The value is encoded via
+    /// [`ToValue`](super::ToValue), which also picks the stored client
+    /// flags: [`FLAG_STR`](super::FLAG_STR) for strings,
+    /// [`FLAG_INT`](super::FLAG_INT) for integers and
+    /// [`FLAG_BYTES`](super::FLAG_BYTES) (zero) otherwise. Other clients
+    /// may not share these conventions; override with
+    /// [`client_flags`](Request::client_flags).
+    pub fn set(&self, key: impl AsRef<[u8]>, value: impl ToValue) -> Request<'_, AsyncMetaClient, Set> {
         Request::new(self, Set::new(key, value))
     }
 
     /// Delete a key.
-    pub fn delete(&self, key: impl Into<Vec<u8>>) -> Request<'_, AsyncMetaClient, Delete> {
+    pub fn delete(&self, key: impl AsRef<[u8]>) -> Request<'_, AsyncMetaClient, Delete> {
         Request::new(self, Delete::new(key))
     }
 
     /// Increment a counter (delta defaults to 1).
-    pub fn increment(&self, key: impl Into<Vec<u8>>) -> Request<'_, AsyncMetaClient, Arithmetic> {
+    pub fn increment(&self, key: impl AsRef<[u8]>) -> Request<'_, AsyncMetaClient, Arithmetic> {
         Request::new(self, Arithmetic::new(key))
     }
 
     /// Decrement a counter (delta defaults to 1); saturates at zero.
-    pub fn decrement(&self, key: impl Into<Vec<u8>>) -> Request<'_, AsyncMetaClient, Arithmetic> {
+    pub fn decrement(&self, key: impl AsRef<[u8]>) -> Request<'_, AsyncMetaClient, Arithmetic> {
         let operation = Arithmetic {
             mode: ArithmeticMode::Decrement,
             ..Arithmetic::new(key)
@@ -322,8 +327,8 @@ impl AsyncMetaClient {
     }
 
     /// Fetch `me` debug fields for a key; `None` on a miss.
-    pub async fn debug(&self, key: impl Into<Vec<u8>>) -> Result<Option<HashMap<String, String>>, MemcacheError> {
-        let key = key.into();
+    pub async fn debug(&self, key: impl AsRef<[u8]>) -> Result<Option<HashMap<String, String>>, MemcacheError> {
+        let key = key.as_ref().to_vec();
         let server = &self.servers[self.connection_index(&key)];
         let command = build_debug(key)?;
         let mut connection = server.checkout(&self.timeouts).await?;

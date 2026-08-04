@@ -97,9 +97,9 @@ pub struct Get {
 }
 
 impl Get {
-    pub fn new(key: impl Into<Vec<u8>>) -> Get {
+    pub fn new(key: impl AsRef<[u8]>) -> Get {
         Get {
-            key: key.into(),
+            key: key.as_ref().to_vec(),
             meta: Meta::NONE,
             touch: None,
             no_lru_bump: false,
@@ -185,10 +185,10 @@ pub struct Set {
 }
 
 impl Set {
-    pub fn new(key: impl Into<Vec<u8>>, value: impl ToValue) -> Set {
+    pub fn new(key: impl AsRef<[u8]>, value: impl ToValue) -> Set {
         let (value, client_flags) = value.to_value();
         Set {
-            key: key.into(),
+            key: key.as_ref().to_vec(),
             value,
             client_flags,
             ttl: None,
@@ -203,6 +203,14 @@ impl Set {
     #[must_use]
     pub fn ttl(mut self, ttl: u32) -> Set {
         self.ttl = Some(ttl);
+        self
+    }
+
+    /// Override the client flags stored with the item (normally chosen by
+    /// [`ToValue`]) - for interop with other clients' flag conventions.
+    #[must_use]
+    pub fn client_flags(mut self, flags: u32) -> Set {
+        self.client_flags = flags;
         self
     }
 
@@ -281,9 +289,9 @@ pub struct Delete {
 }
 
 impl Delete {
-    pub fn new(key: impl Into<Vec<u8>>) -> Delete {
+    pub fn new(key: impl AsRef<[u8]>) -> Delete {
         Delete {
-            key: key.into(),
+            key: key.as_ref().to_vec(),
             compare_cas: None,
             invalidate: false,
             stale_for: None,
@@ -338,9 +346,9 @@ pub struct Arithmetic {
 }
 
 impl Arithmetic {
-    pub fn new(key: impl Into<Vec<u8>>) -> Arithmetic {
+    pub fn new(key: impl AsRef<[u8]>) -> Arithmetic {
         Arithmetic {
-            key: key.into(),
+            key: key.as_ref().to_vec(),
             delta: 1,
             mode: ArithmeticMode::Increment,
             initial: None,
@@ -466,11 +474,17 @@ mod tests {
         assert_eq!(get.refresh_before, Some(10));
         assert!(!Get::new("foo").without_value().value);
 
-        let set = Set::new("foo", "bar").ttl(60).add().compare_cas(7).return_cas();
+        let set = Set::new("foo", "bar")
+            .ttl(60)
+            .add()
+            .compare_cas(7)
+            .return_cas()
+            .client_flags(9);
         assert_eq!(set.ttl, Some(60));
         assert_eq!(set.mode, SetMode::Add);
         assert_eq!(set.compare_cas, Some(7));
         assert!(set.return_cas);
+        assert_eq!(set.client_flags, 9);
 
         let delete = Delete::new("foo").invalidate().stale_for(30);
         assert!(delete.invalidate);

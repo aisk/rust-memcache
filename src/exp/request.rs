@@ -79,6 +79,14 @@ impl<'a, C> Request<'a, C, Set> {
         self
     }
 
+    /// Override the client flags stored with the item (normally chosen by
+    /// [`ToValue`](super::ToValue)) - for interop with other clients' flag
+    /// conventions.
+    pub fn client_flags(mut self, flags: u32) -> Self {
+        self.operation = self.operation.client_flags(flags);
+        self
+    }
+
     pub fn mode(mut self, mode: SetMode) -> Self {
         self.operation = self.operation.mode(mode);
         self
