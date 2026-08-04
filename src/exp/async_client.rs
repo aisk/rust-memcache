@@ -373,7 +373,7 @@ mod tests {
             .await
             .unwrap();
         assert!(client.delete("foo").send().await.is_err());
-        assert!(client.delete("foo").send().await.unwrap().stored());
+        assert!(client.delete("foo").send().await.unwrap().applied());
         handle.join().unwrap();
     }
 
@@ -399,10 +399,10 @@ mod tests {
         });
 
         let client = AsyncMetaClient::connect(addr).await.unwrap();
-        assert!(client.delete("foo").send().await.unwrap().stored());
+        assert!(client.delete("foo").send().await.unwrap().applied());
         // Give the server's FIN time to arrive before the next checkout.
         tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(client.delete("foo").send().await.unwrap().stored());
+        assert!(client.delete("foo").send().await.unwrap().applied());
         handle.join().unwrap();
     }
 

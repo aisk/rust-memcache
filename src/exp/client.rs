@@ -537,7 +537,7 @@ mod tests {
         let client = MetaClient::connect(addr).unwrap();
 
         let stored = client.set("foo", "bar").send().unwrap();
-        assert_eq!(stored.status, MutationStatus::Stored);
+        assert_eq!(stored.status, MutationStatus::Applied);
 
         let fetched = client.get("foo").send().unwrap();
         assert_eq!(fetched.status, GetStatus::Hit);
@@ -550,7 +550,7 @@ mod tests {
         assert_eq!(counter.value, Some(42));
 
         let deleted = client.delete("foo").send().unwrap();
-        assert!(deleted.stored());
+        assert!(deleted.applied());
 
         client.noop().unwrap();
 
@@ -579,7 +579,7 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(results.len(), 3);
-        assert!(results[0].as_mutation().unwrap().stored());
+        assert!(results[0].as_mutation().unwrap().applied());
         assert_eq!(results[1].as_get().unwrap().value.as_deref(), Some(&b"1"[..]));
         assert_eq!(results[2].as_mutation().unwrap().status, MutationStatus::NotFound);
 
@@ -610,7 +610,7 @@ mod tests {
         let client = MetaClient::connect(addr).unwrap();
 
         let operation = client.set("foo", "bar").ttl(60).into_operation();
-        assert!(client.run(operation).unwrap().stored());
+        assert!(client.run(operation).unwrap().applied());
 
         let decremented = client.decrement("counter").send().unwrap();
         assert_eq!(decremented.value, Some(1));
@@ -631,7 +631,7 @@ mod tests {
         let key0 = format!("{}a", char_for(0));
         let key1 = format!("{}b", char_for(1));
 
-        assert!(client.set(&*key0, "v").send().unwrap().stored());
+        assert!(client.set(&*key0, "v").send().unwrap().applied());
         assert!(client.get(&*key1).send().unwrap().hit());
         client.noop().unwrap();
 
@@ -668,7 +668,7 @@ mod tests {
             .into_iter()
             .map(Result::unwrap)
             .collect();
-        assert!(results[0].as_mutation().unwrap().stored());
+        assert!(results[0].as_mutation().unwrap().applied());
         assert_eq!(results[1].as_get().unwrap().status, GetStatus::Miss);
         assert_eq!(results[2].as_mutation().unwrap().status, MutationStatus::NotFound);
 
@@ -740,7 +740,7 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(client.delete("foo").send().is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
-        assert!(client.delete("foo").send().unwrap().stored());
+        assert!(client.delete("foo").send().unwrap().applied());
         handle.join().unwrap();
     }
 
@@ -816,7 +816,7 @@ mod tests {
 
         let client = MetaClient::connect(addr).unwrap();
         assert!(client.get("foo").send().is_err());
-        assert!(client.delete("foo").send().unwrap().stored());
+        assert!(client.delete("foo").send().unwrap().applied());
         handle.join().unwrap();
     }
 
@@ -829,7 +829,7 @@ mod tests {
         let client = MetaClient::connect(addr).unwrap();
 
         assert!(client.delete("foo").send().is_err());
-        assert!(client.delete("foo").send().unwrap().stored());
+        assert!(client.delete("foo").send().unwrap().applied());
         server.join().unwrap();
     }
 
@@ -855,10 +855,10 @@ mod tests {
         });
 
         let client = MetaClient::connect(addr).unwrap();
-        assert!(client.delete("foo").send().unwrap().stored());
+        assert!(client.delete("foo").send().unwrap().applied());
         // Give the server's FIN time to arrive before the next checkout.
         std::thread::sleep(Duration::from_millis(50));
-        assert!(client.delete("foo").send().unwrap().stored());
+        assert!(client.delete("foo").send().unwrap().applied());
         handle.join().unwrap();
     }
 
@@ -879,8 +879,8 @@ mod tests {
         });
 
         let client = MetaClient::builder().max_idle(0).connect(addr).unwrap();
-        assert!(client.delete("foo").send().unwrap().stored());
-        assert!(client.delete("foo").send().unwrap().stored());
+        assert!(client.delete("foo").send().unwrap().applied());
+        assert!(client.delete("foo").send().unwrap().applied());
         handle.join().unwrap();
     }
 }

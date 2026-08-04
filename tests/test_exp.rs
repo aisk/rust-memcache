@@ -22,14 +22,14 @@ fn exp_set_get_delete() {
     assert_eq!(missing.status, GetStatus::Miss);
 
     let stored = client.set(&*key, "bar").send().unwrap();
-    assert!(stored.stored());
+    assert!(stored.applied());
 
     let fetched = client.get(&*key).send().unwrap();
     assert_eq!(fetched.status, GetStatus::Hit);
     assert_eq!(fetched.value.as_deref(), Some(&b"bar"[..]));
 
     let deleted = client.delete(&*key).send().unwrap();
-    assert!(deleted.stored());
+    assert!(deleted.applied());
     assert_eq!(client.delete(&*key).send().unwrap().status, MutationStatus::NotFound);
     assert_eq!(client.get(&*key).send().unwrap().status, GetStatus::Miss);
 }
@@ -43,15 +43,15 @@ fn exp_store_modes() {
         client.set(&*key, "x").replace().send().unwrap().status,
         MutationStatus::NotFound
     );
-    assert!(client.set(&*key, "bar").add().send().unwrap().stored());
+    assert!(client.set(&*key, "bar").add().send().unwrap().applied());
     assert_eq!(
         client.set(&*key, "baz").add().send().unwrap().status,
         MutationStatus::AlreadyExists
     );
-    assert!(client.set(&*key, "rab").replace().send().unwrap().stored());
+    assert!(client.set(&*key, "rab").replace().send().unwrap().applied());
 
-    assert!(client.set(&*key, "!").append().send().unwrap().stored());
-    assert!(client.set(&*key, "?").prepend().send().unwrap().stored());
+    assert!(client.set(&*key, "!").append().send().unwrap().applied());
+    assert!(client.set(&*key, "?").prepend().send().unwrap().applied());
     let value = client.get(&*key).send().unwrap().value.unwrap();
     assert_eq!(value, b"?rab!".to_vec());
 }
@@ -64,7 +64,7 @@ fn exp_cas_flow() {
     let stored = client.set(&*key, "one").return_cas().send().unwrap();
     let cas = stored.cas.unwrap();
 
-    assert!(client.set(&*key, "two").compare_cas(cas).send().unwrap().stored());
+    assert!(client.set(&*key, "two").compare_cas(cas).send().unwrap().applied());
     assert_eq!(
         client.set(&*key, "three").compare_cas(cas).send().unwrap().status,
         MutationStatus::CasMismatch
@@ -113,10 +113,10 @@ fn exp_binary_key() {
     let client = MetaClient::connect(SERVER).unwrap();
     let key = format!("{} with spaces\x01", gen_random_key());
 
-    assert!(client.set(&*key, "bar").send().unwrap().stored());
+    assert!(client.set(&*key, "bar").send().unwrap().applied());
     let fetched = client.get(&*key).send().unwrap();
     assert_eq!(fetched.value.as_deref(), Some(&b"bar"[..]));
-    assert!(client.delete(&*key).send().unwrap().stored());
+    assert!(client.delete(&*key).send().unwrap().applied());
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn exp_run_batch() {
         .collect();
 
     assert_eq!(results.len(), 4);
-    assert!(results[0].as_mutation().unwrap().stored());
+    assert!(results[0].as_mutation().unwrap().applied());
     assert_eq!(results[1].as_get().unwrap().value.as_deref(), Some(&b"1"[..]));
     assert_eq!(results[2].as_get().unwrap().status, GetStatus::Miss);
     assert_eq!(results[3].as_mutation().unwrap().status, MutationStatus::NotFound);
@@ -152,7 +152,7 @@ fn exp_run_many() {
     let stored = client
         .run_many(keys.iter().map(|key| Set::new(key.as_str(), key.as_str())))
         .unwrap();
-    assert!(stored.iter().all(|result| result.as_ref().unwrap().stored()));
+    assert!(stored.iter().all(|result| result.as_ref().unwrap().applied()));
 
     let fetched = client.run_many(keys.iter().map(|key| Get::new(key.as_str()))).unwrap();
     for (key, result) in keys.iter().zip(fetched) {
@@ -176,7 +176,7 @@ fn exp_lease() {
     assert!(!other.won_lease());
 
     // The winner fulfills the lease; readers then get the real value.
-    assert!(client.set(&*key, "fresh").compare_cas(cas).send().unwrap().stored());
+    assert!(client.set(&*key, "fresh").compare_cas(cas).send().unwrap().applied());
     let fetched = client.get(&*key).send().unwrap();
     assert_eq!(fetched.value.as_deref(), Some(&b"fresh"[..]));
 }
@@ -208,7 +208,7 @@ fn exp_multi_server() {
 
     let keys: Vec<String> = (0..20).map(|_| gen_random_key()).collect();
     for key in &keys {
-        assert!(client.set(key.as_str(), key.as_str()).send().unwrap().stored());
+        assert!(client.set(key.as_str(), key.as_str()).send().unwrap().applied());
     }
     for key in &keys {
         let fetched = client.get(key.as_str()).send().unwrap();
@@ -225,7 +225,7 @@ fn exp_multi_server() {
     }
 
     for key in &keys {
-        assert!(client.delete(key.as_str()).send().unwrap().stored());
+        assert!(client.delete(key.as_str()).send().unwrap().applied());
     }
 }
 
@@ -238,10 +238,10 @@ fn exp_concurrent_clients() {
             scope.spawn(move || {
                 for _ in 0..10 {
                     let key = gen_random_key();
-                    assert!(client.set(key.as_str(), "v").send().unwrap().stored());
+                    assert!(client.set(key.as_str(), "v").send().unwrap().applied());
                     let fetched = client.get(key.as_str()).send().unwrap();
                     assert_eq!(fetched.value.as_deref(), Some(&b"v"[..]));
-                    assert!(client.delete(key.as_str()).send().unwrap().stored());
+                    assert!(client.delete(key.as_str()).send().unwrap().applied());
                 }
             });
         }
@@ -271,7 +271,7 @@ mod async_tests {
 
         client.noop().await.unwrap();
 
-        assert!(client.set(&*key, "bar").ttl(60).send().await.unwrap().stored());
+        assert!(client.set(&*key, "bar").ttl(60).send().await.unwrap().applied());
         let fetched = client.get(&*key).send().await.unwrap();
         assert_eq!(fetched.status, GetStatus::Hit);
         assert_eq!(fetched.value.as_deref(), Some(&b"bar"[..]));
@@ -284,7 +284,7 @@ mod async_tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(results[0].as_get().unwrap().value.as_deref(), Some(&b"bar"[..]));
-        assert!(results[1].as_mutation().unwrap().stored());
+        assert!(results[1].as_mutation().unwrap().applied());
 
         assert_eq!(client.get(&*key).send().await.unwrap().status, GetStatus::Miss);
     }

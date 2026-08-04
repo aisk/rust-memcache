@@ -29,8 +29,9 @@ pub enum GetStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MutationStatus {
-    /// The mutation was applied.
-    Stored,
+    /// The mutation took effect: the value was stored, the item deleted,
+    /// or the counter adjusted.
+    Applied,
     /// The item does not exist.
     NotFound,
     /// Add mode: the item already exists.
@@ -135,8 +136,9 @@ pub struct MutationResult {
 }
 
 impl MutationResult {
-    pub fn stored(&self) -> bool {
-        self.status == MutationStatus::Stored
+    /// Whether the mutation took effect.
+    pub fn applied(&self) -> bool {
+        self.status == MutationStatus::Applied
     }
 }
 
@@ -152,8 +154,9 @@ pub struct ArithmeticResult {
 }
 
 impl ArithmeticResult {
-    pub fn stored(&self) -> bool {
-        self.status == MutationStatus::Stored
+    /// Whether the delta was applied (or the counter vivified).
+    pub fn applied(&self) -> bool {
+        self.status == MutationStatus::Applied
     }
 }
 

@@ -278,7 +278,7 @@ pub(crate) fn prepare_arithmetic(operation: &Arithmetic) -> Result<MetaCommand, 
 
 fn mutation_status(is_add: bool, rc: ReturnCode) -> Result<MutationStatus, MemcacheError> {
     match rc {
-        ReturnCode::Hd | ReturnCode::Va => Ok(MutationStatus::Stored),
+        ReturnCode::Hd | ReturnCode::Va => Ok(MutationStatus::Applied),
         ReturnCode::Ex => Ok(MutationStatus::CasMismatch),
         ReturnCode::Nf => Ok(MutationStatus::NotFound),
         ReturnCode::Ns => Ok(if is_add {
@@ -578,7 +578,7 @@ mod tests {
         let set = Set::new("foo", "bar");
         assert_eq!(
             parse_set(&set, wire(b"HD", None)).unwrap().status,
-            MutationStatus::Stored
+            MutationStatus::Applied
         );
         assert_eq!(
             parse_set(&set, wire(b"EX", None)).unwrap().status,
@@ -606,7 +606,7 @@ mod tests {
     fn parse_arithmetic_value() {
         let operation = Arithmetic::new("counter");
         let result = parse_arithmetic(&operation, wire(b"VA 2 c9 t60", Some(b"42"))).unwrap();
-        assert!(result.stored());
+        assert!(result.applied());
         assert_eq!(result.value, Some(42));
         assert_eq!(result.item.cas, Some(9));
         assert_eq!(result.item.ttl, Some(60));
