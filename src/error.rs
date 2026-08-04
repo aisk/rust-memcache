@@ -7,7 +7,7 @@ use std::str;
 use std::string;
 
 /// Client-side errors
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientError {
     /// The key provided was longer than 250 bytes.
     KeyTooLong,
@@ -31,7 +31,7 @@ impl From<ClientError> for MemcacheError {
 }
 
 /// Server-side errors
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ServerError {
     /// When using binary protocol, the server returned magic byte other
     /// than 0x81 in the response packet.
@@ -53,7 +53,7 @@ impl fmt::Display for ServerError {
 }
 
 /// Command specific errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CommandError {
     /// The client tried to set a key which already existed in the server.
     KeyExists,
@@ -140,7 +140,7 @@ impl From<ServerError> for MemcacheError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ParseError {
     Bool(str::ParseBoolError),
     Int(num::ParseIntError),

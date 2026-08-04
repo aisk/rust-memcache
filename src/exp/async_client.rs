@@ -194,18 +194,28 @@ impl AsyncMetaClient {
     /// Run several operations, split per server and pipelined with one
     /// round trip per server.
     ///
-    /// All commands are validated before anything is written and executed
-    /// independently in order per server; one operation's semantic outcome
-    /// (miss, CAS mismatch, ...) shows up in its own result and does not
-    /// stop the rest. This is not a transaction.
-    pub async fn run_batch(&self, operations: impl IntoIterator<Item = Op>) -> Result<Vec<OpResult>, MemcacheError> {
+    /// All operations are validated before anything is written; a validation
+    /// failure is the outer error and guarantees nothing executed. After
+    /// that, every operation gets its own entry in input order: a transport
+    /// failure fails the operations of that server's group (their entries
+    /// are `Err`, and whether they took effect on the server is unknown)
+    /// while the remaining groups still execute. Semantic outcomes (miss,
+    /// CAS mismatch, ...) are not errors; they show up inside [`OpResult`].
+    /// A batch is not a transaction.
+    pub async fn run_batch(
+        &self,
+        operations: impl IntoIterator<Item = Op>,
+    ) -> Result<Vec<Result<OpResult, MemcacheError>>, MemcacheError> {
         let operations: Vec<Op> = operations.into_iter().collect();
         self.run_all(&operations).await
     }
 
-    async fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<O::Output>, MemcacheError> {
+    async fn run_all<O: Operation>(
+        &self,
+        operations: &[O],
+    ) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
         let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
-        let mut outputs: Vec<Option<O::Output>> = (0..operations.len()).map(|_| None).collect();
+        let mut outputs: Vec<Option<Result<O::Output, MemcacheError>>> = (0..operations.len()).map(|_| None).collect();
         for (server, indices) in plan.groups.iter().enumerate() {
             if indices.is_empty() {
                 continue;
@@ -215,11 +225,24 @@ impl AsyncMetaClient {
                 .map(|&index| plan.commands[index].take().unwrap())
                 .collect();
             let server = &self.servers[server];
-            let mut connection = server.checkout(&self.timeouts).await?;
-            let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
-            server.put_back(connection, self.max_idle);
-            for (&index, response) in indices.iter().zip(responses) {
-                outputs[index] = Some(operations[index].parse(parse_meta_result(response)?)?);
+            let exchange = async {
+                let mut connection = server.checkout(&self.timeouts).await?;
+                let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
+                server.put_back(connection, self.max_idle);
+                Ok::<_, MemcacheError>(responses)
+            };
+            match exchange.await {
+                Ok(responses) => {
+                    for (&index, response) in indices.iter().zip(responses) {
+                        outputs[index] =
+                            Some(parse_meta_result(response).and_then(|wire| operations[index].parse(wire)));
+                    }
+                }
+                Err(error) => {
+                    for &index in indices {
+                        outputs[index] = Some(Err(core::duplicate_error(&error)));
+                    }
+                }
             }
         }
         Ok(outputs

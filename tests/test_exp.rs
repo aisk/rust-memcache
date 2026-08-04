@@ -101,11 +101,7 @@ fn exp_item_meta() {
     let key = gen_random_key();
 
     client.set(&*key, "bar").ttl(100).send().unwrap();
-    let result = client
-        .get(&*key)
-        .meta(Meta::NONE.cas().ttl().size())
-        .send()
-        .unwrap();
+    let result = client.get(&*key).meta(Meta::NONE.cas().ttl().size()).send().unwrap();
     assert!(result.item.cas.is_some());
     assert_eq!(result.item.size, Some(3));
     let ttl = result.item.ttl.unwrap();
@@ -129,14 +125,17 @@ fn exp_run_batch() {
     let key_a = gen_random_key();
     let key_b = gen_random_key();
 
-    let results = client
+    let results: Vec<_> = client
         .run_batch(vec![
             Set::new(&*key_a, "1").ttl(60).into(),
             Get::new(&*key_a).into(),
             Get::new(&*key_b).into(),
             Delete::new(&*key_b).into(),
         ])
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .map(Result::unwrap)
+        .collect();
 
     assert_eq!(results.len(), 4);
     assert!(results[0].as_mutation().unwrap().stored());
@@ -205,7 +204,8 @@ fn exp_multi_server() {
         .run_batch(keys.iter().map(|key| Get::new(key.as_str()).into()))
         .unwrap();
     for (key, result) in keys.iter().zip(&results) {
-        assert_eq!(result.as_get().unwrap().value.as_deref(), Some(key.as_bytes()));
+        let fetched = result.as_ref().unwrap().as_get().unwrap();
+        assert_eq!(fetched.value.as_deref(), Some(key.as_bytes()));
     }
 
     for key in &keys {
@@ -260,10 +260,13 @@ mod async_tests {
         assert_eq!(fetched.status, GetStatus::Hit);
         assert_eq!(fetched.value.as_deref(), Some(&b"bar"[..]));
 
-        let results = client
+        let results: Vec<_> = client
             .run_batch(vec![Get::new(&*key).into(), Delete::new(&*key).into()])
             .await
-            .unwrap();
+            .unwrap()
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
         assert_eq!(results[0].as_get().unwrap().value.as_deref(), Some(&b"bar"[..]));
         assert!(results[1].as_mutation().unwrap().stored());
 

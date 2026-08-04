@@ -142,6 +142,21 @@ fn invalid<T>(message: &'static str) -> Result<T, MemcacheError> {
     Err(ClientError::Error(Cow::Borrowed(message)).into())
 }
 
+/// Best-effort duplicate of an error, so a failure that covers a whole batch
+/// group can be reported on each of the group's operations. io errors keep
+/// their kind and message but lose the source chain; variants that cannot
+/// arise from meta connections fall back to their rendered message.
+pub(crate) fn duplicate_error(error: &MemcacheError) -> MemcacheError {
+    match error {
+        MemcacheError::IOError(err) => MemcacheError::IOError(std::io::Error::new(err.kind(), err.to_string())),
+        MemcacheError::ClientError(err) => err.clone().into(),
+        MemcacheError::ServerError(err) => err.clone().into(),
+        MemcacheError::CommandError(err) => err.clone().into(),
+        MemcacheError::ParseError(err) => err.clone().into(),
+        other => ClientError::Error(Cow::Owned(other.to_string())).into(),
+    }
+}
+
 /// A validated batch: every operation prepared into a wire command, and the
 /// operation indexes grouped per server. Shared by both clients.
 pub(crate) struct BatchPlan {

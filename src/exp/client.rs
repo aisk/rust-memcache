@@ -338,10 +338,14 @@ impl MetaClient {
     /// Run several operations, split per server and pipelined with one
     /// round trip per server.
     ///
-    /// All commands are validated before anything is written and executed
-    /// independently in order per server; one operation's semantic outcome
-    /// (miss, CAS mismatch, ...) shows up in its own result and does not
-    /// stop the rest. This is not a transaction.
+    /// All operations are validated before anything is written; a validation
+    /// failure is the outer error and guarantees nothing executed. After
+    /// that, every operation gets its own entry in input order: a transport
+    /// failure fails the operations of that server's group (their entries
+    /// are `Err`, and whether they took effect on the server is unknown)
+    /// while the remaining groups still execute. Semantic outcomes (miss,
+    /// CAS mismatch, ...) are not errors; they show up inside [`OpResult`].
+    /// A batch is not a transaction.
     ///
     /// ```no_run
     /// # use memcache::exp::{Get, MetaClient, Set};
@@ -350,15 +354,19 @@ impl MetaClient {
     ///     Set::new("foo", "bar").ttl(60).into(),
     ///     Get::new("baz").into(),
     /// ]).unwrap();
+    /// let stored = results[0].as_ref().unwrap();
     /// ```
-    pub fn run_batch(&self, operations: impl IntoIterator<Item = Op>) -> Result<Vec<OpResult>, MemcacheError> {
+    pub fn run_batch(
+        &self,
+        operations: impl IntoIterator<Item = Op>,
+    ) -> Result<Vec<Result<OpResult, MemcacheError>>, MemcacheError> {
         let operations: Vec<Op> = operations.into_iter().collect();
         self.run_all(&operations)
     }
 
-    fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<O::Output>, MemcacheError> {
+    fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
         let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
-        let mut outputs: Vec<Option<O::Output>> = (0..operations.len()).map(|_| None).collect();
+        let mut outputs: Vec<Option<Result<O::Output, MemcacheError>>> = (0..operations.len()).map(|_| None).collect();
         for (server, indices) in plan.groups.iter().enumerate() {
             if indices.is_empty() {
                 continue;
@@ -367,9 +375,18 @@ impl MetaClient {
                 .iter()
                 .map(|&index| plan.commands[index].take().unwrap())
                 .collect();
-            let responses = self.with_connection(server, |connection| connection.execute_batch(&commands))?;
-            for (&index, response) in indices.iter().zip(responses) {
-                outputs[index] = Some(operations[index].parse(parse_meta_result(response)?)?);
+            match self.with_connection(server, |connection| connection.execute_batch(&commands)) {
+                Ok(responses) => {
+                    for (&index, response) in indices.iter().zip(responses) {
+                        outputs[index] =
+                            Some(parse_meta_result(response).and_then(|wire| operations[index].parse(wire)));
+                    }
+                }
+                Err(error) => {
+                    for &index in indices {
+                        outputs[index] = Some(Err(core::duplicate_error(&error)));
+                    }
+                }
             }
         }
         Ok(outputs
@@ -523,13 +540,16 @@ mod tests {
         let (addr, server) = scripted_server(vec![b"HD\r\n", b"VA 1 f0\r\n1\r\n", b"NF\r\n"]);
         let client = MetaClient::connect(addr).unwrap();
 
-        let results = client
+        let results: Vec<_> = client
             .run_batch(vec![
                 Set::new("a", "1").ttl(60).into(),
                 Get::new("a").into(),
                 Delete::new("c").into(),
             ])
-            .unwrap();
+            .unwrap()
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
         assert_eq!(results.len(), 3);
         assert!(results[0].as_mutation().unwrap().stored());
         assert_eq!(results[1].as_get().unwrap().value.as_deref(), Some(&b"1"[..]));
@@ -610,13 +630,16 @@ mod tests {
         let key_delete = format!("{}c", char_for(1));
 
         // Interleaved across servers; results must come back in input order.
-        let results = client
+        let results: Vec<_> = client
             .run_batch(vec![
                 Set::new(&*key_set, "v").into(),
                 Get::new(&*key_get).into(),
                 Delete::new(&*key_delete).into(),
             ])
-            .unwrap();
+            .unwrap()
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
         assert!(results[0].as_mutation().unwrap().stored());
         assert_eq!(results[1].as_get().unwrap().status, GetStatus::Miss);
         assert_eq!(results[2].as_mutation().unwrap().status, MutationStatus::NotFound);
@@ -632,6 +655,30 @@ mod tests {
                 format!("md {}\r\n", key_delete).into_bytes(),
             ]
         );
+    }
+
+    #[test]
+    fn run_batch_continues_after_group_failure() {
+        let (addr0, server0) = scripted_server(vec![b"VA 1 f0\r\nx\r\n"]);
+        // A bound-then-dropped listener yields an address that refuses
+        // connections, so the second server's group must fail in transport.
+        let dead = TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead_addr = dead.local_addr().unwrap();
+        drop(dead);
+        let client = MetaClient::builder()
+            .hash_function(first_byte)
+            .connect_multiple([addr0, dead_addr])
+            .unwrap();
+        let key_live = format!("{}a", char_for(0));
+        let key_dead = format!("{}b", char_for(1));
+
+        let results = client
+            .run_batch(vec![Get::new(&*key_live).into(), Set::new(&*key_dead, "v").into()])
+            .unwrap();
+        let live = results[0].as_ref().unwrap().as_get().unwrap();
+        assert_eq!(live.value.as_deref(), Some(&b"x"[..]));
+        assert!(results[1].is_err());
+        server0.join().unwrap();
     }
 
     #[test]

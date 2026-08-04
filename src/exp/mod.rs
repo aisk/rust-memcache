@@ -24,9 +24,10 @@ The module is layered bottom-up:
   [`Request`] builders, executed with `send()`.
 
 Several operations can run in one round trip: `run_batch` takes
-heterogeneous [`Op`] values and returns [`OpResult`]s. Batched operations
-execute independently and in order per server - a batch is not a
-transaction.
+heterogeneous [`Op`] values and returns one `Result<`[`OpResult`]`, _>` per
+operation. Batched operations execute independently and in order per
+server; a transport failure fails only the operations of that server's
+group, the rest still run. A batch is not a transaction.
 
 Clients connected to several servers (`connect_multiple`) route each key by
 a pluggable hash function and split batches per server, one round trip
@@ -61,11 +62,12 @@ let counter = client.increment("hits").delta(2).initial(0, 60).send().unwrap();
 client.set("visits", 41u64).send().unwrap();
 let visits: Option<u64> = client.get("visits").send().unwrap().decode().unwrap();
 
-// Several operations in one round trip:
+// Several operations in one round trip; each gets its own result:
 use memcache::exp::{Get, Set};
 let results = client
     .run_batch(vec![Set::new("a", "1").ttl(60).into(), Get::new("b").into()])
     .unwrap();
+assert!(results[0].is_ok());
 ```
 
 The wire layer remains available for anything the clients do not cover:
