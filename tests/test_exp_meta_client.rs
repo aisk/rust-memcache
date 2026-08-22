@@ -1,3 +1,7 @@
+//! Integration tests for the exp protocol layer (`MetaClient` and
+//! `AsyncMetaClient`) against a real memcached started by
+//! `tests/setup_tests.sh`.
+
 extern crate memcache;
 extern crate rand;
 

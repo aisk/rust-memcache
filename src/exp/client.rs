@@ -712,74 +712,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn client_roundtrip() {
-        // A single accepted connection serves every operation: the pool
-        // reuses it across the whole test.
-        let (addr, server) = scripted_server(vec![
-            b"HD\r\n",
-            b"VA 3 f0\r\nbar\r\n",
-            b"NS\r\n",
-            b"VA 2\r\n42\r\n",
-            b"HD\r\n",
-            b"MN\r\n",
-        ]);
-        let client = MetaClient::connect(addr).unwrap();
-
-        let stored = client.set("foo", "bar").send().unwrap();
-        assert_eq!(stored.status, MutationStatus::Applied);
-
-        let fetched = client.get("foo").send().unwrap();
-        assert_eq!(fetched.status, GetStatus::Hit);
-        assert_eq!(fetched.value.as_deref(), Some(&b"bar"[..]));
-
-        let added = client.set("foo", "baz").add().send().unwrap();
-        assert_eq!(added.status, MutationStatus::AlreadyExists);
-
-        let counter = client.increment("counter").delta(2).send().unwrap();
-        assert_eq!(counter.value, Some(42));
-
-        let deleted = client.delete("foo").send().unwrap();
-        assert!(deleted.applied());
-
-        client.noop().unwrap();
-
-        let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms foo 3\r\n".to_vec());
-        assert_eq!(requests[1], b"mg foo v f\r\n".to_vec());
-        assert_eq!(requests[2], b"ms foo 3 ME\r\n".to_vec());
-        assert_eq!(requests[3], b"ma counter v D2\r\n".to_vec());
-        assert_eq!(requests[4], b"md foo\r\n".to_vec());
-        assert_eq!(requests[5], b"mn\r\n".to_vec());
-    }
-
-    #[test]
-    fn run_batch_mixed_operations() {
-        let (addr, server) = scripted_server(vec![b"HD O0\r\n", b"VA 1 f0 O1\r\n1\r\n", b"NF O2\r\n"]);
-        let client = MetaClient::connect(addr).unwrap();
-
-        let results: Vec<_> = client
-            .run_batch(vec![
-                Set::new("a", "1").ttl(Ttl::secs(60)).into(),
-                Get::new("a").into(),
-                Delete::new("c").into(),
-            ])
-            .unwrap()
-            .into_iter()
-            .map(Result::unwrap)
-            .collect();
-        assert_eq!(results.len(), 3);
-        assert!(results[0].as_mutation().unwrap().applied());
-        assert_eq!(results[1].as_get().unwrap().value.as_deref(), Some(&b"1"[..]));
-        assert_eq!(results[2].as_mutation().unwrap().status, MutationStatus::NotFound);
-
-        // All three commands were written before the first response was read.
-        let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms a 1 T60 O0\r\n".to_vec());
-        assert_eq!(requests[1], b"mg a v f O1\r\n".to_vec());
-        assert_eq!(requests[2], b"md c O2\r\n".to_vec());
-    }
-
-    #[test]
     fn run_batch_validates_before_writing() {
         let (addr, server) = scripted_server(vec![b"MN\r\n"]);
         let client = MetaClient::connect(addr).unwrap();
@@ -794,22 +726,6 @@ pub(crate) mod tests {
         client.noop().unwrap();
         let requests = server.join().unwrap();
         assert_eq!(requests, vec![b"mn\r\n".to_vec()]);
-    }
-
-    #[test]
-    fn run_executes_standalone_operations() {
-        let (addr, server) = scripted_server(vec![b"HD\r\n", b"VA 1\r\n1\r\n"]);
-        let client = MetaClient::connect(addr).unwrap();
-
-        let operation = client.set("foo", "bar").ttl(Ttl::secs(60)).into_operation();
-        assert!(client.run(operation).unwrap().applied());
-
-        let decremented = client.decrement("counter").send().unwrap();
-        assert_eq!(decremented.value, Some(1));
-
-        let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms foo 3 T60\r\n".to_vec());
-        assert_eq!(requests[1], b"ma counter MD v D1\r\n".to_vec());
     }
 
     #[test]

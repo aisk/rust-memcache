@@ -521,12 +521,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_get_default() {
-        let command = build_get("foo", &GetOptions::default()).unwrap();
-        assert_eq!(command.encode().unwrap(), b"mg foo v\r\n".to_vec());
-    }
-
-    #[test]
     fn build_get_all_flags() {
         let options = GetOptions {
             value: true,
@@ -641,13 +635,6 @@ mod tests {
             ..ArithmeticOptions::default()
         };
         assert!(build_arithmetic("counter", &initial_without_ttl).is_err());
-    }
-
-    #[test]
-    fn build_noop_and_debug() {
-        assert_eq!(build_noop().encode().unwrap(), b"mn\r\n".to_vec());
-        assert_eq!(build_debug("foo").unwrap().encode().unwrap(), b"me foo\r\n".to_vec());
-        assert!(build_debug(b"a key".to_vec()).is_err());
     }
 
     #[test]

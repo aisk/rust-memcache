@@ -417,24 +417,6 @@ mod tests {
     }
 
     #[test]
-    fn encode_get() {
-        let command = MetaCommand::new(MetaOp::Get, "foo").flag("v").flag("t");
-        assert_eq!(command.encode().unwrap(), b"mg foo v t\r\n".to_vec());
-    }
-
-    #[test]
-    fn encode_set_with_value() {
-        let command = MetaCommand::new(MetaOp::Set, "foo").flag("T60").value("bar");
-        assert_eq!(command.encode().unwrap(), b"ms foo 3 T60\r\nbar\r\n".to_vec());
-    }
-
-    #[test]
-    fn encode_noop() {
-        let command = MetaCommand::new(MetaOp::Noop, "");
-        assert_eq!(command.encode().unwrap(), b"mn\r\n".to_vec());
-    }
-
-    #[test]
     fn encode_binary_key_adds_base64_flag() {
         let command = MetaCommand::new(MetaOp::Get, b"a key".to_vec()).flag("v");
         assert_eq!(command.encode().unwrap(), b"mg YSBrZXk= v b\r\n".to_vec());
