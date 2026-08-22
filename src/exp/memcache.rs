@@ -447,11 +447,11 @@ impl Memcache {
     /// touch is blind: it also extends an item kept stale by
     /// [`invalidate`](Self::invalidate), so sliding-expiry keys (sessions)
     /// are revoked with [`delete`](Self::delete).
-    pub fn get_touch<T: Decode>(&self, key: impl AsRef<[u8]>, ttl: impl Into<Ttl>) -> Result<Option<T>> {
+    pub fn get_and_touch<T: Decode>(&self, key: impl AsRef<[u8]>, ttl: impl Into<Ttl>) -> Result<Option<T>> {
         let key = key.as_ref();
-        let result = plan_get(key, Some(ttl.into())).and_then(|command| self.read("get_touch", key, &command));
+        let result = plan_get(key, Some(ttl.into())).and_then(|command| self.read("get_and_touch", key, &command));
         self.policy()
-            .settle_read("get_touch", key, result, ReadView::default)
+            .settle_read("get_and_touch", key, result, ReadView::default)
             .and_then(finish_get)
     }
 

@@ -146,7 +146,7 @@ A value that encodes to zero bytes is rejected with `Error::EmptyValue`, because
 
 ```rust
 cache.get::<T>(key)?                 // -> Option<T>
-cache.get_touch::<T>(key, ttl)?      // -> Option<T>, slides the expiry on a hit
+cache.get_and_touch::<T>(key, ttl)?      // -> Option<T>, slides the expiry on a hit
 cache.get_many::<T, _>(keys)?        // -> HashMap<K, T>, hits only
 cache.inspect(key)?                  // -> Option<ItemInfo>
 ```
@@ -167,10 +167,10 @@ let user = match user {
 
 `get_many` reads a set of keys in one round trip per server and returns the hits, keyed by the very key values the caller passed. A miss is expressed by key absence.
 
-`get_touch` makes the same protocol command also slide the hit's expiration, which turns a read into the read half of session renewal:
+`get_and_touch` makes the same protocol command also slide the hit's expiration, which turns a read into the read half of session renewal:
 
 ```rust
-let session: Option<Session> = cache.get_touch(format!("session:{sid}"), Ttl::secs(1800))?;
+let session: Option<Session> = cache.get_and_touch(format!("session:{sid}"), Ttl::secs(1800))?;
 ```
 
 The slide is memcached's native touch and is blind: it extends whatever the read hits, including a value kept stale by `invalidate`. A revocation that must stick goes through `delete`.
@@ -208,7 +208,7 @@ if cache.add("job:daily", "1", Ttl::secs(86400))? {
 cache.replace(format!("session:{sid}"), &session, Ttl::secs(1800))?;
 ```
 
-`touch` extends a key's ttl without transferring its value, as one blind protocol command. It exists for large values (rendered pages, serialized reports) where reading the payload back just to renew it wastes bandwidth; when you are reading anyway, use `get_touch`.
+`touch` extends a key's ttl without transferring its value, as one blind protocol command. It exists for large values (rendered pages, serialized reports) where reading the payload back just to renew it wastes bandwidth; when you are reading anyway, use `get_and_touch`.
 
 `delete` erases a key outright and the next reader pays a full miss; a missing key is not an error. `invalidate` marks the value stale for a grace period instead:
 

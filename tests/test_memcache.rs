@@ -130,7 +130,7 @@ fn sessions_touch_and_inspect() {
     assert!(cache.inspect(&key).unwrap().is_none());
     cache.set(&key, "session", Ttl::secs(10)).unwrap();
     assert_eq!(
-        cache.get_touch::<String>(&key, Ttl::secs(1000)).unwrap().as_deref(),
+        cache.get_and_touch::<String>(&key, Ttl::secs(1000)).unwrap().as_deref(),
         Some("session")
     );
     let info = cache.inspect(&key).unwrap().unwrap();
@@ -455,7 +455,7 @@ fn degrade_folds_outages_into_misses() {
         .unwrap();
 
     assert_eq!(cache.get::<String>("k").unwrap(), None);
-    assert_eq!(cache.get_touch::<String>("k", Ttl::secs(5)).unwrap(), None);
+    assert_eq!(cache.get_and_touch::<String>("k", Ttl::secs(5)).unwrap(), None);
     assert!(cache.get_many::<String, _>(["a", "b"]).unwrap().is_empty());
     assert!(cache.inspect("k").unwrap().is_none());
     cache.set("k", "v", Ttl::secs(5)).unwrap();

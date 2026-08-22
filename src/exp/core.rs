@@ -915,7 +915,7 @@ pub(crate) mod verbs {
         build_get(key, &base_read())
     }
 
-    /// A plain read, optionally sliding the expiry (`get_touch`).
+    /// A plain read, optionally sliding the expiry (`get_and_touch`).
     pub(crate) fn plan_get(key: &[u8], touch: Option<Ttl>) -> Result<MetaCommand> {
         let options = GetOptions {
             touch: touch.map(Ttl::wire).transpose()?,

@@ -67,7 +67,7 @@ The verb table, with what each returns:
 
 | verb | returns | use |
 |---|---|---|
-| `get`, `get_touch` | `Option<T>` | object cache, sessions |
+| `get`, `get_and_touch` | `Option<T>` | object cache, sessions |
 | `get_many` | `HashMap<K, T>` | page aggregation |
 | `fetch` | `T` | expensive computation, stampede protection, smooth expiry |
 | `set`, `set_many`, `delete`, `delete_many`, `invalidate`, `touch`, `append`, `prepend` | `()` | writes and invalidation |

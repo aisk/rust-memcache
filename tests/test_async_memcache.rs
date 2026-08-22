@@ -32,7 +32,7 @@ async fn verbs_roundtrip() {
     assert_eq!(cache.get::<String>(&key).await.unwrap().as_deref(), Some("hello"));
     assert_eq!(
         cache
-            .get_touch::<String>(&key, Ttl::secs(500))
+            .get_and_touch::<String>(&key, Ttl::secs(500))
             .await
             .unwrap()
             .as_deref(),

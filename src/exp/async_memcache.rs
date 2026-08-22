@@ -222,15 +222,15 @@ impl AsyncMemcache {
             .and_then(finish_get)
     }
 
-    /// Read a value and slide its expiry; see [`Memcache::get_touch`](super::Memcache::get_touch).
-    pub async fn get_touch<T: Decode>(&self, key: impl AsRef<[u8]>, ttl: impl Into<Ttl>) -> Result<Option<T>> {
+    /// Read a value and slide its expiry; see [`Memcache::get_and_touch`](super::Memcache::get_and_touch).
+    pub async fn get_and_touch<T: Decode>(&self, key: impl AsRef<[u8]>, ttl: impl Into<Ttl>) -> Result<Option<T>> {
         let key = key.as_ref();
         let result = match plan_get(key, Some(ttl.into())) {
-            Ok(command) => self.read("get_touch", key, &command).await,
+            Ok(command) => self.read("get_and_touch", key, &command).await,
             Err(error) => Err(error),
         };
         self.policy()
-            .settle_read("get_touch", key, result, ReadView::default)
+            .settle_read("get_and_touch", key, result, ReadView::default)
             .and_then(finish_get)
     }
 
@@ -746,7 +746,7 @@ mod tests {
     fn futures_are_send(cache: &AsyncMemcache) {
         fn assert_send<F: Future + Send>(_: F) {}
         assert_send(cache.get::<String>("k"));
-        assert_send(cache.get_touch::<String>("k", Ttl::secs(1)));
+        assert_send(cache.get_and_touch::<String>("k", Ttl::secs(1)));
         assert_send(cache.get_many::<String, _>(["k"]));
         assert_send(cache.set("k", "v", Ttl::secs(1)));
         assert_send(cache.set_many([("k", "v")], Ttl::secs(1)));
