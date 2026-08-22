@@ -231,8 +231,9 @@ pub enum MemcacheError {
     ServerError(ServerError),
     /// Command specific Errors
     CommandError(CommandError),
+    /// TLS related errors
     #[cfg(feature = "tls")]
-    OpensslError(openssl::ssl::HandshakeError<std::net::TcpStream>),
+    TlsError(rustls::Error),
     /// Parse errors
     ParseError(ParseError),
     /// ConnectionPool errors
@@ -245,7 +246,7 @@ impl fmt::Display for MemcacheError {
             MemcacheError::BadURL(ref s) => s.fmt(f),
             MemcacheError::IOError(ref err) => err.fmt(f),
             #[cfg(feature = "tls")]
-            MemcacheError::OpensslError(ref err) => err.fmt(f),
+            MemcacheError::TlsError(ref err) => err.fmt(f),
             MemcacheError::ParseError(ref err) => err.fmt(f),
             MemcacheError::ClientError(ref err) => err.fmt(f),
             MemcacheError::ServerError(ref err) => err.fmt(f),
@@ -261,7 +262,7 @@ impl error::Error for MemcacheError {
             MemcacheError::BadURL(_) => None,
             MemcacheError::IOError(ref err) => err.source(),
             #[cfg(feature = "tls")]
-            MemcacheError::OpensslError(ref err) => err.source(),
+            MemcacheError::TlsError(ref err) => err.source(),
             MemcacheError::ParseError(ref p) => p.source(),
             MemcacheError::ClientError(_) => None,
             MemcacheError::ServerError(_) => None,
@@ -278,16 +279,9 @@ impl From<io::Error> for MemcacheError {
 }
 
 #[cfg(feature = "tls")]
-impl From<openssl::error::ErrorStack> for MemcacheError {
-    fn from(err: openssl::error::ErrorStack) -> MemcacheError {
-        MemcacheError::OpensslError(openssl::ssl::HandshakeError::<std::net::TcpStream>::from(err))
-    }
-}
-
-#[cfg(feature = "tls")]
-impl From<openssl::ssl::HandshakeError<std::net::TcpStream>> for MemcacheError {
-    fn from(err: openssl::ssl::HandshakeError<std::net::TcpStream>) -> MemcacheError {
-        MemcacheError::OpensslError(err)
+impl From<rustls::Error> for MemcacheError {
+    fn from(err: rustls::Error) -> MemcacheError {
+        MemcacheError::TlsError(err)
     }
 }
 

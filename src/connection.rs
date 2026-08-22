@@ -12,7 +12,7 @@ use crate::protocol::{AsciiProtocol, BinaryProtocol, Protocol, ProtocolTrait};
 use crate::stream::Stream;
 use crate::stream::UdpStream;
 #[cfg(feature = "tls")]
-use openssl::ssl::{SslConnector, SslFiletype, SslMethod, SslVerifyMode};
+use crate::tls::{self, TlsConfig, VerifyMode};
 use r2d2::ManageConnection;
 
 /// A connection to the memcached server
@@ -83,10 +83,7 @@ enum Transport {
 #[cfg(feature = "tls")]
 struct TlsOptions {
     tcp_options: TcpOptions,
-    ca_path: Option<String>,
-    key_path: Option<String>,
-    cert_path: Option<String>,
-    verify_mode: SslVerifyMode,
+    tls_config: TlsConfig,
 }
 
 struct TcpOptions {
@@ -117,14 +114,14 @@ fn get_param(url: &Url, key: &str) -> Option<String> {
 impl TlsOptions {
     fn from_url(url: &Url) -> Result<Self, MemcacheError> {
         let verify_mode = match get_param(url, "verify_mode").as_ref().map(String::as_str) {
-            Some("none") => SslVerifyMode::NONE,
-            Some("peer") => SslVerifyMode::PEER,
+            Some("none") => VerifyMode::None,
+            Some("peer") => VerifyMode::Peer,
             Some(_) => {
                 return Err(MemcacheError::BadURL(
                     "unknown verify_mode, expected 'none' or 'peer'".into(),
                 ));
             }
-            None => SslVerifyMode::PEER,
+            None => VerifyMode::Peer,
         };
 
         let ca_path = get_param(url, "ca_path");
@@ -143,10 +140,12 @@ impl TlsOptions {
 
         Ok(TlsOptions {
             tcp_options: TcpOptions::from_url(url),
-            ca_path: ca_path,
-            key_path: key_path,
-            cert_path: cert_path,
-            verify_mode: verify_mode,
+            tls_config: TlsConfig {
+                ca_path,
+                key_path,
+                cert_path,
+                verify_mode,
+            },
         })
     }
 }
@@ -240,24 +239,8 @@ impl Connection {
                     .host_str()
                     .ok_or(MemcacheError::BadURL("host required for TLS connection".into()))?;
 
-                let mut builder = SslConnector::builder(SslMethod::tls())?;
-                builder.set_verify(options.verify_mode);
-
-                if options.ca_path.is_some() {
-                    builder.set_ca_file(&options.ca_path.unwrap())?;
-                }
-
-                if options.key_path.is_some() {
-                    builder.set_private_key_file(options.key_path.unwrap(), SslFiletype::PEM)?;
-                }
-
-                if options.cert_path.is_some() {
-                    builder.set_certificate_chain_file(options.cert_path.unwrap())?;
-                }
-
-                let tls_conn = builder.build();
                 let tcp_stream = tcp_stream(url, &options.tcp_options)?;
-                let tls_stream = tls_conn.connect(host, tcp_stream)?;
+                let tls_stream = tls::connect(host, tcp_stream, &options.tls_config)?;
                 Stream::Tls(tls_stream)
             }
         };
