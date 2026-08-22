@@ -32,11 +32,10 @@ kind (the multiget). Batched operations execute independently and in order
 per server; a transport failure fails only the operations of that server's
 group, the rest still run. A batch is not a transaction.
 
-Clients connected to several servers (`connect_multiple`) route each key by
-jump consistent hash over a pluggable key hash and split batches per
-server. Routing is positional: append or drop servers at the tail of the
-list to move the minimal share of keys; removing an entry from the middle
-reroutes every key of the servers after it.
+Clients connected to several servers (`connect_multiple`) route each key
+through a [`Router`] (rendezvous hashing over a pluggable key hash by
+default, so adding or removing a server anywhere in the list only moves
+that server's keys) and split batches per server.
 
 TTLs are [`Ttl`] values: `Ttl::secs(n)`, a `Duration`, `Ttl::at(time)` or
 `Ttl::NEVER`. A zero TTL is a usage error rather than "never expires", and
@@ -143,6 +142,7 @@ mod meta_command;
 mod operation;
 mod request;
 mod result;
+mod router;
 mod ttl;
 mod value;
 
@@ -176,6 +176,7 @@ pub use request::Request;
 pub use result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
 };
+pub use router::{Rendezvous, Router, default_hash_function};
 pub use ttl::{Freshness, Ttl};
 #[cfg(feature = "serde_json")]
 pub use value::Json;

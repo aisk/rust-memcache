@@ -1,8 +1,6 @@
 //! Blocking client over the semantic layer.
 
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -17,29 +15,14 @@ use super::meta_command::{MetaCommand, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
+use super::router::{Rendezvous, Router};
 
 pub(crate) const DEFAULT_MAX_IDLE: usize = 8;
 
-pub(crate) fn default_hash_function(key: &[u8]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    hasher.finish()
-}
-
-/// Jump consistent hash (Lamping & Veach, 2014): maps a key hash to a
-/// bucket in `[0, buckets)`. The minimal-relocation guarantee is
-/// positional: growing or shrinking the bucket count at the tail moves
-/// only 1/(n+1) of the keys, but removing an entry from the middle of the
-/// list shifts every later bucket and reroutes all their keys.
-pub(crate) fn jump_hash(mut key: u64, buckets: usize) -> usize {
-    let mut b: i64 = -1;
-    let mut j: i64 = 0;
-    while j < buckets as i64 {
-        b = j;
-        key = key.wrapping_mul(2862933555777941757).wrapping_add(1);
-        j = ((b + 1) as f64 * ((1u64 << 31) as f64 / ((key >> 33) + 1) as f64)) as i64;
-    }
-    b as usize
+/// Route a key with a [`Router`], clamping a misbehaving result into
+/// range.
+pub(crate) fn route(router: &dyn Router, key: &[u8], servers: &[SocketAddr]) -> usize {
+    router.route(key, servers).min(servers.len() - 1)
 }
 
 pub(crate) fn resolve<A: ToSocketAddrs>(addr: A) -> Result<Vec<SocketAddr>> {
@@ -155,7 +138,7 @@ impl Default for Timeouts {
 /// ```
 #[derive(Clone)]
 pub struct MetaClientBuilder {
-    pub(crate) hash_function: fn(&[u8]) -> u64,
+    pub(crate) router: Arc<dyn Router>,
     pub(crate) max_idle: usize,
     pub(crate) timeouts: Timeouts,
 }
@@ -163,17 +146,22 @@ pub struct MetaClientBuilder {
 impl MetaClientBuilder {
     pub fn new() -> MetaClientBuilder {
         MetaClientBuilder {
-            hash_function: default_hash_function,
+            router: Arc::new(Rendezvous::new()),
             max_idle: DEFAULT_MAX_IDLE,
             timeouts: Timeouts::default(),
         }
     }
 
-    /// Replace the function that hashes keys; the server is then picked by
-    /// jump consistent hash over that value. The default hashes with
-    /// [`DefaultHasher`].
+    /// Replace the key hash used by the default [`Rendezvous`] router.
     pub fn hash_function(mut self, hash_function: fn(&[u8]) -> u64) -> MetaClientBuilder {
-        self.hash_function = hash_function;
+        self.router = Arc::new(Rendezvous::with_hash_function(hash_function));
+        self
+    }
+
+    /// Replace the [`Router`] that picks the server for a key (default
+    /// [`Rendezvous`]).
+    pub fn router(mut self, router: impl Router) -> MetaClientBuilder {
+        self.router = Arc::new(router);
         self
     }
 
@@ -208,11 +196,11 @@ impl MetaClientBuilder {
     }
 
     /// Connect to several servers with this configuration; keys are
-    /// distributed across them by jump consistent hash, so the list order
-    /// is part of the routing contract: append or drop servers at the
-    /// tail to move the minimal share of keys. Addresses are resolved
-    /// here, but connections are dialed lazily, so a down server surfaces
-    /// at the first operation; `noop()` verifies connectivity eagerly.
+    /// distributed across them by the [`Router`] (rendezvous hashing by
+    /// default, so adding or removing a server anywhere in the list only
+    /// moves that server's keys). Addresses are resolved here, but
+    /// connections are dialed lazily, so a down server surfaces at the
+    /// first operation; `noop()` verifies connectivity eagerly.
     pub fn connect_multiple<A: ToSocketAddrs>(self, addrs: impl IntoIterator<Item = A>) -> Result<MetaClient> {
         let mut servers = Vec::new();
         for addr in addrs {
@@ -224,9 +212,11 @@ impl MetaClientBuilder {
         if servers.is_empty() {
             return Err(Error::Usage("at least one server address is required"));
         }
+        let ids = servers.iter().map(|server| server.addrs[0]).collect();
         Ok(MetaClient {
             servers: Arc::new(servers),
-            hash_function: self.hash_function,
+            ids: Arc::new(ids),
+            router: self.router,
             max_idle: self.max_idle,
             timeouts: self.timeouts,
         })
@@ -242,8 +232,8 @@ impl Default for MetaClientBuilder {
 /// A blocking meta protocol client.
 ///
 /// The verbs return lazy [`Request`] builders; chain options and finish with
-/// [`send`](Request::send). With multiple servers, keys are routed by jump
-/// consistent hash over a pluggable key hash and batches are split per
+/// [`send`](Request::send). With multiple servers, keys are routed by a
+/// [`Router`] (rendezvous hashing by default) and batches are split per
 /// server.
 ///
 /// The client is cheap to clone and shareable across threads; clones share
@@ -264,7 +254,9 @@ impl Default for MetaClientBuilder {
 #[derive(Clone)]
 pub struct MetaClient {
     servers: Arc<Vec<Server>>,
-    hash_function: fn(&[u8]) -> u64,
+    /// One identifying address per server, handed to the router.
+    ids: Arc<Vec<SocketAddr>>,
+    router: Arc<dyn Router>,
     max_idle: usize,
     timeouts: Timeouts,
 }
@@ -277,12 +269,10 @@ impl MetaClient {
     }
 
     /// Connect to several servers with the default configuration; keys are
-    /// distributed across them by jump consistent hash, so the list order
-    /// is part of the routing contract: append or drop servers at the
-    /// tail to move the minimal share of keys. Addresses are resolved
-    /// here, but connections are dialed lazily, so a down server surfaces
-    /// at the first operation; [`noop`](Self::noop) verifies connectivity
-    /// eagerly.
+    /// distributed across them by rendezvous hashing (see
+    /// [`Router`]). Addresses are resolved here, but connections are
+    /// dialed lazily, so a down server surfaces at the first operation;
+    /// [`noop`](Self::noop) verifies connectivity eagerly.
     pub fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<MetaClient> {
         MetaClient::builder().connect_multiple(addrs)
     }
@@ -294,7 +284,7 @@ impl MetaClient {
     }
 
     fn connection_index(&self, key: &[u8]) -> usize {
-        jump_hash((self.hash_function)(key), self.servers.len())
+        route(self.router.as_ref(), key, &self.ids)
     }
 
     /// Check out a connection, run one transport exchange on it and return
@@ -498,7 +488,7 @@ impl<'a, O: Operation> Request<'a, MetaClient, O> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
     use std::thread::JoinHandle;
@@ -535,36 +525,31 @@ mod tests {
     }
 
     /// Route keys by their first byte, so tests can steer each key to a
-    /// chosen server; `char_for` finds a leading character that jump-hashes
-    /// to the wanted bucket under two servers.
-    fn first_byte(key: &[u8]) -> u64 {
-        key[0] as u64
+    /// chosen server: `char_for(n)` yields a leading character for server
+    /// `n` of two.
+    pub(crate) struct FirstByte;
+
+    impl Router for FirstByte {
+        fn route(&self, key: &[u8], servers: &[SocketAddr]) -> usize {
+            key[0] as usize % servers.len()
+        }
     }
 
-    fn char_for(bucket: usize) -> char {
-        (b'0'..=b'z').find(|&byte| jump_hash(byte as u64, 2) == bucket).unwrap() as char
+    pub(crate) fn char_for(bucket: usize) -> char {
+        (b'0'..=b'z').find(|&byte| byte as usize % 2 == bucket).unwrap() as char
     }
 
     #[test]
-    fn jump_hash_properties() {
-        for key in 0..1000u64 {
-            assert_eq!(jump_hash(key, 1), 0);
-            // Growing n -> n+1 either keeps a key in place or moves it to
-            // the new bucket; nothing else may change.
-            for buckets in 1..10 {
-                let before = jump_hash(key, buckets);
-                let after = jump_hash(key, buckets + 1);
-                assert!(after == before || after == buckets);
+    fn misbehaving_router_is_clamped() {
+        struct Beyond;
+        impl Router for Beyond {
+            fn route(&self, _: &[u8], _: &[SocketAddr]) -> usize {
+                usize::MAX
             }
         }
-
-        let mut counts = [0usize; 4];
-        for key in 0..4000u64 {
-            counts[jump_hash(default_hash_function(&key.to_le_bytes()), 4)] += 1;
-        }
-        for &count in &counts {
-            assert!(count > 700, "unbalanced buckets: {:?}", counts);
-        }
+        let (addr, _server) = scripted_server(vec![]);
+        let client = MetaClient::builder().router(Beyond).connect(addr).unwrap();
+        assert_eq!(client.connection_index(b"k"), 0);
     }
 
     #[test]
@@ -673,7 +658,7 @@ mod tests {
         let (addr0, server0) = scripted_server(vec![b"HD\r\n", b"MN\r\n"]);
         let (addr1, server1) = scripted_server(vec![b"VA 1 f0\r\nx\r\n", b"MN\r\n"]);
         let client = MetaClient::builder()
-            .hash_function(first_byte)
+            .router(FirstByte)
             .connect_multiple([addr0, addr1])
             .unwrap();
         let key0 = format!("{}a", char_for(0));
@@ -698,7 +683,7 @@ mod tests {
         let (addr0, server0) = scripted_server(vec![b"EN\r\n"]);
         let (addr1, server1) = scripted_server(vec![b"HD\r\n", b"NF\r\n"]);
         let client = MetaClient::builder()
-            .hash_function(first_byte)
+            .router(FirstByte)
             .connect_multiple([addr0, addr1])
             .unwrap();
         let key_set = format!("{}a", char_for(1));
@@ -742,7 +727,7 @@ mod tests {
         let dead_addr = dead.local_addr().unwrap();
         drop(dead);
         let client = MetaClient::builder()
-            .hash_function(first_byte)
+            .router(FirstByte)
             .connect_multiple([addr0, dead_addr])
             .unwrap();
         let key_live = format!("{}a", char_for(0));

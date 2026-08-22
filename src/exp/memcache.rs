@@ -18,6 +18,7 @@ use super::core::scenario::{
 use super::error::{Error, Result};
 use super::meta_api::{MetaCommandResult, SetMode};
 use super::meta_command::MetaCommand;
+use super::router::Router;
 use super::ttl::{Freshness, Ttl};
 use super::value::{Decode, Encode, Encoded};
 
@@ -149,9 +150,15 @@ impl MemcacheBuilder {
         self
     }
 
-    /// Replace the key hash used for routing.
+    /// Replace the key hash used by the default rendezvous router.
     pub fn hash_function(mut self, hash_function: fn(&[u8]) -> u64) -> MemcacheBuilder {
         self.meta = self.meta.hash_function(hash_function);
+        self
+    }
+
+    /// Replace the [`Router`] that picks the server for a key.
+    pub fn router(mut self, router: impl Router) -> MemcacheBuilder {
+        self.meta = self.meta.router(router);
         self
     }
 

@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::net::{ToSocketAddrs, lookup_host};
 
 use super::async_connection::AsyncMetaConnection;
-use super::client::{MetaClientBuilder, Timeouts, jump_hash};
+use super::client::{MetaClientBuilder, Timeouts, route};
 use super::core::{self, Operation};
 use super::error::{Error, Result};
 use super::meta_api::{
@@ -20,6 +20,7 @@ use super::meta_command::{MetaCommand, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
+use super::router::Router;
 
 /// Bound a transport future by a timeout; `None` means unbounded. A
 /// timeout surfaces as an io error and so poisons the connection like any
@@ -110,7 +111,8 @@ impl AsyncServer {
 #[derive(Clone)]
 pub struct AsyncMetaClient {
     servers: Arc<Vec<AsyncServer>>,
-    hash_function: fn(&[u8]) -> u64,
+    ids: Arc<Vec<SocketAddr>>,
+    router: Arc<dyn Router>,
     max_idle: usize,
     timeouts: Timeouts,
 }
@@ -142,9 +144,11 @@ impl MetaClientBuilder {
         if servers.is_empty() {
             return Err(Error::Usage("at least one server address is required"));
         }
+        let ids = servers.iter().map(|server| server.addrs[0]).collect();
         Ok(AsyncMetaClient {
             servers: Arc::new(servers),
-            hash_function: self.hash_function,
+            ids: Arc::new(ids),
+            router: self.router,
             max_idle: self.max_idle,
             timeouts: self.timeouts,
         })
@@ -159,12 +163,10 @@ impl AsyncMetaClient {
     }
 
     /// Connect to several servers with the default configuration; keys are
-    /// distributed across them by jump consistent hash, so the list order
-    /// is part of the routing contract: append or drop servers at the
-    /// tail to move the minimal share of keys. Addresses are resolved
-    /// here, but connections are dialed lazily, so a down server surfaces
-    /// at the first operation; [`noop`](Self::noop) verifies connectivity
-    /// eagerly.
+    /// distributed across them by rendezvous hashing (see
+    /// [`Router`](super::Router)). Addresses are resolved here, but
+    /// connections are dialed lazily, so a down server surfaces at the
+    /// first operation; [`noop`](Self::noop) verifies connectivity eagerly.
     pub async fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<AsyncMetaClient> {
         AsyncMetaClient::builder().connect_multiple_async(addrs).await
     }
@@ -176,7 +178,7 @@ impl AsyncMetaClient {
     }
 
     fn connection_index(&self, key: &[u8]) -> usize {
-        jump_hash((self.hash_function)(key), self.servers.len())
+        route(self.router.as_ref(), key, &self.ids)
     }
 
     /// Run one raw command for `key` on its server; the scenario layer's
@@ -470,10 +472,7 @@ mod tests {
     async fn run_batch_exchanges_servers_concurrently() {
         use std::sync::mpsc;
 
-        fn first_byte(key: &[u8]) -> u64 {
-            key[0] as u64
-        }
-        let char_for = |bucket: usize| (b'0'..=b'z').find(|&byte| jump_hash(byte as u64, 2) == bucket).unwrap() as char;
+        use super::super::client::tests::{FirstByte, char_for};
 
         let (sender, receiver) = mpsc::channel();
 
@@ -503,7 +502,7 @@ mod tests {
         });
 
         let client = AsyncMetaClient::builder()
-            .hash_function(first_byte)
+            .router(FirstByte)
             .connect_multiple_async([addr0, addr1])
             .await
             .unwrap();
