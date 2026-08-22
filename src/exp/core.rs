@@ -160,7 +160,9 @@ pub(crate) fn plan<O: Operation>(
 ) -> Result<BatchPlan> {
     let mut commands = Vec::with_capacity(operations.len());
     for operation in operations {
-        commands.push(Some(operation.prepare()?));
+        let command = operation.prepare()?;
+        command.validate()?;
+        commands.push(Some(command));
     }
     let mut groups: Vec<Vec<usize>> = vec![Vec::new(); servers];
     for (index, operation) in operations.iter().enumerate() {
@@ -830,7 +832,9 @@ pub(crate) mod scenario {
     /// keep the item stale forever and zero is rejected by `Ttl` itself.
     pub(crate) fn grace_ttl(grace: Duration) -> Result<Ttl> {
         if grace.is_zero() {
-            return Err(Error::Usage("invalidate grace must be positive; use delete for a hard delete"));
+            return Err(Error::Usage(
+                "invalidate grace must be positive; use delete for a hard delete",
+            ));
         }
         Ok(Ttl::from(grace))
     }
@@ -868,11 +872,16 @@ pub(crate) mod scenario {
     pub(crate) fn finish_counter(wire: &MetaCommandResult) -> Result<u64> {
         if wire.rc == ReturnCode::Va
             && let Some(value) = &wire.value
-            && let Some(number) = std::str::from_utf8(value).ok().and_then(|text| text.parse::<u64>().ok())
+            && let Some(number) = std::str::from_utf8(value)
+                .ok()
+                .and_then(|text| text.parse::<u64>().ok())
         {
             return Ok(number);
         }
-        Err(Error::Protocol(format!("counter did not return a value ({:?})", wire.rc)))
+        Err(Error::Protocol(format!(
+            "counter did not return a value ({:?})",
+            wire.rc
+        )))
     }
 
     /// `append` / `prepend`: raw bytes, created on a miss with `ttl`.
@@ -1151,8 +1160,7 @@ pub(crate) mod scenario {
             let (command, window) = plan_election(b"k", Ttl::secs(300).into()).unwrap();
             assert_eq!(encoded(command), "mg k v f c t N30\r\n");
             assert_eq!(window, None);
-            let (command, window) =
-                plan_election(b"k", Ttl::secs(300).refresh_ahead(Duration::from_secs(30))).unwrap();
+            let (command, window) = plan_election(b"k", Ttl::secs(300).refresh_ahead(Duration::from_secs(30))).unwrap();
             assert_eq!(encoded(command), "mg k v f c t N30 R30\r\n");
             assert_eq!(window, Some(30));
             assert!(matches!(
@@ -1254,7 +1262,10 @@ pub(crate) mod scenario {
                     cas: 7
                 }
             );
-            assert!(matches!(serve(b"VA 3 c7 t10 X W", b"old"), FetchStep::Refresh { cas: 7, .. }));
+            assert!(matches!(
+                serve(b"VA 3 c7 t10 X W", b"old"),
+                FetchStep::Refresh { cas: 7, .. }
+            ));
             // Stale value while another reader refreshes: keep serving it.
             assert!(matches!(serve(b"VA 3 c7 t10 X Z", b"old"), FetchStep::Serve { .. }));
             // Our own vivified placeholder: lead.
@@ -1294,7 +1305,10 @@ pub(crate) mod scenario {
         #[test]
         fn take_state_machine() {
             assert_eq!(take_step(view(b"EN", None)).unwrap(), TakeStep::Nothing(None));
-            assert_eq!(take_step(view(b"VA 0 c7 W", Some(b""))).unwrap(), TakeStep::Nothing(None));
+            assert_eq!(
+                take_step(view(b"VA 0 c7 W", Some(b""))).unwrap(),
+                TakeStep::Nothing(None)
+            );
             assert!(matches!(
                 take_step(view(b"VA 3 c7 t10 X W", Some(b"old"))).unwrap(),
                 TakeStep::Nothing(Some(_))

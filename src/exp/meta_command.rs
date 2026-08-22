@@ -219,6 +219,18 @@ impl MetaCommand {
         self
     }
 
+    /// Check the key without encoding, so a usage error surfaces before a
+    /// connection is dialed.
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.op == MetaOp::Noop {
+            return Ok(());
+        }
+        if self.key.is_empty() {
+            return Err(Error::Usage("key must not be empty"));
+        }
+        encode_key(&self.key).map(|_| ())
+    }
+
     /// Encode the full request (header line plus data block) to wire bytes.
     pub fn encode(&self) -> Result<Vec<u8>> {
         let mut buffer = Vec::new();
@@ -233,9 +245,7 @@ impl MetaCommand {
             buffer.extend_from_slice(b"\r\n");
             return Ok(());
         }
-        if self.key.is_empty() {
-            return Err(Error::Usage("key must not be empty"));
-        }
+        self.validate()?;
         let (wire_key, needs_base64) = encode_key(&self.key)?;
         buffer.push(b' ');
         buffer.extend_from_slice(&wire_key);

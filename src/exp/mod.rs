@@ -137,6 +137,7 @@ mod client;
 mod connection;
 mod core;
 mod error;
+mod memcache;
 mod meta_api;
 mod meta_command;
 mod operation;
@@ -157,7 +158,9 @@ pub use async_connection::AsyncMetaConnection;
 pub use client::{MetaClient, MetaClientBuilder};
 pub use connection::MetaConnection;
 pub use core::Operation;
+pub use core::scenario::ItemInfo;
 pub use error::{Error, Result};
+pub use memcache::{ErrorEvent, ErrorKind, Memcache, MemcacheBuilder};
 pub use meta_api::{
     ArithmeticMode, ArithmeticOptions, DeleteOptions, GetOptions, MetaCommandResult, SetMode, SetOptions,
     build_arithmetic, build_debug, build_delete, build_get, build_noop, build_set, parse_debug_result,

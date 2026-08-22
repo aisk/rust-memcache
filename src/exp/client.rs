@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 use super::connection::MetaConnection;
 use super::core::{self, Operation};
 use super::error::{Error, Result};
-use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
+use super::meta_api::{
+    ArithmeticMode, MetaCommandResult, build_debug, build_noop, parse_debug_result, parse_meta_result,
+};
 use super::meta_command::{MetaCommand, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
@@ -308,6 +310,51 @@ impl MetaClient {
         result
     }
 
+    /// Run one raw command for `key` on its server; the scenario layer's
+    /// single-key exchange. Transport errors are attributed to `key`.
+    pub(crate) fn exchange(&self, key: &[u8], command: &MetaCommand) -> Result<MetaCommandResult> {
+        command.validate()?;
+        let index = self.connection_index(key);
+        let response = self
+            .with_connection(index, |connection| connection.execute(command))
+            .map_err(|error| error.for_key(key))?;
+        parse_meta_result(response)
+    }
+
+    /// Run raw commands grouped per server, one round trip each, and
+    /// return one result per command in input order. Every group runs
+    /// even when another fails; a failed group's commands each carry the
+    /// group's error.
+    pub(crate) fn exchange_many(&self, commands: Vec<(Vec<u8>, MetaCommand)>) -> Vec<Result<MetaCommandResult>> {
+        let mut groups: Vec<Vec<usize>> = vec![Vec::new(); self.servers.len()];
+        let mut outputs: Vec<Option<Result<MetaCommandResult>>> = (0..commands.len()).map(|_| None).collect();
+        for (index, (key, command)) in commands.iter().enumerate() {
+            match command.validate() {
+                Ok(()) => groups[self.connection_index(key)].push(index),
+                Err(error) => outputs[index] = Some(Err(error)),
+            }
+        }
+        for (server, indices) in groups.iter().enumerate() {
+            if indices.is_empty() {
+                continue;
+            }
+            let batch: Vec<MetaCommand> = indices.iter().map(|&index| commands[index].1.clone()).collect();
+            match self.with_connection(server, |connection| connection.execute_batch(&batch)) {
+                Ok(responses) => {
+                    for (&index, response) in indices.iter().zip(responses) {
+                        outputs[index] = Some(parse_meta_result(response));
+                    }
+                }
+                Err(error) => {
+                    for &index in indices {
+                        outputs[index] = Some(Err(error.duplicate().for_key(&commands[index].0)));
+                    }
+                }
+            }
+        }
+        outputs.into_iter().map(|output| output.unwrap()).collect()
+    }
+
     /// Read a key.
     pub fn get(&self, key: impl AsRef<[u8]>) -> Request<'_, MetaClient, Get> {
         Request::new(self, Get::new(key))
@@ -343,6 +390,7 @@ impl MetaClient {
     /// for this.
     pub fn run<O: Operation>(&self, operation: O) -> Result<O::Output> {
         let command = operation.prepare()?;
+        command.validate()?;
         let index = self.connection_index(operation.key());
         let response = self
             .with_connection(index, |connection| connection.execute(&command))
