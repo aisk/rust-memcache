@@ -10,7 +10,7 @@ pub(crate) use self::udp_stream::UdpStream;
 use crate::error::MemcacheError;
 
 #[cfg(feature = "tls")]
-use openssl::ssl::SslStream;
+use rustls::{ClientConnection, StreamOwned};
 
 pub enum Stream {
     Tcp(TcpStream),
@@ -18,7 +18,7 @@ pub enum Stream {
     #[cfg(unix)]
     Unix(UnixStream),
     #[cfg(feature = "tls")]
-    Tls(SslStream<TcpStream>),
+    Tls(StreamOwned<ClientConnection, TcpStream>),
 }
 
 impl Stream {

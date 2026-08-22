@@ -17,6 +17,15 @@ The crate is called `memcache` and you can depend on it via cargo:
 memcache = "*"
 ```
 
+TLS support is behind the `tls` feature:
+
+```ini
+[dependencies]
+memcache = { version = "*", features = ["tls"] }
+```
+
+Connect with a `memcache+tls://` URL. Query parameters: `verify_mode` (`peer` by default, or `none`), `ca_path`, and `cert_path` with `key_path`, all PEM files.
+
 ## Features
 
 ### `memcache::exp` (experimental)
@@ -53,7 +62,7 @@ The classic client. See [Basic usage](#basic-usage).
   - [x] TCP connection
   - [x] UDP connection
   - [x] UNIX Domain socket connection
-  - [x] TLS connection
+  - [x] TLS connection (`tls` feature)
 - [x] Typed interface
 - [x] Memcached cluster support with custom key hash algorithm
 - [x] Authority

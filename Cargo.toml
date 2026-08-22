@@ -10,8 +10,8 @@ keywords = ["memcache", "memcached", "driver", "cache", "database"]
 edition = "2024"
 
 [features]
-default = ["tls"]
-tls = ["openssl"]
+default = []
+tls = ["dep:rustls", "dep:rustls-pki-types", "dep:rustls-native-certs"]
 tokio = ["dep:tokio"]
 serde_json = ["dep:serde", "dep:serde_json"]
 
@@ -20,7 +20,9 @@ byteorder = "1"
 url = "^2.1"
 rand = "0.10"
 enum_dispatch = "0.3"
-openssl = { version = "^0.10", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+rustls-pki-types = { version = "1", features = ["std"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
 r2d2 = "^0.8"
 tokio = { version = "1", features = ["io-util", "net", "rt", "sync", "time"], optional = true }
 serde = { version = "1", optional = true }
