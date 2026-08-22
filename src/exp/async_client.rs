@@ -5,18 +5,19 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::net::{ToSocketAddrs, lookup_host};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::async_connection::AsyncMetaConnection;
-use super::client::{MetaClientBuilder, Timeouts, route};
-use super::core::{self, Operation};
+use super::client::{Engine, MetaClientBuilder, route};
+use super::core::{self, Batch, Failure, Operation};
 use super::error::{Error, Result};
 use super::meta_api::{
     ArithmeticMode, MetaCommandResult, build_debug, build_noop, parse_debug_result, parse_meta_result,
 };
-use super::meta_command::{MetaCommand, ReturnCode};
+use super::meta_command::{MetaCommand, MetaResponse, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
@@ -61,34 +62,98 @@ async fn join_all<F: Future>(futures: Vec<F>) -> Vec<F::Output> {
     outputs.into_iter().map(|output| output.unwrap()).collect()
 }
 
-/// One server: its resolved addresses and a stack of idle connections.
-/// The mutex is only held to pop/push, never across I/O.
+/// One server: its resolved addresses, a stack of idle connections and
+/// the connection slots. The mutex is only held to pop/push, never across
+/// I/O.
 struct AsyncServer {
     addrs: Vec<SocketAddr>,
-    idle: Mutex<Vec<AsyncMetaConnection>>,
+    idle: Mutex<Vec<(AsyncMetaConnection, Instant)>>,
+    slots: Option<Arc<Semaphore>>,
+}
+
+/// A connection checked out of an [`AsyncServer`]. Dropping it (including
+/// when the future holding it is cancelled mid-exchange) discards the
+/// connection and frees its slot; [`put_back`](Self::put_back) returns it
+/// to the idle stack instead.
+struct AsyncCheckout<'a> {
+    server: &'a AsyncServer,
+    connection: Option<AsyncMetaConnection>,
+    pooled: bool,
+    _slot: Option<OwnedSemaphorePermit>,
+}
+
+impl AsyncCheckout<'_> {
+    fn connection(&mut self) -> &mut AsyncMetaConnection {
+        self.connection.as_mut().expect("checkout holds a connection")
+    }
+
+    fn put_back(mut self, engine: &Engine) {
+        if let Some(connection) = self.connection.take() {
+            let mut idle = self.server.idle.lock().unwrap();
+            if idle.len() < engine.max_idle {
+                idle.push((connection, Instant::now()));
+            }
+        }
+    }
 }
 
 impl AsyncServer {
-    async fn checkout(&self, timeouts: &Timeouts) -> Result<AsyncMetaConnection> {
-        // Idle connections may have been closed by the server or a
-        // middlebox while pooled; probe and discard instead of handing a
-        // dead connection to the caller.
-        loop {
-            let Some(connection) = self.idle.lock().unwrap().pop() else {
-                break;
-            };
-            if connection.is_reusable() {
-                return Ok(connection);
-            }
+    fn new(addrs: Vec<SocketAddr>, engine: &Engine) -> AsyncServer {
+        AsyncServer {
+            addrs,
+            idle: Mutex::new(Vec::new()),
+            slots: engine.max_connections.map(|cap| Arc::new(Semaphore::new(cap))),
         }
-        timed(timeouts.connect, AsyncMetaConnection::connect(self.addrs.as_slice())).await
     }
 
-    fn put_back(&self, connection: AsyncMetaConnection, max_idle: usize) {
-        let mut idle = self.idle.lock().unwrap();
-        if idle.len() < max_idle {
-            idle.push(connection);
+    async fn dial(&self, engine: &Engine) -> Result<AsyncMetaConnection> {
+        timed(
+            engine.connect_timeout,
+            AsyncMetaConnection::connect(self.addrs.as_slice()),
+        )
+        .await
+    }
+
+    async fn checkout(&self, engine: &Engine) -> Result<AsyncCheckout<'_>> {
+        let slot = match &self.slots {
+            Some(slots) => Some(
+                timed(engine.connect_timeout, async {
+                    Arc::clone(slots)
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| Error::protocol("connection pool closed"))
+                })
+                .await
+                .map_err(|error| match error {
+                    Error::Io(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+                        Error::Io(std::io::Error::new(error.kind(), "connection pool exhausted"))
+                    }
+                    other => other,
+                })?,
+            ),
+            None => None,
+        };
+        let mut checkout = AsyncCheckout {
+            server: self,
+            connection: None,
+            pooled: true,
+            _slot: slot,
+        };
+        // Idle connections may have been closed by the server or a
+        // middlebox while pooled: skip the old ones, probe the rest and
+        // discard instead of handing a dead connection to the caller.
+        loop {
+            let Some((connection, since)) = self.idle.lock().unwrap().pop() else {
+                break;
+            };
+            if since.elapsed() <= engine.max_idle_age && connection.is_reusable() {
+                checkout.connection = Some(connection);
+                return Ok(checkout);
+            }
         }
+        checkout.connection = Some(self.dial(engine).await?);
+        checkout.pooled = false;
+        Ok(checkout)
     }
 }
 
@@ -113,8 +178,7 @@ pub struct AsyncMetaClient {
     servers: Arc<Vec<AsyncServer>>,
     ids: Arc<Vec<SocketAddr>>,
     router: Arc<dyn Router>,
-    max_idle: usize,
-    timeouts: Timeouts,
+    engine: Engine,
 }
 
 impl MetaClientBuilder {
@@ -136,10 +200,7 @@ impl MetaClientBuilder {
             if resolved.is_empty() {
                 return Err(Error::Usage("address resolved to no socket addresses"));
             }
-            servers.push(AsyncServer {
-                addrs: resolved,
-                idle: Mutex::new(Vec::new()),
-            });
+            servers.push(AsyncServer::new(resolved, &self.engine));
         }
         if servers.is_empty() {
             return Err(Error::Usage("at least one server address is required"));
@@ -149,8 +210,7 @@ impl MetaClientBuilder {
             servers: Arc::new(servers),
             ids: Arc::new(ids),
             router: self.router,
-            max_idle: self.max_idle,
-            timeouts: self.timeouts,
+            engine: self.engine,
         })
     }
 }
@@ -181,28 +241,104 @@ impl AsyncMetaClient {
         route(self.router.as_ref(), key, &self.ids)
     }
 
-    /// Run one raw command for `key` on its server; the scenario layer's
-    /// single-key exchange. Transport errors are attributed to `key`.
+    /// Check out a connection, run one command under the io deadline and
+    /// return the connection to the pool. A failed exchange drops the
+    /// connection; a pooled connection that fails before anything was
+    /// written is replaced by a fresh dial and the command retried once.
     ///
     /// Cancellation safe in the sense that matters: dropping the future
     /// mid-exchange drops the checked-out connection instead of returning
     /// it to the pool, since it may carry half a request or an unread
     /// response.
+    async fn execute_on(&self, server: usize, command: &MetaCommand) -> std::result::Result<MetaResponse, Failure> {
+        let server = &self.servers[server];
+        let mut checkout = server.checkout(&self.engine).await.map_err(Failure::before_write)?;
+        loop {
+            match timed(self.engine.io_timeout, checkout.connection().execute(command)).await {
+                Ok(response) => {
+                    checkout.put_back(&self.engine);
+                    return Ok(response);
+                }
+                Err(error) => {
+                    let written = checkout.connection().written();
+                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                        checkout.connection = Some(server.dial(&self.engine).await.map_err(Failure::before_write)?);
+                        checkout.pooled = false;
+                        continue;
+                    }
+                    return Err(Failure { error, written });
+                }
+            }
+        }
+    }
+
+    /// One command on its server, attributed: a request written but not
+    /// answered is [`Error::Ambiguous`] when it has side effects.
+    async fn execute(&self, key: &[u8], command: &MetaCommand) -> Result<MetaResponse> {
+        let index = self.connection_index(key);
+        self.execute_on(index, command)
+            .await
+            .map_err(|failure| failure.attribute(key, failure.written > 0 && command.has_side_effect()))
+    }
+
+    /// One batch on one server, with opaque tokens checked; see the
+    /// blocking client.
+    async fn execute_batch(&self, server: usize, batch: &Batch) -> (Vec<MetaResponse>, Option<Failure>) {
+        let server = &self.servers[server];
+        let mut checkout = match server.checkout(&self.engine).await {
+            Ok(checkout) => checkout,
+            Err(error) => return (Vec::new(), Some(Failure::before_write(error))),
+        };
+        loop {
+            let exchange = checkout.connection().execute_payload(&batch.payload, batch.len());
+            let (responses, error) = match timed(self.engine.io_timeout, async { Ok(exchange.await) }).await {
+                Ok(outcome) => outcome,
+                Err(error) => (Vec::new(), Some(error)),
+            };
+            // A response out of order means every pairing is suspect:
+            // drop them all, the attribution below says which commands
+            // may have landed.
+            let (responses, error) = match error {
+                Some(error) => (responses, Some(error)),
+                None => match core::check_batch_order(&responses) {
+                    Ok(()) => (responses, None),
+                    Err(error) => (Vec::new(), Some(error)),
+                },
+            };
+            match error {
+                None => {
+                    checkout.put_back(&self.engine);
+                    return (responses, None);
+                }
+                Some(error) => {
+                    let written = checkout.connection().written();
+                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                        match server.dial(&self.engine).await {
+                            Ok(connection) => {
+                                checkout.connection = Some(connection);
+                                checkout.pooled = false;
+                                continue;
+                            }
+                            Err(error) => return (Vec::new(), Some(Failure::before_write(error))),
+                        }
+                    }
+                    return (responses, Some(Failure { error, written }));
+                }
+            }
+        }
+    }
+
+    /// Run one raw command for `key` on its server; the scenario layer's
+    /// single-key exchange. Transport errors are attributed to `key`.
     pub(crate) async fn exchange(&self, key: &[u8], command: &MetaCommand) -> Result<MetaCommandResult> {
         command.validate()?;
-        let server = &self.servers[self.connection_index(key)];
-        let mut connection = server.checkout(&self.timeouts).await?;
-        let response = timed(self.timeouts.io, connection.execute(command))
-            .await
-            .map_err(|error| error.for_key(key))?;
-        server.put_back(connection, self.max_idle);
-        parse_meta_result(response)
+        parse_meta_result(self.execute(key, command).await?)
     }
 
     /// Run raw commands grouped per server, the groups exchanged
     /// concurrently, and return one result per command in input order.
     /// Every group runs even when another fails; a failed group's commands
-    /// each carry the group's error.
+    /// each carry the group's error, attributed per command.
     pub(crate) async fn exchange_many(&self, commands: Vec<(Vec<u8>, MetaCommand)>) -> Vec<Result<MetaCommandResult>> {
         let mut groups: Vec<Vec<usize>> = vec![Vec::new(); self.servers.len()];
         let mut outputs: Vec<Option<Result<MetaCommandResult>>> = (0..commands.len()).map(|_| None).collect();
@@ -212,35 +348,31 @@ impl AsyncMetaClient {
                 Err(error) => outputs[index] = Some(Err(error)),
             }
         }
-        let exchanges = groups
-            .iter()
-            .enumerate()
-            .filter(|(_, indices)| !indices.is_empty())
-            .map(|(server, indices)| {
-                let batch: Vec<MetaCommand> = indices.iter().map(|&index| commands[index].1.clone()).collect();
-                let server = &self.servers[server];
-                async move {
-                    let mut connection = server.checkout(&self.timeouts).await?;
-                    let responses = timed(self.timeouts.io, connection.execute_batch(&batch)).await?;
-                    server.put_back(connection, self.max_idle);
-                    Ok::<_, Error>(responses)
-                }
-            })
-            .collect();
-        let results = join_all(exchanges).await;
-        let groups = groups.iter().filter(|indices| !indices.is_empty());
-        for (indices, result) in groups.zip(results) {
-            match result {
-                Ok(responses) => {
-                    for (&index, response) in indices.iter().zip(responses) {
-                        outputs[index] = Some(parse_meta_result(response));
-                    }
-                }
+        let mut batches = Vec::new();
+        for (server, indices) in groups.iter().enumerate() {
+            if indices.is_empty() {
+                continue;
+            }
+            match Batch::new(indices.iter().map(|&index| &commands[index].1)) {
+                Ok(batch) => batches.push((server, indices, batch)),
                 Err(error) => {
                     for &index in indices {
-                        outputs[index] = Some(Err(error.duplicate().for_key(&commands[index].0)));
+                        outputs[index] = Some(Err(error.duplicate()));
                     }
                 }
+            }
+        }
+        let exchanges = batches
+            .iter()
+            .map(|(server, _, batch)| self.execute_batch(*server, batch))
+            .collect();
+        for ((_, indices, batch), (responses, failure)) in batches.iter().zip(join_all(exchanges).await) {
+            for (position, &index) in indices.iter().enumerate() {
+                outputs[index] = Some(match (responses.get(position), &failure) {
+                    (Some(response), _) => parse_meta_result(response.clone()),
+                    (None, Some(failure)) => Err(batch.attribute(position, &commands[index].0, failure)),
+                    (None, None) => Err(Error::protocol("batch response missing")),
+                });
             }
         }
         outputs.into_iter().map(|output| output.unwrap()).collect()
@@ -282,14 +414,7 @@ impl AsyncMetaClient {
     pub async fn run<O: Operation>(&self, operation: O) -> Result<O::Output> {
         let command = operation.prepare()?;
         command.validate()?;
-        let server = &self.servers[self.connection_index(operation.key())];
-        let mut connection = server.checkout(&self.timeouts).await?;
-        // A failed exchange leaves the stream in an unknown state, so the
-        // connection is dropped instead of returned to the pool.
-        let response = timed(self.timeouts.io, connection.execute(&command))
-            .await
-            .map_err(|error| error.for_key(operation.key()))?;
-        server.put_back(connection, self.max_idle);
+        let response = self.execute(operation.key(), &command).await?;
         operation.parse(parse_meta_result(response)?)
     }
 
@@ -300,11 +425,12 @@ impl AsyncMetaClient {
     /// All operations are validated before anything is written; a validation
     /// failure is the outer error and guarantees nothing executed. After
     /// that, every operation gets its own entry in input order: a transport
-    /// failure fails the operations of that server's group (their entries
-    /// are `Err`, and whether they took effect on the server is unknown)
-    /// while the remaining groups still execute. Semantic outcomes (miss,
-    /// CAS mismatch, ...) are not errors; they show up inside [`OpResult`].
-    /// A batch is not a transaction.
+    /// failure fails the unanswered operations of that server's group
+    /// (those already answered keep their results) while the remaining
+    /// groups still execute. A failed operation that was written in full
+    /// and has side effects is [`Error::Ambiguous`]; the rest were not
+    /// applied. Semantic outcomes (miss, CAS mismatch, ...) are not errors;
+    /// they show up inside [`OpResult`]. A batch is not a transaction.
     pub async fn run_batch(&self, operations: impl IntoIterator<Item = Op>) -> Result<Vec<Result<OpResult, Error>>> {
         let operations: Vec<Op> = operations.into_iter().collect();
         self.run_all(&operations).await
@@ -323,44 +449,33 @@ impl AsyncMetaClient {
     }
 
     async fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<Result<O::Output, Error>>> {
-        let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
+        let plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
         let mut outputs: Vec<Option<Result<O::Output>>> = (0..operations.len()).map(|_| None).collect();
+        let mut batches = Vec::new();
+        for (server, indices) in plan.groups.iter().enumerate() {
+            if !indices.is_empty() {
+                batches.push((
+                    server,
+                    indices,
+                    Batch::new(indices.iter().map(|&index| &plan.commands[index]))?,
+                ));
+            }
+        }
         // One exchange future per non-empty server group, run concurrently:
         // the batch takes one round trip total, not one per server.
-        let exchanges = plan
-            .groups
+        let exchanges = batches
             .iter()
-            .enumerate()
-            .filter(|(_, indices)| !indices.is_empty())
-            .map(|(server, indices)| {
-                let commands: Vec<MetaCommand> = indices
-                    .iter()
-                    .map(|&index| plan.commands[index].take().unwrap())
-                    .collect();
-                let server = &self.servers[server];
-                async move {
-                    let mut connection = server.checkout(&self.timeouts).await?;
-                    let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
-                    server.put_back(connection, self.max_idle);
-                    Ok::<_, Error>(responses)
-                }
-            })
+            .map(|(server, _, batch)| self.execute_batch(*server, batch))
             .collect();
-        let results = join_all(exchanges).await;
-        let groups = plan.groups.iter().filter(|indices| !indices.is_empty());
-        for (indices, result) in groups.zip(results) {
-            match result {
-                Ok(responses) => {
-                    for (&index, response) in indices.iter().zip(responses) {
-                        outputs[index] =
-                            Some(parse_meta_result(response).and_then(|wire| operations[index].parse(wire)));
+        for ((_, indices, batch), (responses, failure)) in batches.iter().zip(join_all(exchanges).await) {
+            for (position, &index) in indices.iter().enumerate() {
+                outputs[index] = Some(match (responses.get(position), &failure) {
+                    (Some(response), _) => {
+                        parse_meta_result(response.clone()).and_then(|wire| operations[index].parse(wire))
                     }
-                }
-                Err(error) => {
-                    for &index in indices {
-                        outputs[index] = Some(Err(error.duplicate().for_key(operations[index].key())));
-                    }
-                }
+                    (None, Some(failure)) => Err(batch.attribute(position, operations[index].key(), failure)),
+                    (None, None) => Err(Error::protocol("batch response missing")),
+                });
             }
         }
         Ok(outputs
@@ -372,10 +487,12 @@ impl AsyncMetaClient {
     /// Round-trip an `mn` no-op on every server; useful as a connection
     /// health check.
     pub async fn noop(&self) -> Result<()> {
-        for server in self.servers.iter() {
-            let mut connection = server.checkout(&self.timeouts).await?;
-            let response = timed(self.timeouts.io, connection.execute(&build_noop())).await?;
-            server.put_back(connection, self.max_idle);
+        let noop = build_noop();
+        for server in 0..self.servers.len() {
+            let response = self
+                .execute_on(server, &noop)
+                .await
+                .map_err(|failure| failure.attribute(b"", false))?;
             if response.rc != ReturnCode::Mn {
                 return Err(Error::protocol("unexpected no-op response"));
             }
@@ -386,11 +503,8 @@ impl AsyncMetaClient {
     /// Fetch `me` debug fields for a key; `None` on a miss.
     pub async fn debug(&self, key: impl AsRef<[u8]>) -> Result<Option<HashMap<String, String>>> {
         let key = key.as_ref().to_vec();
-        let server = &self.servers[self.connection_index(&key)];
-        let command = build_debug(key)?;
-        let mut connection = server.checkout(&self.timeouts).await?;
-        let response = timed(self.timeouts.io, connection.execute(&command)).await?;
-        server.put_back(connection, self.max_idle);
+        let command = build_debug(&key)?;
+        let response = self.execute(&key, &command).await?;
         parse_debug_result(&response)
     }
 }
@@ -487,7 +601,7 @@ mod tests {
             let mut line = Vec::new();
             reader.read_until(b'\n', &mut line).unwrap();
             receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-            reader.get_mut().write_all(b"EN\r\n").unwrap();
+            reader.get_mut().write_all(b"EN O0\r\n").unwrap();
         });
 
         let listener1 = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -498,7 +612,7 @@ mod tests {
             let mut line = Vec::new();
             reader.read_until(b'\n', &mut line).unwrap();
             sender.send(()).unwrap();
-            reader.get_mut().write_all(b"EN\r\n").unwrap();
+            reader.get_mut().write_all(b"EN O0\r\n").unwrap();
         });
 
         let client = AsyncMetaClient::builder()

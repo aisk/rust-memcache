@@ -1,17 +1,18 @@
 //! Blocking client over the semantic layer.
 
 use std::collections::HashMap;
+use std::io;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use super::connection::MetaConnection;
-use super::core::{self, Operation};
+use super::core::{self, Batch, Failure, Operation};
 use super::error::{Error, Result};
 use super::meta_api::{
     ArithmeticMode, MetaCommandResult, build_debug, build_noop, parse_debug_result, parse_meta_result,
 };
-use super::meta_command::{MetaCommand, ReturnCode};
+use super::meta_command::{MetaCommand, MetaResponse, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
@@ -33,90 +34,169 @@ pub(crate) fn resolve<A: ToSocketAddrs>(addr: A) -> Result<Vec<SocketAddr>> {
     Ok(addrs)
 }
 
-/// One server: its resolved addresses and a stack of idle connections.
-///
-/// Checkout pops an idle connection or dials a new one; there is no cap on
-/// concurrent connections, only on how many idle ones are retained.
-struct Server {
-    addrs: Vec<SocketAddr>,
-    idle: Mutex<Vec<MetaConnection>>,
-}
-
-impl Server {
-    fn checkout(&self, timeouts: &Timeouts) -> Result<MetaConnection> {
-        // Idle connections may have been closed by the server or a
-        // middlebox while pooled; probe and discard instead of handing a
-        // dead connection to the caller.
-        loop {
-            let Some(mut connection) = self.idle.lock().unwrap().pop() else {
-                break;
-            };
-            if connection.is_reusable() {
-                return Ok(connection);
-            }
-        }
-        self.dial(timeouts)
-    }
-
-    fn dial(&self, timeouts: &Timeouts) -> Result<MetaConnection> {
-        let stream = match timeouts.connect {
-            Some(duration) => {
-                // One deadline shared by all resolved addresses, matching
-                // the tokio client's behavior.
-                let deadline = Instant::now() + duration;
-                let mut last_error = None;
-                let mut connected = None;
-                for addr in &self.addrs {
-                    let remaining = deadline
-                        .checked_duration_since(Instant::now())
-                        .filter(|remaining| !remaining.is_zero());
-                    let Some(remaining) = remaining else {
-                        break;
-                    };
-                    match TcpStream::connect_timeout(addr, remaining) {
-                        Ok(stream) => {
-                            connected = Some(stream);
-                            break;
-                        }
-                        Err(error) => last_error = Some(error),
-                    }
-                }
-                // `addrs` is never empty, so a miss always has an error.
-                connected.ok_or_else(|| last_error.unwrap())?
-            }
-            None => TcpStream::connect(self.addrs.as_slice())?,
-        };
-        stream.set_nodelay(true)?;
-        let mut connection = MetaConnection::from_stream(stream);
-        connection.set_io_timeout(timeouts.io);
-        Ok(connection)
-    }
-
-    fn put_back(&self, connection: MetaConnection, max_idle: usize) {
-        let mut idle = self.idle.lock().unwrap();
-        if idle.len() < max_idle {
-            idle.push(connection);
-        }
-    }
-}
-
 /// Cache operations normally complete in milliseconds, so one second is
 /// already a generous bound; a hung cache server should fail fast rather
 /// than stall its callers.
 pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// Idle connections older than this are not reused: middleboxes and
+/// server restarts kill quiet connections, and a dead one costs a failed
+/// request. Matches the Go client.
+pub(crate) const DEFAULT_MAX_IDLE_AGE: Duration = Duration::from_secs(90);
+
+/// Engine settings shared by both clients.
 #[derive(Clone, Copy)]
-pub(crate) struct Timeouts {
-    pub(crate) connect: Option<Duration>,
-    pub(crate) io: Option<Duration>,
+pub(crate) struct Engine {
+    pub(crate) connect_timeout: Option<Duration>,
+    pub(crate) io_timeout: Option<Duration>,
+    pub(crate) max_idle: usize,
+    pub(crate) max_idle_age: Duration,
+    pub(crate) max_connections: Option<usize>,
 }
 
-impl Default for Timeouts {
-    fn default() -> Timeouts {
-        Timeouts {
-            connect: Some(DEFAULT_TIMEOUT),
-            io: Some(DEFAULT_TIMEOUT),
+impl Default for Engine {
+    fn default() -> Engine {
+        Engine {
+            connect_timeout: Some(DEFAULT_TIMEOUT),
+            io_timeout: Some(DEFAULT_TIMEOUT),
+            max_idle: DEFAULT_MAX_IDLE,
+            max_idle_age: DEFAULT_MAX_IDLE_AGE,
+            max_connections: None,
         }
+    }
+}
+
+/// Dial one of a server's addresses under one shared deadline, matching
+/// the tokio client's behavior.
+pub(crate) fn dial(addrs: &[SocketAddr], engine: &Engine) -> Result<MetaConnection> {
+    let stream = match engine.connect_timeout {
+        Some(duration) => {
+            let deadline = Instant::now() + duration;
+            let mut last_error = None;
+            let mut connected = None;
+            for addr in addrs {
+                let remaining = deadline
+                    .checked_duration_since(Instant::now())
+                    .filter(|remaining| !remaining.is_zero());
+                let Some(remaining) = remaining else {
+                    break;
+                };
+                match TcpStream::connect_timeout(addr, remaining) {
+                    Ok(stream) => {
+                        connected = Some(stream);
+                        break;
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+            }
+            // `addrs` is never empty, so a miss always has an error.
+            connected.ok_or_else(|| last_error.unwrap_or_else(|| io::Error::from(io::ErrorKind::TimedOut)))?
+        }
+        None => TcpStream::connect(addrs)?,
+    };
+    stream.set_nodelay(true)?;
+    let mut connection = MetaConnection::from_stream(stream);
+    connection.set_io_timeout(engine.io_timeout);
+    Ok(connection)
+}
+
+/// One server: its resolved addresses, a stack of idle connections and
+/// the count of connections in use.
+struct Server {
+    addrs: Vec<SocketAddr>,
+    idle: Mutex<Vec<(MetaConnection, Instant)>>,
+    active: Mutex<usize>,
+    released: Condvar,
+}
+
+/// A connection checked out of a [`Server`]. Dropping it discards the
+/// connection and frees its slot; [`put_back`](Self::put_back) returns it
+/// to the idle stack instead.
+struct Checkout<'a> {
+    server: &'a Server,
+    connection: Option<MetaConnection>,
+    /// Whether the connection came from the idle stack (and so may have
+    /// died unnoticed) rather than a fresh dial.
+    pooled: bool,
+}
+
+impl Checkout<'_> {
+    fn connection(&mut self) -> &mut MetaConnection {
+        self.connection.as_mut().expect("checkout holds a connection")
+    }
+
+    fn put_back(mut self, engine: &Engine) {
+        if let Some(connection) = self.connection.take() {
+            let mut idle = self.server.idle.lock().unwrap();
+            if idle.len() < engine.max_idle {
+                idle.push((connection, Instant::now()));
+            }
+        }
+    }
+}
+
+impl Drop for Checkout<'_> {
+    fn drop(&mut self) {
+        *self.server.active.lock().unwrap() -= 1;
+        self.server.released.notify_one();
+    }
+}
+
+impl Server {
+    fn new(addrs: Vec<SocketAddr>) -> Server {
+        Server {
+            addrs,
+            idle: Mutex::new(Vec::new()),
+            active: Mutex::new(0),
+            released: Condvar::new(),
+        }
+    }
+
+    /// Take a slot, waiting while the server is at `max_connections`; the
+    /// wait is bounded by the connect timeout.
+    fn acquire(&self, engine: &Engine) -> Result<()> {
+        let mut active = self.active.lock().unwrap();
+        if let Some(cap) = engine.max_connections {
+            let deadline = engine.connect_timeout.map(|timeout| Instant::now() + timeout);
+            while *active >= cap {
+                active = match deadline {
+                    Some(deadline) => {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            return Err(io::Error::new(io::ErrorKind::TimedOut, "connection pool exhausted").into());
+                        }
+                        self.released.wait_timeout(active, remaining).unwrap().0
+                    }
+                    None => self.released.wait(active).unwrap(),
+                };
+            }
+        }
+        *active += 1;
+        Ok(())
+    }
+
+    fn checkout(&self, engine: &Engine) -> Result<Checkout<'_>> {
+        self.acquire(engine)?;
+        let mut checkout = Checkout {
+            server: self,
+            connection: None,
+            pooled: true,
+        };
+        // Idle connections may have been closed by the server or a
+        // middlebox while pooled: skip the old ones, probe the rest and
+        // discard instead of handing a dead connection to the caller.
+        loop {
+            let Some((mut connection, since)) = self.idle.lock().unwrap().pop() else {
+                break;
+            };
+            if since.elapsed() <= engine.max_idle_age && connection.is_reusable() {
+                checkout.connection = Some(connection);
+                return Ok(checkout);
+            }
+        }
+        checkout.connection = Some(dial(&self.addrs, engine)?);
+        checkout.pooled = false;
+        Ok(checkout)
     }
 }
 
@@ -139,16 +219,14 @@ impl Default for Timeouts {
 #[derive(Clone)]
 pub struct MetaClientBuilder {
     pub(crate) router: Arc<dyn Router>,
-    pub(crate) max_idle: usize,
-    pub(crate) timeouts: Timeouts,
+    pub(crate) engine: Engine,
 }
 
 impl MetaClientBuilder {
     pub fn new() -> MetaClientBuilder {
         MetaClientBuilder {
             router: Arc::new(Rendezvous::new()),
-            max_idle: DEFAULT_MAX_IDLE,
-            timeouts: Timeouts::default(),
+            engine: Engine::default(),
         }
     }
 
@@ -169,14 +247,32 @@ impl MetaClientBuilder {
     /// Concurrency above the cap dials extra connections, which are dropped
     /// when returned.
     pub fn max_idle(mut self, max_idle: usize) -> MetaClientBuilder {
-        self.max_idle = max_idle;
+        self.engine.max_idle = max_idle;
+        self
+    }
+
+    /// Do not reuse a connection that sat idle longer than this (default
+    /// 90 seconds); quiet connections get killed by middleboxes and server
+    /// restarts, and a dead one costs a failed request.
+    pub fn max_idle_age(mut self, age: Duration) -> MetaClientBuilder {
+        self.engine.max_idle_age = age;
+        self
+    }
+
+    /// Cap the connections in use per server (default unlimited). At the
+    /// cap, checkout waits for a connection to be returned, up to the
+    /// connect timeout, then fails with a timed out io error. The cap
+    /// bounds the blast radius of a latency spike: without it every
+    /// stalled caller dials one more connection.
+    pub fn max_connections(mut self, max_connections: Option<usize>) -> MetaClientBuilder {
+        self.engine.max_connections = max_connections.filter(|&cap| cap > 0);
         self
     }
 
     /// Limit how long dialing a server may take (default 1 second; `None`
     /// removes the limit).
     pub fn connect_timeout(mut self, timeout: Option<Duration>) -> MetaClientBuilder {
-        self.timeouts.connect = timeout;
+        self.engine.connect_timeout = timeout;
         self
     }
 
@@ -184,9 +280,10 @@ impl MetaClientBuilder {
     /// removes the limit). Both clients apply it to a whole command or
     /// batch exchange - request write plus response reads - not to
     /// individual socket operations. A timeout poisons the connection like
-    /// any other transport error.
+    /// any other transport error; one that strikes after a side-effecting
+    /// request was written surfaces as [`Error::Ambiguous`].
     pub fn io_timeout(mut self, timeout: Option<Duration>) -> MetaClientBuilder {
-        self.timeouts.io = timeout;
+        self.engine.io_timeout = timeout;
         self
     }
 
@@ -204,10 +301,7 @@ impl MetaClientBuilder {
     pub fn connect_multiple<A: ToSocketAddrs>(self, addrs: impl IntoIterator<Item = A>) -> Result<MetaClient> {
         let mut servers = Vec::new();
         for addr in addrs {
-            servers.push(Server {
-                addrs: resolve(addr)?,
-                idle: Mutex::new(Vec::new()),
-            });
+            servers.push(Server::new(resolve(addr)?));
         }
         if servers.is_empty() {
             return Err(Error::Usage("at least one server address is required"));
@@ -217,8 +311,7 @@ impl MetaClientBuilder {
             servers: Arc::new(servers),
             ids: Arc::new(ids),
             router: self.router,
-            max_idle: self.max_idle,
-            timeouts: self.timeouts,
+            engine: self.engine,
         })
     }
 }
@@ -241,9 +334,12 @@ impl Default for MetaClientBuilder {
 /// are set on [`MetaClientBuilder`] before connecting and stay fixed for
 /// the client's lifetime, so clones cannot diverge. Each server keeps a
 /// stack of idle connections (bounded by
-/// [`max_idle`](MetaClientBuilder::max_idle)); a connection that fails
-/// mid-exchange is dropped instead of being reused, and the next operation
-/// dials a fresh one.
+/// [`max_idle`](MetaClientBuilder::max_idle) and
+/// [`max_idle_age`](MetaClientBuilder::max_idle_age)); a pooled connection
+/// that dies before the first byte of a request is written is replaced by
+/// a fresh dial once, transparently; a connection that fails mid-exchange
+/// is dropped instead of being reused, and the request's error says
+/// whether it may have landed ([`Error::Ambiguous`]).
 ///
 /// ```no_run
 /// # use memcache::exp::{MetaClient, Ttl};
@@ -257,8 +353,7 @@ pub struct MetaClient {
     /// One identifying address per server, handed to the router.
     ids: Arc<Vec<SocketAddr>>,
     router: Arc<dyn Router>,
-    max_idle: usize,
-    timeouts: Timeouts,
+    engine: Engine,
 }
 
 impl MetaClient {
@@ -289,32 +384,100 @@ impl MetaClient {
 
     /// Check out a connection, run one transport exchange on it and return
     /// it to the pool. A failed exchange leaves the stream in an unknown
-    /// state, so the connection is dropped instead of returned.
-    fn with_connection<T>(&self, server: usize, exchange: impl FnOnce(&mut MetaConnection) -> Result<T>) -> Result<T> {
+    /// state, so the connection is dropped instead of returned; a pooled
+    /// connection that fails before anything was written is replaced by a
+    /// fresh dial and the exchange retried once. The failure reports how
+    /// much of the request was written, for attribution.
+    fn with_connection<T>(
+        &self,
+        server: usize,
+        mut exchange: impl FnMut(&mut MetaConnection) -> Result<T>,
+    ) -> std::result::Result<T, Failure> {
         let server = &self.servers[server];
-        let mut connection = server.checkout(&self.timeouts)?;
-        let result = exchange(&mut connection);
-        if result.is_ok() {
-            server.put_back(connection, self.max_idle);
+        let mut checkout = server.checkout(&self.engine).map_err(Failure::before_write)?;
+        loop {
+            match exchange(checkout.connection()) {
+                Ok(value) => {
+                    checkout.put_back(&self.engine);
+                    return Ok(value);
+                }
+                Err(error) => {
+                    let written = checkout.connection().written();
+                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                        checkout.connection = Some(dial(&server.addrs, &self.engine).map_err(Failure::before_write)?);
+                        checkout.pooled = false;
+                        continue;
+                    }
+                    return Err(Failure { error, written });
+                }
+            }
         }
-        result
+    }
+
+    /// One command on its server, attributed: a request written but not
+    /// answered is [`Error::Ambiguous`] when it has side effects.
+    fn execute(&self, key: &[u8], command: &MetaCommand) -> Result<MetaResponse> {
+        let index = self.connection_index(key);
+        self.with_connection(index, |connection| connection.execute(command))
+            .map_err(|failure| failure.attribute(key, failure.written > 0 && command.has_side_effect()))
+    }
+
+    /// One batch on one server: the payload is written whole, the
+    /// responses read back and checked against the opaque tokens stamped
+    /// on each command, so a reordered or mismatched response poisons the
+    /// connection instead of being paired with the wrong command.
+    fn execute_batch(&self, server: usize, batch: &Batch) -> (Vec<MetaResponse>, Option<Failure>) {
+        let server = &self.servers[server];
+        let mut checkout = match server.checkout(&self.engine) {
+            Ok(checkout) => checkout,
+            Err(error) => return (Vec::new(), Some(Failure::before_write(error))),
+        };
+        loop {
+            let (responses, error) = checkout.connection().execute_payload(&batch.payload, batch.len());
+            // A response out of order means every pairing is suspect:
+            // drop them all, the attribution below says which commands
+            // may have landed.
+            let (responses, error) = match error {
+                Some(error) => (responses, Some(error)),
+                None => match core::check_batch_order(&responses) {
+                    Ok(()) => (responses, None),
+                    Err(error) => (Vec::new(), Some(error)),
+                },
+            };
+            match error {
+                None => {
+                    checkout.put_back(&self.engine);
+                    return (responses, None);
+                }
+                Some(error) => {
+                    let written = checkout.connection().written();
+                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                        match dial(&server.addrs, &self.engine) {
+                            Ok(connection) => {
+                                checkout.connection = Some(connection);
+                                checkout.pooled = false;
+                                continue;
+                            }
+                            Err(error) => return (Vec::new(), Some(Failure::before_write(error))),
+                        }
+                    }
+                    return (responses, Some(Failure { error, written }));
+                }
+            }
+        }
     }
 
     /// Run one raw command for `key` on its server; the scenario layer's
     /// single-key exchange. Transport errors are attributed to `key`.
     pub(crate) fn exchange(&self, key: &[u8], command: &MetaCommand) -> Result<MetaCommandResult> {
         command.validate()?;
-        let index = self.connection_index(key);
-        let response = self
-            .with_connection(index, |connection| connection.execute(command))
-            .map_err(|error| error.for_key(key))?;
-        parse_meta_result(response)
+        parse_meta_result(self.execute(key, command)?)
     }
 
     /// Run raw commands grouped per server, one round trip each, and
     /// return one result per command in input order. Every group runs
     /// even when another fails; a failed group's commands each carry the
-    /// group's error.
+    /// group's error, attributed per command (see [`Batch`]).
     pub(crate) fn exchange_many(&self, commands: Vec<(Vec<u8>, MetaCommand)>) -> Vec<Result<MetaCommandResult>> {
         let mut groups: Vec<Vec<usize>> = vec![Vec::new(); self.servers.len()];
         let mut outputs: Vec<Option<Result<MetaCommandResult>>> = (0..commands.len()).map(|_| None).collect();
@@ -328,18 +491,22 @@ impl MetaClient {
             if indices.is_empty() {
                 continue;
             }
-            let batch: Vec<MetaCommand> = indices.iter().map(|&index| commands[index].1.clone()).collect();
-            match self.with_connection(server, |connection| connection.execute_batch(&batch)) {
-                Ok(responses) => {
-                    for (&index, response) in indices.iter().zip(responses) {
-                        outputs[index] = Some(parse_meta_result(response));
-                    }
-                }
+            let batch = match Batch::new(indices.iter().map(|&index| &commands[index].1)) {
+                Ok(batch) => batch,
                 Err(error) => {
                     for &index in indices {
-                        outputs[index] = Some(Err(error.duplicate().for_key(&commands[index].0)));
+                        outputs[index] = Some(Err(error.duplicate()));
                     }
+                    continue;
                 }
+            };
+            let (responses, failure) = self.execute_batch(server, &batch);
+            for (position, &index) in indices.iter().enumerate() {
+                outputs[index] = Some(match (responses.get(position), &failure) {
+                    (Some(response), _) => parse_meta_result(response.clone()),
+                    (None, Some(failure)) => Err(batch.attribute(position, &commands[index].0, failure)),
+                    (None, None) => Err(Error::protocol("batch response missing")),
+                });
             }
         }
         outputs.into_iter().map(|output| output.unwrap()).collect()
@@ -381,10 +548,7 @@ impl MetaClient {
     pub fn run<O: Operation>(&self, operation: O) -> Result<O::Output> {
         let command = operation.prepare()?;
         command.validate()?;
-        let index = self.connection_index(operation.key());
-        let response = self
-            .with_connection(index, |connection| connection.execute(&command))
-            .map_err(|error| error.for_key(operation.key()))?;
+        let response = self.execute(operation.key(), &command)?;
         operation.parse(parse_meta_result(response)?)
     }
 
@@ -394,11 +558,12 @@ impl MetaClient {
     /// All operations are validated before anything is written; a validation
     /// failure is the outer error and guarantees nothing executed. After
     /// that, every operation gets its own entry in input order: a transport
-    /// failure fails the operations of that server's group (their entries
-    /// are `Err`, and whether they took effect on the server is unknown)
-    /// while the remaining groups still execute. Semantic outcomes (miss,
-    /// CAS mismatch, ...) are not errors; they show up inside [`OpResult`].
-    /// A batch is not a transaction.
+    /// failure fails the unanswered operations of that server's group
+    /// (those already answered keep their results) while the remaining
+    /// groups still execute. A failed operation that was written in full
+    /// and has side effects is [`Error::Ambiguous`]; the rest were not
+    /// applied. Semantic outcomes (miss, CAS mismatch, ...) are not errors;
+    /// they show up inside [`OpResult`]. A batch is not a transaction.
     ///
     /// ```no_run
     /// # use memcache::exp::{Get, MetaClient, Set, Ttl};
@@ -427,28 +592,22 @@ impl MetaClient {
     }
 
     fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<Result<O::Output, Error>>> {
-        let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
+        let plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
         let mut outputs: Vec<Option<Result<O::Output>>> = (0..operations.len()).map(|_| None).collect();
         for (server, indices) in plan.groups.iter().enumerate() {
             if indices.is_empty() {
                 continue;
             }
-            let commands: Vec<MetaCommand> = indices
-                .iter()
-                .map(|&index| plan.commands[index].take().unwrap())
-                .collect();
-            match self.with_connection(server, |connection| connection.execute_batch(&commands)) {
-                Ok(responses) => {
-                    for (&index, response) in indices.iter().zip(responses) {
-                        outputs[index] =
-                            Some(parse_meta_result(response).and_then(|wire| operations[index].parse(wire)));
+            let batch = Batch::new(indices.iter().map(|&index| &plan.commands[index]))?;
+            let (responses, failure) = self.execute_batch(server, &batch);
+            for (position, &index) in indices.iter().enumerate() {
+                outputs[index] = Some(match (responses.get(position), &failure) {
+                    (Some(response), _) => {
+                        parse_meta_result(response.clone()).and_then(|wire| operations[index].parse(wire))
                     }
-                }
-                Err(error) => {
-                    for &index in indices {
-                        outputs[index] = Some(Err(error.duplicate().for_key(operations[index].key())));
-                    }
-                }
+                    (None, Some(failure)) => Err(batch.attribute(position, operations[index].key(), failure)),
+                    (None, None) => Err(Error::protocol("batch response missing")),
+                });
             }
         }
         Ok(outputs
@@ -461,7 +620,9 @@ impl MetaClient {
     /// health check.
     pub fn noop(&self) -> Result<()> {
         for server in 0..self.servers.len() {
-            let response = self.with_connection(server, |connection| connection.execute(&build_noop()))?;
+            let response = self
+                .with_connection(server, |connection| connection.execute(&build_noop()))
+                .map_err(|failure| failure.attribute(b"", false))?;
             if response.rc != ReturnCode::Mn {
                 return Err(Error::protocol("unexpected no-op response"));
             }
@@ -472,9 +633,8 @@ impl MetaClient {
     /// Fetch `me` debug fields for a key; `None` on a miss.
     pub fn debug(&self, key: impl AsRef<[u8]>) -> Result<Option<HashMap<String, String>>> {
         let key = key.as_ref().to_vec();
-        let index = self.connection_index(&key);
-        let command = build_debug(key)?;
-        let response = self.with_connection(index, |connection| connection.execute(&command))?;
+        let command = build_debug(&key)?;
+        let response = self.execute(&key, &command)?;
         parse_debug_result(&response)
     }
 }
@@ -595,7 +755,7 @@ pub(crate) mod tests {
 
     #[test]
     fn run_batch_mixed_operations() {
-        let (addr, server) = scripted_server(vec![b"HD\r\n", b"VA 1 f0\r\n1\r\n", b"NF\r\n"]);
+        let (addr, server) = scripted_server(vec![b"HD O0\r\n", b"VA 1 f0 O1\r\n1\r\n", b"NF O2\r\n"]);
         let client = MetaClient::connect(addr).unwrap();
 
         let results: Vec<_> = client
@@ -615,9 +775,9 @@ pub(crate) mod tests {
 
         // All three commands were written before the first response was read.
         let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms a 1 T60\r\n".to_vec());
-        assert_eq!(requests[1], b"mg a v f\r\n".to_vec());
-        assert_eq!(requests[2], b"md c\r\n".to_vec());
+        assert_eq!(requests[0], b"ms a 1 T60 O0\r\n".to_vec());
+        assert_eq!(requests[1], b"mg a v f O1\r\n".to_vec());
+        assert_eq!(requests[2], b"md c O2\r\n".to_vec());
     }
 
     #[test]
@@ -680,8 +840,8 @@ pub(crate) mod tests {
 
     #[test]
     fn multi_server_batch_splits_and_reorders() {
-        let (addr0, server0) = scripted_server(vec![b"EN\r\n"]);
-        let (addr1, server1) = scripted_server(vec![b"HD\r\n", b"NF\r\n"]);
+        let (addr0, server0) = scripted_server(vec![b"EN O0\r\n"]);
+        let (addr1, server1) = scripted_server(vec![b"HD O0\r\n", b"NF O1\r\n"]);
         let client = MetaClient::builder()
             .router(FirstByte)
             .connect_multiple([addr0, addr1])
@@ -707,20 +867,20 @@ pub(crate) mod tests {
 
         assert_eq!(
             server0.join().unwrap(),
-            vec![format!("mg {} v f\r\n", key_get).into_bytes()]
+            vec![format!("mg {} v f O0\r\n", key_get).into_bytes()]
         );
         assert_eq!(
             server1.join().unwrap(),
             vec![
-                format!("ms {} 1\r\n", key_set).into_bytes(),
-                format!("md {}\r\n", key_delete).into_bytes(),
+                format!("ms {} 1 O0\r\n", key_set).into_bytes(),
+                format!("md {} O1\r\n", key_delete).into_bytes(),
             ]
         );
     }
 
     #[test]
     fn run_batch_continues_after_group_failure() {
-        let (addr0, server0) = scripted_server(vec![b"VA 1 f0\r\nx\r\n"]);
+        let (addr0, server0) = scripted_server(vec![b"VA 1 f0 O0\r\nx\r\n"]);
         // A bound-then-dropped listener yields an address that refuses
         // connections, so the second server's group must fail in transport.
         let dead = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -771,11 +931,13 @@ pub(crate) mod tests {
             .connect(addr)
             .unwrap();
         let start = std::time::Instant::now();
+        // The delete was written before the timeout struck: ambiguous.
         let error = client.delete("foo").send().unwrap_err();
         assert!(
-            matches!(error, Error::Timeout { ref key } if key == b"foo"),
+            matches!(&error, Error::Ambiguous { key, source } if key == b"foo" && matches!(**source, Error::Timeout { .. })),
             "{error:?}"
         );
+        assert!(error.is_ambiguous() && !error.is_retryable());
         assert!(start.elapsed() < Duration::from_secs(5));
         assert!(client.delete("foo").send().unwrap().applied());
         handle.join().unwrap();
@@ -918,6 +1080,159 @@ pub(crate) mod tests {
         let client = MetaClient::builder().max_idle(0).connect(addr).unwrap();
         assert!(client.delete("foo").send().unwrap().applied());
         assert!(client.delete("foo").send().unwrap().applied());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn plain_read_timeout_is_not_ambiguous() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+        });
+        let client = MetaClient::builder()
+            .io_timeout(Some(Duration::from_millis(100)))
+            .connect(addr)
+            .unwrap();
+        let error = client.get("foo").send().unwrap_err();
+        assert!(matches!(error, Error::Timeout { .. }), "{error:?}");
+        assert!(error.is_retryable());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn batch_failure_is_attributed_per_command() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            // Answer the first command, then close: the rest were written
+            // in full, so the side-effecting ones are ambiguous and the
+            // plain read is not.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            for _ in 0..3 {
+                line.clear();
+                reader.read_until(b'\n', &mut line).unwrap();
+            }
+            reader.get_mut().write_all(b"HD O0\r\n").unwrap();
+        });
+        let client = MetaClient::connect(addr).unwrap();
+        let results = client
+            .run_batch(vec![
+                Delete::new("a").into(),
+                Delete::new("b").into(),
+                Get::new("c").into(),
+            ])
+            .unwrap();
+        assert!(results[0].as_ref().unwrap().as_mutation().unwrap().applied());
+        let second = results[1].as_ref().unwrap_err();
+        assert!(
+            matches!(second, Error::Ambiguous { key, .. } if key == b"b"),
+            "{second:?}"
+        );
+        let third = results[2].as_ref().unwrap_err();
+        assert!(matches!(third, Error::Io(_)), "{third:?}");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn misordered_batch_response_poisons_the_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            for _ in 0..2 {
+                line.clear();
+                reader.read_until(b'\n', &mut line).unwrap();
+            }
+            // Swapped opaque tokens.
+            reader.get_mut().write_all(b"HD O1\r\nNF O0\r\n").unwrap();
+            // The next operation must arrive on a fresh connection.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+        });
+        let client = MetaClient::connect(addr).unwrap();
+        let results = client
+            .run_batch(vec![Delete::new("a").into(), Delete::new("b").into()])
+            .unwrap();
+        for result in &results {
+            let error = result.as_ref().unwrap_err();
+            assert!(error.is_ambiguous(), "{error:?}");
+            assert!(matches!(std::error::Error::source(error), Some(source) if source.to_string().contains("opaque")));
+        }
+        assert!(client.delete("c").send().unwrap().applied());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn old_idle_connections_are_not_reused() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut line = Vec::new();
+                reader.read_until(b'\n', &mut line).unwrap();
+                reader.get_mut().write_all(b"HD\r\n").unwrap();
+            }
+        });
+        let client = MetaClient::builder()
+            .max_idle_age(Duration::from_millis(50))
+            .connect(addr)
+            .unwrap();
+        assert!(client.delete("foo").send().unwrap().applied());
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(client.delete("foo").send().unwrap().applied());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn max_connections_bounds_the_pool() {
+        use std::sync::mpsc;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (release, gate) = mpsc::channel::<()>();
+        let handle = std::thread::spawn(move || {
+            // The first connection answers only when released; a second
+            // checkout must wait for it instead of dialing.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            reader.read_until(b'\n', &mut line).unwrap();
+            gate.recv().unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+            line.clear();
+            reader.read_until(b'\n', &mut line).unwrap();
+            reader.get_mut().write_all(b"HD\r\n").unwrap();
+        });
+        let client = MetaClient::builder()
+            .max_connections(Some(1))
+            .connect_timeout(Some(Duration::from_millis(200)))
+            .connect(addr)
+            .unwrap();
+        let first = std::thread::spawn({
+            let client = client.clone();
+            move || client.delete("a").send().unwrap().applied()
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        // The pool is exhausted: the wait times out.
+        let error = client.delete("b").send().unwrap_err();
+        assert!(matches!(error, Error::Timeout { .. }), "{error:?}");
+        release.send(()).unwrap();
+        assert!(first.join().unwrap());
+        // Slot freed: served on the same connection.
+        assert!(client.delete("c").send().unwrap().applied());
         handle.join().unwrap();
     }
 }

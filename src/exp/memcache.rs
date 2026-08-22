@@ -150,6 +150,20 @@ impl MemcacheBuilder {
         self
     }
 
+    /// Do not reuse a connection that sat idle longer than this (default
+    /// 90 seconds).
+    pub fn max_idle_age(mut self, age: Duration) -> MemcacheBuilder {
+        self.meta = self.meta.max_idle_age(age);
+        self
+    }
+
+    /// Cap the connections in use per server (default unlimited); at the
+    /// cap a call waits up to the connect timeout for one to be returned.
+    pub fn max_connections(mut self, max_connections: impl Into<Option<usize>>) -> MemcacheBuilder {
+        self.meta = self.meta.max_connections(max_connections.into());
+        self
+    }
+
     /// Replace the key hash used by the default rendezvous router.
     pub fn hash_function(mut self, hash_function: fn(&[u8]) -> u64) -> MemcacheBuilder {
         self.meta = self.meta.hash_function(hash_function);

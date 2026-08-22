@@ -17,6 +17,9 @@ use super::meta_command::{MetaCommand, MetaResponse};
 pub struct MetaConnection {
     reader: BufReader<TcpStream>,
     io_timeout: Option<Duration>,
+    /// Bytes of the current (or last) exchange accepted by the kernel;
+    /// the basis for deciding whether a failed request may have landed.
+    written: usize,
 }
 
 impl MetaConnection {
@@ -32,6 +35,7 @@ impl MetaConnection {
         MetaConnection {
             reader: BufReader::new(stream),
             io_timeout: None,
+            written: 0,
         }
     }
 
@@ -96,8 +100,15 @@ impl MetaConnection {
         stream.set_nonblocking(false).is_ok() && reusable
     }
 
+    /// Bytes of the last exchange that were handed to the kernel. Zero
+    /// after a failure means the request never left this process.
+    pub(crate) fn written(&self) -> usize {
+        self.written
+    }
+
     /// Encode and write a single command under its own deadline.
     pub fn send(&mut self, command: &MetaCommand) -> Result<()> {
+        self.written = 0;
         self.send_by(self.deadline(), command)
     }
 
@@ -109,6 +120,7 @@ impl MetaConnection {
 
     /// Send a command and read its response under one shared deadline.
     pub fn execute(&mut self, command: &MetaCommand) -> Result<MetaResponse> {
+        self.written = 0;
         let deadline = self.deadline();
         self.send_by(deadline, command)?;
         self.receive_by(deadline)
@@ -118,17 +130,35 @@ impl MetaConnection {
     /// command, all under one shared deadline. Quiet-mode (`q`) commands
     /// would desynchronize the stream and must not be used here.
     pub fn execute_batch(&mut self, commands: &[MetaCommand]) -> Result<Vec<MetaResponse>> {
-        let deadline = self.deadline();
         let mut payload = Vec::new();
         for command in commands {
             command.encode_into(&mut payload)?;
         }
-        self.write_all_by(deadline, &payload)?;
-        let mut responses = Vec::with_capacity(commands.len());
-        for _ in commands {
-            responses.push(self.receive_by(deadline)?);
+        let (responses, error) = self.execute_payload(&payload, commands.len());
+        match error {
+            Some(error) => Err(error),
+            None => Ok(responses),
         }
-        Ok(responses)
+    }
+
+    /// Write a pre-encoded batch payload and read `count` responses under
+    /// one deadline, keeping the responses read before a failure so the
+    /// caller can attribute it: [`written`](Self::written) says how much of
+    /// the payload left the process.
+    pub(crate) fn execute_payload(&mut self, payload: &[u8], count: usize) -> (Vec<MetaResponse>, Option<Error>) {
+        self.written = 0;
+        let deadline = self.deadline();
+        let mut responses = Vec::with_capacity(count);
+        if let Err(error) = self.write_all_by(deadline, payload) {
+            return (responses, Some(error));
+        }
+        for _ in 0..count {
+            match self.receive_by(deadline) {
+                Ok(response) => responses.push(response),
+                Err(error) => return (responses, Some(error)),
+            }
+        }
+        (responses, None)
     }
 
     fn send_by(&mut self, deadline: Option<Instant>, command: &MetaCommand) -> Result<()> {
@@ -158,6 +188,7 @@ impl MetaConnection {
             if written == 0 {
                 return Err(io::Error::from(io::ErrorKind::WriteZero).into());
             }
+            self.written += written;
             payload = &payload[written..];
         }
         Ok(())

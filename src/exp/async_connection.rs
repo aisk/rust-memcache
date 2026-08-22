@@ -16,6 +16,8 @@ use super::meta_command::{MetaCommand, MetaResponse};
 /// quiet-mode (`q`) commands are not handled here.
 pub struct AsyncMetaConnection {
     reader: BufReader<TcpStream>,
+    /// Bytes of the current (or last) exchange handed to the socket.
+    written: usize,
 }
 
 impl AsyncMetaConnection {
@@ -28,6 +30,7 @@ impl AsyncMetaConnection {
     pub fn from_stream(stream: TcpStream) -> AsyncMetaConnection {
         AsyncMetaConnection {
             reader: BufReader::new(stream),
+            written: 0,
         }
     }
 
@@ -48,10 +51,32 @@ impl AsyncMetaConnection {
         }
     }
 
+    /// Bytes of the last exchange handed to the socket. Zero after a
+    /// failure means the request never left this process.
+    pub(crate) fn written(&self) -> usize {
+        self.written
+    }
+
     /// Encode and write a single command.
     pub async fn send(&mut self, command: &MetaCommand) -> Result<()> {
         let payload = command.encode()?;
-        self.reader.write_all(&payload).await?;
+        self.write_payload(&payload).await
+    }
+
+    /// Write in one go, counting what the socket accepted. `write_all` on
+    /// a raw tokio stream hands bytes to the kernel as it goes, so a
+    /// failure part way still means some of the payload may have landed;
+    /// the count is tracked per chunk to keep the attribution honest.
+    async fn write_payload(&mut self, mut payload: &[u8]) -> Result<()> {
+        self.written = 0;
+        while !payload.is_empty() {
+            let written = self.reader.write(payload).await?;
+            if written == 0 {
+                return Err(io::Error::from(io::ErrorKind::WriteZero).into());
+            }
+            self.written += written;
+            payload = &payload[written..];
+        }
         self.reader.flush().await?;
         Ok(())
     }
@@ -86,13 +111,29 @@ impl AsyncMetaConnection {
         for command in commands {
             command.encode_into(&mut payload)?;
         }
-        self.reader.write_all(&payload).await?;
-        self.reader.flush().await?;
-        let mut responses = Vec::with_capacity(commands.len());
-        for _ in commands {
-            responses.push(self.receive().await?);
+        let (responses, error) = self.execute_payload(&payload, commands.len()).await;
+        match error {
+            Some(error) => Err(error),
+            None => Ok(responses),
         }
-        Ok(responses)
+    }
+
+    /// Write a pre-encoded batch payload and read `count` responses,
+    /// keeping the responses read before a failure so the caller can
+    /// attribute it; [`written`](Self::written) says how much of the
+    /// payload left the process.
+    pub(crate) async fn execute_payload(&mut self, payload: &[u8], count: usize) -> (Vec<MetaResponse>, Option<Error>) {
+        let mut responses = Vec::with_capacity(count);
+        if let Err(error) = self.write_payload(payload).await {
+            return (responses, Some(error));
+        }
+        for _ in 0..count {
+            match self.receive().await {
+                Ok(response) => responses.push(response),
+                Err(error) => return (responses, Some(error)),
+            }
+        }
+        (responses, None)
     }
 
     async fn read_line(&mut self) -> Result<Vec<u8>> {

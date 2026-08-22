@@ -9,7 +9,7 @@ use super::meta_api::{
     ArithmeticOptions, DeleteOptions, GetOptions, MetaCommandResult, SetMode, SetOptions, build_arithmetic,
     build_delete, build_get, build_set,
 };
-use super::meta_command::{MetaCommand, ReturnCode};
+use super::meta_command::{MetaCommand, MetaResponse, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
@@ -141,12 +141,104 @@ fn invalid<T>(message: &'static str) -> Result<T> {
     Err(Error::Usage(message))
 }
 
+/// A transport failure plus how much of the request had been written
+/// when it struck, so the client can say whether the request may have
+/// landed.
+pub(crate) struct Failure {
+    pub(crate) error: Error,
+    pub(crate) written: usize,
+}
+
+impl Failure {
+    pub(crate) fn before_write(error: Error) -> Failure {
+        Failure { error, written: 0 }
+    }
+
+    /// The error for `key`: [`Error::Ambiguous`] when the request was
+    /// written and has side effects, otherwise the error itself (the
+    /// request was definitely not applied).
+    pub(crate) fn attribute(&self, key: &[u8], landed: bool) -> Error {
+        let error = self.error.duplicate().for_key(key);
+        if landed {
+            Error::Ambiguous {
+                key: key.to_vec(),
+                source: Box::new(error),
+            }
+        } else {
+            error
+        }
+    }
+}
+
+/// One server's share of a batch, encoded into a single payload. Every
+/// command is stamped with an `O<position>` opaque token, which the
+/// responses must echo in order, and the payload offsets record where each
+/// command ends, so a failure can be attributed per command: a command
+/// written in full may have landed, a later one was never seen.
+pub(crate) struct Batch {
+    pub(crate) payload: Vec<u8>,
+    /// Payload offset just past each command.
+    ends: Vec<usize>,
+    side_effects: Vec<bool>,
+}
+
+impl Batch {
+    pub(crate) fn new<'a>(commands: impl IntoIterator<Item = &'a MetaCommand>) -> Result<Batch> {
+        let mut batch = Batch {
+            payload: Vec::new(),
+            ends: Vec::new(),
+            side_effects: Vec::new(),
+        };
+        for command in commands {
+            if command.flags.iter().any(|flag| flag.first() == Some(&b'O')) {
+                return Err(Error::Usage("opaque tokens are reserved by the batch executor"));
+            }
+            let position = batch.ends.len();
+            command
+                .clone()
+                .flag(format!("O{position}"))
+                .encode_into(&mut batch.payload)?;
+            batch.ends.push(batch.payload.len());
+            batch.side_effects.push(command.has_side_effect());
+        }
+        Ok(batch)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.ends.len()
+    }
+
+    /// The error for the unanswered command at `position`.
+    pub(crate) fn attribute(&self, position: usize, key: &[u8], failure: &Failure) -> Error {
+        let landed = failure.written >= self.ends[position] && self.side_effects[position];
+        failure.attribute(key, landed)
+    }
+}
+
+/// Verify that a batch's responses carry the opaque tokens in order.
+pub(crate) fn check_batch_order(responses: &[MetaResponse]) -> Result<()> {
+    for (position, response) in responses.iter().enumerate() {
+        let expected = format!("O{position}");
+        let echoed = response
+            .flags
+            .iter()
+            .find(|flag| flag.first() == Some(&b'O'))
+            .map(|flag| flag.as_slice());
+        if echoed != Some(expected.as_bytes()) {
+            return Err(Error::Protocol(format!(
+                "batch response {position} carries opaque {:?}, expected {expected:?}",
+                echoed.map(String::from_utf8_lossy)
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// A validated batch: every operation prepared into a wire command, and the
 /// operation indexes grouped per server. Shared by both clients.
 pub(crate) struct BatchPlan {
-    /// One prepared command per operation; entries are taken as groups
-    /// execute.
-    pub(crate) commands: Vec<Option<MetaCommand>>,
+    /// One prepared command per operation.
+    pub(crate) commands: Vec<MetaCommand>,
     /// Operation indexes per server, in input order.
     pub(crate) groups: Vec<Vec<usize>>,
 }
@@ -162,7 +254,7 @@ pub(crate) fn plan<O: Operation>(
     for operation in operations {
         let command = operation.prepare()?;
         command.validate()?;
-        commands.push(Some(command));
+        commands.push(command);
     }
     let mut groups: Vec<Vec<usize>> = vec![Vec::new(); servers];
     for (index, operation) in operations.iter().enumerate() {

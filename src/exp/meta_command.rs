@@ -219,6 +219,21 @@ impl MetaCommand {
         self
     }
 
+    /// Whether the command can change server state: every write, and a
+    /// read that touches (`T`), vivifies (`N`), takes a recache lease (`R`)
+    /// or rewrites the CAS (`E`). Decides whether a request written but
+    /// unanswered is [`Error::Ambiguous`].
+    pub fn has_side_effect(&self) -> bool {
+        match self.op {
+            MetaOp::Set | MetaOp::Delete | MetaOp::Arithmetic => true,
+            MetaOp::Noop | MetaOp::Debug => false,
+            MetaOp::Get => self
+                .flags
+                .iter()
+                .any(|flag| matches!(flag.first(), Some(b'T' | b'N' | b'R' | b'E'))),
+        }
+    }
+
     /// Check the key without encoding, so a usage error surfaces before a
     /// connection is dialed.
     pub(crate) fn validate(&self) -> Result<()> {
