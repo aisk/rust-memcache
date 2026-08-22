@@ -3,74 +3,99 @@ Experimental client built on the memcached
 [meta protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt).
 
 Everything in this module is experimental and may change without notice.
+Public enums and structs are `#[non_exhaustive]`: construct through `new`
+/ `Default` and the builder methods, and give matches a wildcard arm.
 
-Public enums and structs are `#[non_exhaustive]`, so the protocol surface can
-grow without breaking callers: construct operations and options through
-`new`/`Default` and the builder methods, and give matches a wildcard arm.
+# Layers
 
-The module is layered bottom-up:
+**Scenario layer**: [`Memcache`] and, behind the `tokio` feature,
+[`AsyncMemcache`]. One verb per caching scenario, business values in and
+out, every coordination mechanism (leases, CAS loops, stale tokens) kept
+inside. A miss is `Ok(None)` or an absent map key, never an error;
+conditional writes answer with `bool`; `fetch` and `update` consume the
+miss entirely. Values go through [`Encode`] / [`Decode`] on the value type
+([`Json<T>`] with the `serde_json` feature); counters and byte streams
+bypass them. Every write names its lifetime as a [`Ttl`]; `fetch` takes a
+[`Freshness`], which is a `Ttl` optionally carrying a refresh-ahead
+window. Failures are [`Error`]; what degrades and what does not is a
+policy chosen on [`MemcacheBuilder`].
 
-- [`MetaCommand`] / [`MetaResponse`]: framing - request assembly and response
-  header parsing, including automatic base64 encoding of binary keys.
-- `build_*` / `parse_*` and the `*Options` structs: a typed 1:1 mapping of the
-  protocol where every option field corresponds to exactly one protocol flag.
-  No serialization and no semantic interpretation happens at this level.
-- Operations ([`Get`], [`Set`], [`Delete`], [`Arithmetic`]) and typed results
-  ([`GetResult`], [`MutationResult`], [`ArithmeticResult`]): the semantic
-  layer, interpreting return codes and lease/stale flags. Each operation
-  implements [`Operation`] with a typed `Output`. Values are raw bytes plus
-  client flags; the [`Encode`] / [`Decode`] traits belong to the scenario
-  layer built on top.
-- [`MetaClient`] (blocking) and [`AsyncMetaClient`] (tokio, behind the
-  `tokio` feature): single-server clients whose verbs return lazy
-  [`Request`] builders, executed with `send()`.
+**Protocol layer**: [`MetaClient`] / [`AsyncMetaClient`], reachable from a
+scenario client as `cache.meta()`. A typed 1:1 mapping of the protocol:
+operations ([`Get`], [`Set`], [`Delete`], [`Arithmetic`]) with one builder
+method per protocol flag, results ([`GetResult`], [`MutationResult`],
+[`ArithmeticResult`]) that report miss, CAS mismatch and lease state as
+values, and batches (`run_batch` / `run_many`) with one result per
+operation. Values are raw bytes plus client flags. The wire layer
+([`MetaCommand`] / [`MetaResponse`], `build_*` / `parse_*`) stays public
+for anything above it does not cover.
 
-Several operations can run in one round trip: `run_batch` takes
-heterogeneous [`Op`] values and returns one `Result<`[`OpResult`]`, _>` per
-operation; `run_many` is the typed variant for a batch of one operation
-kind (the multiget). Batched operations execute independently and in order
-per server; a transport failure fails only the operations of that server's
-group, the rest still run. A batch is not a transaction.
+**Engine**: per-server connection pools (idle cap, idle age, optional
+connection cap, a dead pooled connection redialed once), one deadline per
+exchange, routing through a [`Router`] (rendezvous hashing by default),
+and failure attribution: a request written but not answered surfaces as
+[`Error::Ambiguous`] when it has side effects, so a retry is never a
+blind guess. Batches stamp every command with an opaque token and verify
+the echoes, so a reordered response poisons the connection instead of
+being paired with the wrong command.
 
-Clients connected to several servers (`connect_multiple`) route each key
-through a [`Router`] (rendezvous hashing over a pluggable key hash by
-default, so adding or removing a server anywhere in the list only moves
-that server's keys) and split batches per server.
-
-TTLs are [`Ttl`] values: `Ttl::secs(n)`, a `Duration`, `Ttl::at(time)` or
-`Ttl::NEVER`. A zero TTL is a usage error rather than "never expires", and
-a relative TTL above 30 days is sent as an absolute timestamp, so the
-protocol's rules cannot be tripped by accident. The `*_raw(u32)` variants
-pass a wire value through untouched.
-
-Clients are cheap to clone and shareable across threads or tasks; clones
-share per-server pools of idle connections. Key hashing, the idle-pool
-cap and timeouts are set on [`MetaClientBuilder`] before connecting and
-stay fixed for the client's lifetime, so clones can never route or pool
-differently. Checkout never blocks: a busy pool just dials another
-connection. A connection that fails mid-exchange is dropped instead of
-reused. Connections are dialed lazily; connect and I/O timeouts default
-to one second (`None` removes the limit).
-
-Transports are TCP only.
-
-# Example
+# Scenario client
 
 ```no_run
-use memcache::exp::MetaClient;
+use std::time::Duration;
+use memcache::exp::{Memcache, Ttl};
+
+# fn build_report() -> Result<String, std::io::Error> { Ok(String::new()) }
+let cache = Memcache::connect(["127.0.0.1:11211"]).unwrap();
+
+cache.set("user:1", "ann", Ttl::secs(600)).unwrap();
+let name: Option<String> = cache.get("user:1").unwrap();
+
+// Get or compute, stampede-safe across threads and processes.
+let report: String = cache
+    .fetch("report:q3", Ttl::secs(3600).refresh_ahead(Duration::from_secs(60)), build_report)
+    .unwrap();
+
+// Atomic read-modify-write, retried on conflict.
+let n: u64 = cache.update("cart:42", Ttl::secs(1800), |current| current.unwrap_or(0) + 1).unwrap();
+
+// Soft invalidation: readers keep the old value while one recomputes.
+cache.invalidate("report:q3", Duration::from_secs(60)).unwrap();
+```
+
+The verb table, with what each returns:
+
+| verb | returns | scenario |
+|---|---|---|
+| `get`, `get_touch` | `Option<T>` | object cache, sessions |
+| `get_many` | `HashMap<K, T>` | page aggregation |
+| `fetch` | `T` | expensive computation, stampede protection, smooth expiry |
+| `set`, `set_many`, `delete`, `delete_many`, `invalidate`, `touch`, `append`, `prepend` | `()` | writes and invalidation |
+| `add`, `replace` | `bool` | claim once, never resurrect |
+| `update`, `try_update` | `T` | concurrent modification |
+| `take` | `Option<T>` | atomic take and delete |
+| `incr`, `decr` | `u64` | counters, rate limits |
+| `inspect` | `Option<ItemInfo>` | diagnostics |
+
+Zero-byte values are reserved as lease placeholders: a value that encodes
+to nothing is rejected with [`Error::EmptyValue`], and reads fold a
+zero-byte item into a miss.
+
+# Protocol layer
+
+```no_run
+use memcache::exp::{Get, MetaClient, Set, Ttl};
 
 let client = MetaClient::connect("127.0.0.1:11211").unwrap();
-client.set("foo", "bar").send().unwrap();
+client.set("foo", "bar").ttl(Ttl::secs(60)).send().unwrap();
 let result = client.get("foo").send().unwrap();
 assert_eq!(result.value.as_deref(), Some(&b"bar"[..]));
 
 // Options are chained before send():
-use memcache::exp::Ttl;
 client.set("foo", "bar").ttl(Ttl::secs(60)).add().send().unwrap();
 let counter = client.increment("hits").delta(2).initial(0, 60).send().unwrap();
 
 // Several operations in one round trip; each gets its own result:
-use memcache::exp::{Get, Set};
 let results = client
     .run_batch(vec![Set::new("a", "1").ttl(Ttl::secs(60)).into(), Get::new("b").into()])
     .unwrap();
@@ -81,41 +106,35 @@ let fetched = client.run_many(["a", "b"].map(Get::new)).unwrap();
 assert!(fetched[0].as_ref().unwrap().hit());
 ```
 
-# Cache-aside with leases
-
 A lease read (`lease_ttl`, optionally `refresh_before`) makes exactly one
 client recompute a missing or expiring value while the others keep
-serving the old one. A lease read fetches the item CAS automatically so
-the refill can be CAS-guarded:
+serving the old one; it fetches the item CAS automatically so the refill
+can be CAS-guarded:
 
 ```no_run
-use memcache::exp::MetaClient;
+use memcache::exp::{MetaClient, Ttl};
 
 let client = MetaClient::connect("127.0.0.1:11211").unwrap();
-let result = client
-    .get("report")
-    .lease_ttl(30)
-    .refresh_before(10)
-    .send()
-    .unwrap();
+let result = client.get("report").lease_ttl(30).refresh_before(10).send().unwrap();
 if result.won_lease() {
-    // This client recomputes; compare_cas keeps a concurrent delete or
-    // competing fill from being silently overwritten.
     let fresh = String::from("recomputed here");
     client
         .set("report", &fresh)
-        .ttl(memcache::exp::Ttl::secs(300))
+        .ttl(Ttl::secs(300))
         .compare_cas(result.item.cas.unwrap())
         .send()
         .unwrap();
 } else if let Some(old) = &result.value {
-    // A hit - possibly stale while another client refreshes: serve it.
+    // A hit, possibly stale while another client refreshes: serve it.
     let _ = old;
 }
 ```
 
 The legal combinations of `status`, `value_state` and `lease_state` are
-listed on [`GetResult`].
+listed on [`GetResult`]. TTLs are [`Ttl`] values everywhere: a zero TTL is
+a usage error rather than "never expires", a relative TTL above 30 days is
+sent as an absolute timestamp, and the `*_raw(u32)` variants pass a wire
+value through untouched.
 
 The wire layer remains available for anything the clients do not cover:
 
@@ -130,6 +149,8 @@ if result.ok() {
     println!("value: {:?}", result.value);
 }
 ```
+
+Transports are TCP only.
 */
 
 mod client;
