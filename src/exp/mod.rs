@@ -150,11 +150,15 @@ mod value;
 mod async_client;
 #[cfg(feature = "tokio")]
 mod async_connection;
+#[cfg(feature = "tokio")]
+mod async_memcache;
 
 #[cfg(feature = "tokio")]
 pub use async_client::AsyncMetaClient;
 #[cfg(feature = "tokio")]
 pub use async_connection::AsyncMetaConnection;
+#[cfg(feature = "tokio")]
+pub use async_memcache::AsyncMemcache;
 pub use client::{MetaClient, MetaClientBuilder};
 pub use connection::MetaConnection;
 pub use core::Operation;

@@ -13,7 +13,9 @@ use super::async_connection::AsyncMetaConnection;
 use super::client::{MetaClientBuilder, Timeouts, jump_hash};
 use super::core::{self, Operation};
 use super::error::{Error, Result};
-use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
+use super::meta_api::{
+    ArithmeticMode, MetaCommandResult, build_debug, build_noop, parse_debug_result, parse_meta_result,
+};
 use super::meta_command::{MetaCommand, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
@@ -177,6 +179,71 @@ impl AsyncMetaClient {
         jump_hash((self.hash_function)(key), self.servers.len())
     }
 
+    /// Run one raw command for `key` on its server; the scenario layer's
+    /// single-key exchange. Transport errors are attributed to `key`.
+    ///
+    /// Cancellation safe in the sense that matters: dropping the future
+    /// mid-exchange drops the checked-out connection instead of returning
+    /// it to the pool, since it may carry half a request or an unread
+    /// response.
+    pub(crate) async fn exchange(&self, key: &[u8], command: &MetaCommand) -> Result<MetaCommandResult> {
+        command.validate()?;
+        let server = &self.servers[self.connection_index(key)];
+        let mut connection = server.checkout(&self.timeouts).await?;
+        let response = timed(self.timeouts.io, connection.execute(command))
+            .await
+            .map_err(|error| error.for_key(key))?;
+        server.put_back(connection, self.max_idle);
+        parse_meta_result(response)
+    }
+
+    /// Run raw commands grouped per server, the groups exchanged
+    /// concurrently, and return one result per command in input order.
+    /// Every group runs even when another fails; a failed group's commands
+    /// each carry the group's error.
+    pub(crate) async fn exchange_many(&self, commands: Vec<(Vec<u8>, MetaCommand)>) -> Vec<Result<MetaCommandResult>> {
+        let mut groups: Vec<Vec<usize>> = vec![Vec::new(); self.servers.len()];
+        let mut outputs: Vec<Option<Result<MetaCommandResult>>> = (0..commands.len()).map(|_| None).collect();
+        for (index, (key, command)) in commands.iter().enumerate() {
+            match command.validate() {
+                Ok(()) => groups[self.connection_index(key)].push(index),
+                Err(error) => outputs[index] = Some(Err(error)),
+            }
+        }
+        let exchanges = groups
+            .iter()
+            .enumerate()
+            .filter(|(_, indices)| !indices.is_empty())
+            .map(|(server, indices)| {
+                let batch: Vec<MetaCommand> = indices.iter().map(|&index| commands[index].1.clone()).collect();
+                let server = &self.servers[server];
+                async move {
+                    let mut connection = server.checkout(&self.timeouts).await?;
+                    let responses = timed(self.timeouts.io, connection.execute_batch(&batch)).await?;
+                    server.put_back(connection, self.max_idle);
+                    Ok::<_, Error>(responses)
+                }
+            })
+            .collect();
+        let results = join_all(exchanges).await;
+        let groups = groups.iter().filter(|indices| !indices.is_empty());
+        for (indices, result) in groups.zip(results) {
+            match result {
+                Ok(responses) => {
+                    for (&index, response) in indices.iter().zip(responses) {
+                        outputs[index] = Some(parse_meta_result(response));
+                    }
+                }
+                Err(error) => {
+                    for &index in indices {
+                        outputs[index] = Some(Err(error.duplicate().for_key(&commands[index].0)));
+                    }
+                }
+            }
+        }
+        outputs.into_iter().map(|output| output.unwrap()).collect()
+    }
+
     /// Read a key.
     pub fn get(&self, key: impl AsRef<[u8]>) -> Request<'_, AsyncMetaClient, Get> {
         Request::new(self, Get::new(key))
@@ -212,6 +279,7 @@ impl AsyncMetaClient {
     /// for this.
     pub async fn run<O: Operation>(&self, operation: O) -> Result<O::Output> {
         let command = operation.prepare()?;
+        command.validate()?;
         let server = &self.servers[self.connection_index(operation.key())];
         let mut connection = server.checkout(&self.timeouts).await?;
         // A failed exchange leaves the stream in an unknown state, so the

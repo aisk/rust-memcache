@@ -759,10 +759,10 @@ impl Memcache {
                     if let Some(flight) = self.shared.existing(key) {
                         return decode_shared(flight.wait()?);
                     }
-                    if attempt >= WAIT_BACKOFF.len() {
-                        return self.local_compute(key, loader_now());
+                    match WAIT_BACKOFF.get(attempt) {
+                        Some(backoff) => std::thread::sleep(*backoff),
+                        None => return self.local_compute(key, loader_now()),
                     }
-                    std::thread::sleep(WAIT_BACKOFF[attempt]);
                 }
             }
         }
