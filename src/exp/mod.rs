@@ -8,8 +8,8 @@ Public enums and structs are `#[non_exhaustive]`: construct through `new`
 
 # Layers
 
-**Scenario layer**: [`Memcache`] and, behind the `tokio` feature,
-[`AsyncMemcache`]. One verb per caching scenario, business values in and
+**High-level layer**: [`Memcache`] and, behind the `tokio` feature,
+[`AsyncMemcache`]. One verb per caching pattern, business values in and
 out, every coordination mechanism (leases, CAS loops, stale tokens) kept
 inside. A miss is `Ok(None)` or an absent map key, never an error;
 conditional writes answer with `bool`; `fetch` and `update` consume the
@@ -21,7 +21,7 @@ window. Failures are [`Error`]; what degrades and what does not is a
 policy chosen on [`MemcacheBuilder`].
 
 **Protocol layer**: [`MetaClient`] / [`AsyncMetaClient`], reachable from a
-scenario client as `cache.meta()`. A typed 1:1 mapping of the protocol:
+high-level client as `cache.meta()`. A typed 1:1 mapping of the protocol:
 operations ([`Get`], [`Set`], [`Delete`], [`Arithmetic`]) with one builder
 method per protocol flag, results ([`GetResult`], [`MutationResult`],
 [`ArithmeticResult`]) that report miss, CAS mismatch and lease state as
@@ -39,7 +39,7 @@ blind guess. Batches stamp every command with an opaque token and verify
 the echoes, so a reordered response poisons the connection instead of
 being paired with the wrong command.
 
-# Scenario client
+# High-level client
 
 ```no_run
 use std::time::Duration;
@@ -65,7 +65,7 @@ cache.invalidate("report:q3", Duration::from_secs(60)).unwrap();
 
 The verb table, with what each returns:
 
-| verb | returns | scenario |
+| verb | returns | use |
 |---|---|---|
 | `get`, `get_touch` | `Option<T>` | object cache, sessions |
 | `get_many` | `HashMap<K, T>` | page aggregation |
@@ -183,7 +183,7 @@ pub use async_memcache::AsyncMemcache;
 pub use client::{MetaClient, MetaClientBuilder};
 pub use connection::MetaConnection;
 pub use core::Operation;
-pub use core::scenario::ItemInfo;
+pub use core::verbs::ItemInfo;
 pub use error::{Error, Result};
 pub use memcache::{ErrorEvent, ErrorKind, Memcache, MemcacheBuilder};
 pub use meta_api::{

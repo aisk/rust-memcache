@@ -1,4 +1,4 @@
-//! The blocking scenario client: one verb per caching scenario, business
+//! The blocking high-level client: one verb per caching pattern, business
 //! values in and out, coordination and protocol state kept inside.
 
 use std::collections::HashMap;
@@ -9,7 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use super::client::{MetaClient, MetaClientBuilder};
-use super::core::scenario::{
+use super::core::verbs::{
     FetchStep, ItemInfo, ReadView, StaleWin, TakeStep, Token, UPDATE_ATTEMPTS, WAIT_BACKOFF, encode_value, fetch_step,
     finish_concat, finish_counter, finish_erase, finish_get, finish_inspect, finish_set, finish_store, grace_ttl,
     plan_concat, plan_counter, plan_election, plan_erase, plan_get, plan_give_back, plan_inspect, plan_probe,
@@ -63,7 +63,7 @@ impl fmt::Debug for ErrorEvent<'_> {
 
 pub(crate) type ErrorHook = Arc<dyn Fn(&ErrorEvent<'_>) + Send + Sync>;
 
-/// Failure policy shared by both scenario clients.
+/// Failure policy shared by both high-level clients.
 #[derive(Clone, Default)]
 pub(crate) struct Policy {
     pub(crate) degrade: bool,
@@ -352,7 +352,7 @@ pub(crate) fn decode_shared<T: Decode>(encoded: Arc<Encoded>) -> Result<T> {
     Ok(T::decode(encoded.bytes.clone(), encoded.flags)?)
 }
 
-/// A blocking memcached client organized by scenario.
+/// A blocking high-level memcached client built on the meta protocol.
 ///
 /// Every verb returns a business value: a miss is `Ok(None)` or an absent
 /// map key, never an error; conditional writes answer with `bool`; `fetch`
@@ -404,7 +404,7 @@ impl Memcache {
     }
 
     /// The protocol layer: every meta command with every option, for what
-    /// the scenario verbs do not cover.
+    /// the high-level verbs do not cover.
     pub fn meta(&self) -> &MetaClient {
         &self.meta
     }
@@ -425,7 +425,7 @@ impl Memcache {
         }
     }
 
-    /// A scenario read: run it, return any stale token it won.
+    /// A high-level read: run it, return any stale token it won.
     fn read(&self, op: &'static str, key: &[u8], command: &MetaCommand) -> Result<ReadView> {
         let view = read_view(self.exchange(key, command)?)?;
         if let Some(win) = view.stale_win() {

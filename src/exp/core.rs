@@ -757,12 +757,12 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------
-// Scenario layer: plan functions build the wire command for one verb,
+// High-level layer: plan functions build the wire command for one verb,
 // finish functions reduce its response to the verb's answer. Both are pure,
 // so the blocking and tokio clients share every semantic decision and only
 // differ in how they move bytes.
 
-pub(crate) mod scenario {
+pub(crate) mod verbs {
     use std::time::Duration;
 
     use super::super::error::{Error, Result};
@@ -804,7 +804,7 @@ pub(crate) mod scenario {
         pub hit_before: bool,
     }
 
-    /// One read response reduced to the facts the scenario layer branches
+    /// One read response reduced to the facts the high-level layer branches
     /// on. A miss (`EN`) is `hit == false` with everything else empty.
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
     pub(crate) struct ReadView {
@@ -899,7 +899,7 @@ pub(crate) mod scenario {
         }
     }
 
-    /// Every scenario-level read asks for the CAS and TTL so a stale win
+    /// Every high-level read asks for the CAS and TTL so a stale win
     /// can be returned.
     fn base_read() -> GetOptions {
         GetOptions {
@@ -933,9 +933,9 @@ pub(crate) mod scenario {
         view.decode().map(Some)
     }
 
-    /// Encode a value for a scenario-level write, enforcing the zero-byte
+    /// Encode a value for a high-level write, enforcing the zero-byte
     /// rule: a zero-byte item is indistinguishable from a lease placeholder
-    /// and every scenario read folds it to a miss.
+    /// and every high-level read folds it to a miss.
     pub(crate) fn encode_value<V: Encode>(value: V) -> Result<Encoded> {
         let encoded = value.encode()?;
         if encoded.bytes.is_empty() {

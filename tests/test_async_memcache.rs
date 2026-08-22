@@ -1,4 +1,4 @@
-//! Integration tests of the tokio scenario client against a live memcached
+//! Integration tests of the tokio high-level client against a live memcached
 //! on localhost:12345.
 
 #![cfg(feature = "tokio")]

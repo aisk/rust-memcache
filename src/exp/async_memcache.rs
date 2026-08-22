@@ -1,4 +1,4 @@
-//! The tokio scenario client: the verb table of [`Memcache`](super::Memcache)
+//! The tokio high-level client: the verb table of [`Memcache`](super::Memcache)
 //! with `.await`, and a `fetch` whose loader runs on a detached task.
 
 use std::collections::{HashMap, HashSet};
@@ -14,7 +14,7 @@ use tokio::net::ToSocketAddrs;
 use tokio::sync::watch;
 
 use super::async_client::AsyncMetaClient;
-use super::core::scenario::{
+use super::core::verbs::{
     FetchStep, ItemInfo, LEASE_TTL_SECS, ReadView, StaleWin, TakeStep, Token, UPDATE_ATTEMPTS, WAIT_BACKOFF,
     encode_value, fetch_step, finish_concat, finish_counter, finish_erase, finish_get, finish_inspect, finish_set,
     finish_store, grace_ttl, plan_concat, plan_counter, plan_election, plan_erase, plan_get, plan_give_back,
@@ -109,7 +109,7 @@ async fn until_shutdown<F: Future>(future: F, mut shutdown: watch::Receiver<()>)
     .await
 }
 
-/// The tokio memcached client organized by scenario: the verb table of
+/// The tokio high-level memcached client built on the meta protocol: the verb table of
 /// [`Memcache`](super::Memcache), every method `async`. See there for the
 /// semantics shared by both clients; the differences are in `fetch`.
 ///

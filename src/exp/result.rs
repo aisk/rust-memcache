@@ -3,7 +3,7 @@
 //! Results describe protocol-level outcomes (miss, CAS mismatch, lease
 //! state); transport and parse failures surface as
 //! [`Error`](super::Error) instead. Values are raw bytes plus the stored
-//! client flags; decoding belongs to the scenario layer.
+//! client flags; decoding belongs to the high-level layer.
 
 /// Outcome of a [`Get`](super::Get) operation.
 ///
@@ -84,7 +84,7 @@ pub struct ItemMeta {
 /// `status`, `value_state` and `lease_state` mirror orthogonal wire
 /// flags; the combinations that actually occur:
 ///
-/// | scenario | `status` | `value_state` | `lease_state` |
+/// | case | `status` | `value_state` | `lease_state` |
 /// |---|---|---|---|
 /// | plain hit | `Hit` | `Fresh` | `None` |
 /// | plain miss | `Miss` | `Missing` | `None` |

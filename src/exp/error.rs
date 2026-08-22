@@ -2,7 +2,7 @@
 //!
 //! Semantic outcomes (a miss, a CAS mismatch, a lease state) are never
 //! errors; the protocol layer reports them in its result types and the
-//! scenario verbs consume them. What remains is split by what the caller
+//! high-level verbs consume them. What remains is split by what the caller
 //! can do about it: transport failures where the request was definitely
 //! not applied ([`Io`](Error::Io), [`Timeout`](Error::Timeout)) are
 //! retryable; a request that was written but whose outcome is unknown is
@@ -48,7 +48,7 @@ pub enum Error {
     /// retries.
     Conflict,
     /// The value encoded to zero bytes. Zero-byte items are reserved as
-    /// lease placeholders, so the scenario layer refuses to store them.
+    /// lease placeholders, so the high-level layer refuses to store them.
     EmptyValue,
     /// The value could not be encoded.
     Encode(EncodeError),

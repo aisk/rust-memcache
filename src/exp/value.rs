@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(encoded(&vec![1u8, 2]), (vec![1, 2], FLAG_BYTES));
         assert_eq!(encoded(42u64), (b"42".to_vec(), FLAG_INT));
         assert_eq!(encoded(&-1i32), (b"-1".to_vec(), FLAG_INT));
-        // Empty encodings are produced here; the scenario layer rejects them.
+        // Empty encodings are produced here; the high-level layer rejects them.
         assert_eq!(encoded(""), (Vec::new(), FLAG_STR));
     }
 

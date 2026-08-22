@@ -97,7 +97,7 @@ impl Ttl {
 
     /// Seconds left before expiry, measured from now, for validating a
     /// refresh window against it. `None` for [`NEVER`](Self::NEVER).
-    // Consumed by the scenario layer's fetch.
+    // Consumed by the high-level layer's fetch.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn remaining_secs(self) -> Result<Option<u64>> {
         match self.0 {
@@ -155,7 +155,7 @@ pub struct Freshness {
     refresh_ahead: Option<Duration>,
 }
 
-// Consumed by the scenario layer's fetch.
+// Consumed by the high-level layer's fetch.
 #[cfg_attr(not(test), allow(dead_code))]
 impl Freshness {
     pub(crate) fn ttl(self) -> Ttl {

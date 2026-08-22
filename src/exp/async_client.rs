@@ -332,7 +332,7 @@ impl AsyncMetaClient {
         }
     }
 
-    /// Run one raw command for `key` on its server; the scenario layer's
+    /// Run one raw command for `key` on its server; the high-level layer's
     /// single-key exchange. Transport errors are attributed to `key`.
     pub(crate) async fn exchange(&self, key: &[u8], command: &MetaCommand) -> Result<MetaCommandResult> {
         command.validate()?;

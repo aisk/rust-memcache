@@ -1,4 +1,4 @@
-//! Integration tests of the blocking scenario client against a live
+//! Integration tests of the blocking high-level client against a live
 //! memcached on localhost:12345 (and :12346 for multi-server).
 
 use std::collections::HashMap;
