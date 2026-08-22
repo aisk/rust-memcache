@@ -479,7 +479,6 @@ impl AsyncMemcache {
         F: FnMut(Option<T>) -> Fut,
         Fut: Future<Output = std::result::Result<T, E>>,
     {
-        let ttl = ttl.into();
         let probe = plan_probe(key)?;
         for _ in 0..UPDATE_ATTEMPTS {
             let step = update_step(read_view(self.exchange(key, &probe).await?)?);
