@@ -15,25 +15,27 @@ use tokio::sync::watch;
 
 use super::async_client::AsyncMetaClient;
 use super::core::scenario::{
-    FetchStep, ItemInfo, LEASE_TTL_SECS, ReadView, StaleWin, TakeStep, UPDATE_ATTEMPTS, WAIT_BACKOFF, encode_value,
-    fetch_step, finish_concat, finish_counter, finish_erase, finish_get, finish_inspect, finish_store, grace_ttl,
-    plan_concat, plan_counter, plan_election, plan_erase, plan_get, plan_inspect, plan_probe, plan_release_lease,
-    plan_return_win, plan_store, plan_touch, plan_write_back, read_view, take_step, update_step,
+    FetchStep, ItemInfo, LEASE_TTL_SECS, ReadView, StaleWin, TakeStep, Token, UPDATE_ATTEMPTS, WAIT_BACKOFF,
+    encode_value, fetch_step, finish_concat, finish_counter, finish_erase, finish_get, finish_inspect, finish_set,
+    finish_store, grace_ttl, plan_concat, plan_counter, plan_election, plan_erase, plan_get, plan_give_back,
+    plan_inspect, plan_probe, plan_store, plan_touch, plan_write_back, read_view, take_step, update_step,
 };
 use super::error::{Error, Result};
-use super::memcache::{ErrorKind, MemcacheBuilder, Policy};
+use super::memcache::{BoxError, ErrorKind, MemcacheBuilder, Policy, callback_error, decode_shared};
 use super::meta_api::{MetaCommandResult, SetMode};
 use super::meta_command::MetaCommand;
+use super::router::ServerAddress;
 use super::ttl::{Freshness, Ttl};
 use super::value::{Decode, Encode, Encoded};
-
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 impl MemcacheBuilder {
     /// Connect to one or more servers; the async counterpart of
     /// [`connect`](Self::connect). Must run inside a tokio runtime, which
     /// `fetch`'s background tasks also need.
-    pub async fn connect_async<A: ToSocketAddrs>(self, addrs: impl IntoIterator<Item = A>) -> Result<AsyncMemcache> {
+    pub async fn connect_async<A: ToSocketAddrs + ServerAddress>(
+        self,
+        addrs: impl IntoIterator<Item = A>,
+    ) -> Result<AsyncMemcache> {
         let (shutdown, _) = watch::channel(());
         Ok(AsyncMemcache {
             meta: self.meta.connect_multiple_async(addrs).await?,
@@ -107,14 +109,6 @@ async fn until_shutdown<F: Future>(future: F, mut shutdown: watch::Receiver<()>)
     .await
 }
 
-fn callback_error(error: impl Into<BoxError>) -> Error {
-    Error::Callback(Arc::from(error.into()))
-}
-
-fn decode_shared<T: Decode>(encoded: Arc<Encoded>) -> Result<T> {
-    Ok(T::decode(encoded.bytes.clone(), encoded.flags)?)
-}
-
 /// The tokio memcached client organized by scenario: the verb table of
 /// [`Memcache`](super::Memcache), every method `async`. See there for the
 /// semantics shared by both clients; the differences are in `fetch`.
@@ -159,7 +153,9 @@ impl fmt::Debug for AsyncMemcache {
 
 impl AsyncMemcache {
     /// Connect with the default configuration; see [`builder`](Self::builder).
-    pub async fn connect<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<AsyncMemcache> {
+    pub async fn connect<A: ToSocketAddrs + ServerAddress>(
+        addrs: impl IntoIterator<Item = A>,
+    ) -> Result<AsyncMemcache> {
         MemcacheBuilder::new().connect_async(addrs).await
     }
 
@@ -183,11 +179,20 @@ impl AsyncMemcache {
     /// Hand an accidentally won stale-recache token back on a detached
     /// task, so the read that won it does not pay the round trip.
     fn return_win(&self, op: &'static str, key: &[u8], win: StaleWin) {
+        self.spawn_give_back(op, key, Token::Win(win));
+    }
+
+    /// Give a fetch token back without waiting for the round trip.
+    fn give_back(&self, key: &[u8], token: Token) {
+        self.spawn_give_back("fetch", key, token);
+    }
+
+    fn spawn_give_back(&self, op: &'static str, key: &[u8], token: Token) {
         let meta = self.meta.clone();
         let policy = self.policy().clone();
         let key = key.to_vec();
         tokio::spawn(async move {
-            let outcome = match plan_return_win(&key, win) {
+            let outcome = match plan_give_back(&key, token) {
                 Ok(command) => meta.exchange(&key, &command).await.map(|_| ()),
                 Err(error) => Err(error),
             };
@@ -225,7 +230,7 @@ impl AsyncMemcache {
             Err(error) => Err(error),
         };
         self.policy()
-            .settle("get_touch", key, result, ReadView::default)
+            .settle_read("get_touch", key, result, ReadView::default)
             .and_then(finish_get)
     }
 
@@ -241,7 +246,7 @@ impl AsyncMemcache {
         for key in &keys {
             commands.push((key.as_ref().to_vec(), plan_get(key.as_ref(), None)?));
         }
-        let results = self.meta.exchange_many(commands).await;
+        let results = self.meta.exchange_many(&commands).await;
         let mut found = HashMap::with_capacity(keys.len());
         let mut first_error = None;
         for (key, result) in keys.into_iter().zip(results) {
@@ -275,22 +280,14 @@ impl AsyncMemcache {
         finish_store(&self.exchange(key, &command).await?)
     }
 
-    fn applied(stored: bool) -> Result<()> {
-        if stored {
-            Ok(())
-        } else {
-            Err(Error::protocol("unconditional set was not stored"))
-        }
-    }
-
     /// Store a value for `ttl`.
     pub async fn set(&self, key: impl AsRef<[u8]>, value: impl Encode, ttl: impl Into<Ttl>) -> Result<()> {
         let key = key.as_ref();
         let encoded = encode_value(value)?;
-        let result = self
-            .store(key, &encoded, ttl.into(), SetMode::Set)
-            .await
-            .and_then(Self::applied);
+        let result = match plan_store(key, &encoded, ttl.into(), SetMode::Set, None) {
+            Ok(command) => self.exchange(key, &command).await.and_then(|wire| finish_set(&wire)),
+            Err(error) => Err(error),
+        };
         self.policy().settle("set", key, result, || ())
     }
 
@@ -309,8 +306,7 @@ impl AsyncMemcache {
                 plan_store(key.as_ref(), &encoded, ttl, SetMode::Set, None)?,
             ));
         }
-        self.finish_writes("set_many", commands, |wire| finish_store(wire).and_then(Self::applied))
-            .await
+        self.finish_writes("set_many", commands, finish_set).await
     }
 
     async fn finish_writes(
@@ -319,10 +315,9 @@ impl AsyncMemcache {
         commands: Vec<(Vec<u8>, MetaCommand)>,
         finish: impl Fn(&MetaCommandResult) -> Result<()>,
     ) -> Result<()> {
-        let keys: Vec<Vec<u8>> = commands.iter().map(|(key, _)| key.clone()).collect();
-        let results = self.meta.exchange_many(commands).await;
+        let results = self.meta.exchange_many(&commands).await;
         let mut first_error = None;
-        for (key, result) in keys.iter().zip(results) {
+        for ((key, _), result) in commands.iter().zip(results) {
             if let Err(error) = result.and_then(|wire| finish(&wire)) {
                 if self.policy().absorbs(&error) {
                     self.policy().report(ErrorKind::Degraded, op, key, &error);
@@ -566,7 +561,7 @@ impl AsyncMemcache {
             let view = match self.exchange(key, &command).await.and_then(read_view) {
                 Ok(view) => view,
                 Err(error) => {
-                    if self.policy().absorbs(&error) {
+                    if self.policy().absorbs_read(&error) {
                         self.policy().report(ErrorKind::Degraded, "fetch", key, &error);
                         return self.local_compute(key, loader_now()).await;
                     }
@@ -575,15 +570,17 @@ impl AsyncMemcache {
             };
             match fetch_step(view) {
                 FetchStep::Serve { value, flags } => return Ok(T::decode(value, flags)?),
-                FetchStep::Refresh { value, flags, cas } => {
+                FetchStep::Refresh { value, flags, win } => {
                     // Serve now, recompute in the background: blocking the
                     // winner would recreate the latency spike this path
                     // exists to remove.
                     let bound = Duration::from_secs(u64::from(window.unwrap_or(LEASE_TTL_SECS)));
-                    self.spawn_refresh(key, ttl, cas, bound, loader_now());
+                    self.spawn_refresh(key, ttl, win, bound, loader_now());
                     return Ok(T::decode(value, flags)?);
                 }
-                FetchStep::Lead { cas } => return self.lead(key, ttl, Some(cas), loader_now()).await,
+                FetchStep::Lead { cas } => {
+                    return self.lead(key, ttl, Some(Token::Lease { cas }), loader_now()).await;
+                }
                 FetchStep::Local => return self.local_compute(key, loader_now()).await,
                 FetchStep::Wait => {
                     let existing = self.shared.flights.lock().unwrap().get(key).cloned();
@@ -601,9 +598,11 @@ impl AsyncMemcache {
     }
 
     /// Run the loader on a detached task as the flight leader (or join the
-    /// existing flight). With a `lease`, the result is written back through
-    /// it and an unpaid lease is released.
-    async fn lead<T, E, Fut>(&self, key: &[u8], ttl: Ttl, lease: Option<u64>, loader: Fut) -> Result<T>
+    /// existing flight). With a `token`, the result is written back through
+    /// it; a token that is not repaid, because the loader failed or because
+    /// another caller of this process already leads the key, is given back
+    /// so the next reader re-elects instead of waiting it out.
+    async fn lead<T, E, Fut>(&self, key: &[u8], ttl: Ttl, token: Option<Token>, loader: Fut) -> Result<T>
     where
         T: Encode + Decode + Send + 'static,
         E: Into<BoxError> + Send + 'static,
@@ -612,6 +611,9 @@ impl AsyncMemcache {
         let receiver = {
             let mut flights = self.shared.flights.lock().unwrap();
             if let Some(existing) = flights.get(key) {
+                if let Some(token) = token {
+                    self.give_back(key, token);
+                }
                 existing.clone()
             } else {
                 let (sender, receiver) = watch::channel(FlightState::Pending);
@@ -625,13 +627,13 @@ impl AsyncMemcache {
                         .await
                         .map_err(callback_error)
                         .and_then(|value| encode_value(&value));
-                    match (&result, lease) {
-                        (Ok(encoded), Some(cas)) => write_back(&meta, &policy, &key, encoded, ttl, cas).await,
-                        (Err(error), Some(cas)) => {
+                    match (&result, token) {
+                        (Ok(encoded), Some(token)) => write_back(&meta, &policy, &key, encoded, ttl, token.cas()).await,
+                        (Err(error), Some(token)) => {
                             if matches!(error, Error::EmptyValue | Error::Encode(_)) {
                                 policy.report(ErrorKind::WriteBack, "fetch", &key, error);
                             }
-                            release_lease(&meta, &policy, &key, cas).await;
+                            give_back(&meta, &policy, &key, token).await;
                         }
                         (_, None) => {}
                     }
@@ -659,16 +661,21 @@ impl AsyncMemcache {
 
     /// Recompute in the background after a refresh-ahead or stale-grace
     /// win, at most once per key at a time, bounded by the window that
-    /// triggered it and by the client's lifetime.
-    fn spawn_refresh<T, E, Fut>(&self, key: &[u8], ttl: Ttl, cas: u64, bound: Duration, loader: Fut)
+    /// triggered it and by the client's lifetime. A win taken while a
+    /// refresh is already running is handed back: the running refresh
+    /// writes back through its own CAS, which this newer win has bumped
+    /// past, so nobody would repay the token otherwise.
+    fn spawn_refresh<T, E, Fut>(&self, key: &[u8], ttl: Ttl, win: StaleWin, bound: Duration, loader: Fut)
     where
         T: Encode + Send + 'static,
         E: Into<BoxError> + Send + 'static,
         Fut: Future<Output = std::result::Result<T, E>> + Send + 'static,
     {
         if !self.shared.refreshing.lock().unwrap().insert(key.to_vec()) {
+            self.give_back(key, Token::Win(win));
             return;
         }
+        let cas = win.cas;
         let meta = self.meta.clone();
         let policy = self.policy().clone();
         let refreshing = Arc::clone(&self.shared.refreshing);
@@ -719,8 +726,8 @@ async fn write_back(meta: &AsyncMetaClient, policy: &Policy, key: &[u8], value: 
     policy.report(ErrorKind::WriteBack, "fetch", key, &error);
 }
 
-async fn release_lease(meta: &AsyncMetaClient, policy: &Policy, key: &[u8], cas: u64) {
-    let outcome = match plan_release_lease(key, cas) {
+async fn give_back(meta: &AsyncMetaClient, policy: &Policy, key: &[u8], token: Token) {
+    let outcome = match plan_give_back(key, token) {
         Ok(command) => meta.exchange(key, &command).await.map(|_| ()),
         Err(error) => Err(error),
     };

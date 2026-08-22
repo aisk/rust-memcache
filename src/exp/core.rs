@@ -154,6 +154,15 @@ impl Failure {
         Failure { error, written: 0 }
     }
 
+    /// Whether a pooled connection's failure should be retried on a fresh
+    /// dial: it died before the first byte of the request was written, so
+    /// nothing could have landed. A timeout is excluded, the server is slow
+    /// rather than the connection stale, and redialing would spend the
+    /// exchange deadline twice.
+    pub(crate) fn redialable(pooled: bool, written: usize, error: &Error) -> bool {
+        pooled && written == 0 && matches!(error, Error::Io(error) if error.kind() != std::io::ErrorKind::TimedOut)
+    }
+
     /// The error for `key`: [`Error::Ambiguous`] when the request was
     /// written and has side effects, otherwise the error itself (the
     /// request was definitely not applied).
@@ -194,10 +203,7 @@ impl Batch {
                 return Err(Error::Usage("opaque tokens are reserved by the batch executor"));
             }
             let position = batch.ends.len();
-            command
-                .clone()
-                .flag(format!("O{position}"))
-                .encode_into(&mut batch.payload)?;
+            command.encode_with_opaque(position, &mut batch.payload)?;
             batch.ends.push(batch.payload.len());
             batch.side_effects.push(command.has_side_effect());
         }
@@ -212,6 +218,18 @@ impl Batch {
     pub(crate) fn attribute(&self, position: usize, key: &[u8], failure: &Failure) -> Error {
         let landed = failure.written >= self.ends[position] && self.side_effects[position];
         failure.attribute(key, landed)
+    }
+}
+
+/// Pair a batch exchange's outcome with its opaque check: the responses
+/// read, complete or partial, must echo the tokens in order. One out of
+/// order means every pairing is suspect, so they are all dropped and the
+/// order error replaces the transport error; the attribution still says
+/// which commands may have landed.
+pub(crate) fn check_batch(responses: Vec<MetaResponse>, error: Option<Error>) -> (Vec<MetaResponse>, Option<Error>) {
+    match check_batch_order(&responses) {
+        Ok(()) => (responses, error),
+        Err(order) => (Vec::new(), Some(order)),
     }
 }
 
@@ -483,6 +501,35 @@ mod tests {
         let mut response = MetaResponse::parse_header(header).unwrap();
         response.value = value.map(|value| value.to_vec());
         parse_meta_result(response).unwrap()
+    }
+
+    #[test]
+    fn redial_only_on_a_dead_pooled_connection() {
+        let dead = Error::Io(std::io::Error::from(std::io::ErrorKind::ConnectionReset));
+        let slow = Error::Io(std::io::Error::from(std::io::ErrorKind::TimedOut));
+        assert!(Failure::redialable(true, 0, &dead));
+        assert!(!Failure::redialable(false, 0, &dead));
+        assert!(!Failure::redialable(true, 3, &dead));
+        assert!(!Failure::redialable(true, 0, &slow));
+        assert!(!Failure::redialable(true, 0, &Error::protocol("x")));
+    }
+
+    #[test]
+    fn partial_batch_responses_are_order_checked() {
+        let responses = vec![
+            MetaResponse::parse_header(b"HD O1").unwrap(),
+            MetaResponse::parse_header(b"HD O0").unwrap(),
+        ];
+        let transport = Error::Io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+        let (responses, error) = check_batch(responses, Some(transport));
+        assert!(responses.is_empty());
+        assert!(matches!(error, Some(Error::Protocol(message)) if message.contains("opaque")));
+
+        let responses = vec![MetaResponse::parse_header(b"HD O0").unwrap()];
+        let transport = Error::Io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+        let (responses, error) = check_batch(responses, Some(transport));
+        assert_eq!(responses.len(), 1);
+        assert!(matches!(error, Some(Error::Io(_))));
     }
 
     #[test]
@@ -807,6 +854,31 @@ pub(crate) mod scenario {
         ttl: Option<i64>,
     }
 
+    /// The election token a `fetch` reader holds while it recomputes. A
+    /// token that is not repaid by a write-back must be given back (see
+    /// [`plan_give_back`]), or the next readers wait on a winner that is
+    /// not coming.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Token {
+        /// The lease on a zero-byte placeholder: given back by deleting the
+        /// placeholder so the next reader re-elects immediately.
+        Lease { cas: u64 },
+        /// The single refresh token of a value-bearing item (refresh-ahead
+        /// or stale grace): given back by re-invalidating the item, which
+        /// keeps the value and re-arms the election.
+        Win(StaleWin),
+    }
+
+    impl Token {
+        /// The CAS a write-back through this token is conditioned on.
+        pub(crate) fn cas(&self) -> u64 {
+            match self {
+                Token::Lease { cas } => *cas,
+                Token::Win(win) => win.cas,
+            }
+        }
+    }
+
     pub(crate) fn read_view(wire: MetaCommandResult) -> Result<ReadView> {
         match wire.rc {
             ReturnCode::En => Ok(ReadView::default()),
@@ -897,6 +969,15 @@ pub(crate) mod scenario {
             ReturnCode::Hd => Ok(true),
             ReturnCode::Ns | ReturnCode::Ex | ReturnCode::Nf => Ok(false),
             rc => Err(Error::Protocol(format!("unexpected store response {rc:?}"))),
+        }
+    }
+
+    /// An unconditional set has no legitimate "not stored" answer.
+    pub(crate) fn finish_set(wire: &MetaCommandResult) -> Result<()> {
+        if finish_store(wire)? {
+            Ok(())
+        } else {
+            Err(Error::protocol("unconditional set was not stored"))
         }
     }
 
@@ -1051,11 +1132,11 @@ pub(crate) mod scenario {
         /// A value-bearing hit whose refresh this reader won (refresh-ahead
         /// window or stale grace). The blocking client recomputes now; the
         /// tokio client serves the value and recomputes in the background.
-        Refresh { value: Vec<u8>, flags: u32, cas: u64 },
+        Refresh { value: Vec<u8>, flags: u32, win: StaleWin },
         /// This reader owns the miss-path lease (or found a zero-byte item
         /// nobody is rewriting): run the loader, write back through `cas`.
-        /// `release` says the placeholder must be deleted when nothing is
-        /// written back, so the next reader re-elects immediately.
+        /// The placeholder must be deleted when nothing is written back, so
+        /// the next reader re-elects immediately.
         Lead { cas: u64 },
         /// No coordination available (a miss despite vivify): compute
         /// without writing back.
@@ -1071,7 +1152,7 @@ pub(crate) mod scenario {
                 (true, Some(cas)) => FetchStep::Refresh {
                     value: view.value.unwrap_or_default(),
                     flags,
-                    cas,
+                    win: StaleWin { cas, ttl: view.ttl },
                 },
                 _ => FetchStep::Serve {
                     value: view.value.unwrap_or_default(),
@@ -1102,6 +1183,15 @@ pub(crate) mod scenario {
     /// Delete the placeholder whose lease could not be repaid.
     pub(crate) fn plan_release_lease(key: &[u8], cas: u64) -> Result<MetaCommand> {
         plan_erase(key, None, Some(cas))
+    }
+
+    /// Give back a token that will not be repaid: a lease by releasing
+    /// the placeholder, a win by returning it.
+    pub(crate) fn plan_give_back(key: &[u8], token: Token) -> Result<MetaCommand> {
+        match token {
+            Token::Lease { cas } => plan_release_lease(key, cas),
+            Token::Win(win) => plan_return_win(key, win),
+        }
     }
 
     /// Hand an accidentally consumed stale-recache token back: re-invalidate
@@ -1351,12 +1441,15 @@ pub(crate) mod scenario {
                 FetchStep::Refresh {
                     value: b"bar".to_vec(),
                     flags: 0,
-                    cas: 7
+                    win: StaleWin { cas: 7, ttl: Some(10) }
                 }
             );
             assert!(matches!(
                 serve(b"VA 3 c7 t10 X W", b"old"),
-                FetchStep::Refresh { cas: 7, .. }
+                FetchStep::Refresh {
+                    win: StaleWin { cas: 7, .. },
+                    ..
+                }
             ));
             // Stale value while another reader refreshes: keep serving it.
             assert!(matches!(serve(b"VA 3 c7 t10 X Z", b"old"), FetchStep::Serve { .. }));

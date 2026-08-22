@@ -1,9 +1,11 @@
 //! Tokio TCP transport for meta protocol commands.
 
+use std::future::Future;
 use std::io;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, ToSocketAddrs};
+use tokio::time::Instant;
 
 use super::error::{Error, Result};
 
@@ -18,6 +20,19 @@ pub struct AsyncMetaConnection {
     reader: BufReader<TcpStream>,
     /// Bytes of the current (or last) exchange handed to the socket.
     written: usize,
+}
+
+/// Bound a transport step by an absolute deadline; `None` means unbounded.
+/// A timeout surfaces as an io error and so poisons the connection like
+/// any other transport failure.
+async fn by<T>(deadline: Option<Instant>, step: impl Future<Output = Result<T>>) -> Result<T> {
+    match deadline {
+        Some(deadline) => match tokio::time::timeout_at(deadline, step).await {
+            Ok(result) => result,
+            Err(_) => Err(io::Error::from(io::ErrorKind::TimedOut).into()),
+        },
+        None => step.await,
+    }
 }
 
 impl AsyncMetaConnection {
@@ -99,8 +114,18 @@ impl AsyncMetaConnection {
 
     /// Send a command and read its response.
     pub async fn execute(&mut self, command: &MetaCommand) -> Result<MetaResponse> {
-        self.send(command).await?;
-        self.receive().await
+        self.execute_encoded(&command.encode()?, None).await
+    }
+
+    /// Send one pre-encoded command and read its response, each step
+    /// under `deadline`; the caller knows the payload length and can tell
+    /// from [`written`](Self::written) whether the request left in full.
+    pub(crate) async fn execute_encoded(&mut self, payload: &[u8], deadline: Option<Instant>) -> Result<MetaResponse> {
+        let (mut responses, error) = self.execute_payload(payload, 1, deadline).await;
+        match error {
+            Some(error) => Err(error),
+            None => responses.pop().ok_or_else(|| Error::protocol("response missing")),
+        }
     }
 
     /// Write all commands in one payload, then read one response per
@@ -111,7 +136,7 @@ impl AsyncMetaConnection {
         for command in commands {
             command.encode_into(&mut payload)?;
         }
-        let (responses, error) = self.execute_payload(&payload, commands.len()).await;
+        let (responses, error) = self.execute_payload(&payload, commands.len(), None).await;
         match error {
             Some(error) => Err(error),
             None => Ok(responses),
@@ -121,14 +146,21 @@ impl AsyncMetaConnection {
     /// Write a pre-encoded batch payload and read `count` responses,
     /// keeping the responses read before a failure so the caller can
     /// attribute it; [`written`](Self::written) says how much of the
-    /// payload left the process.
-    pub(crate) async fn execute_payload(&mut self, payload: &[u8], count: usize) -> (Vec<MetaResponse>, Option<Error>) {
+    /// payload left the process. The deadline bounds every step, so a
+    /// timeout mid-batch still hands back the responses read so far
+    /// instead of dropping them with the future.
+    pub(crate) async fn execute_payload(
+        &mut self,
+        payload: &[u8],
+        count: usize,
+        deadline: Option<Instant>,
+    ) -> (Vec<MetaResponse>, Option<Error>) {
         let mut responses = Vec::with_capacity(count);
-        if let Err(error) = self.write_payload(payload).await {
+        if let Err(error) = by(deadline, self.write_payload(payload)).await {
             return (responses, Some(error));
         }
         for _ in 0..count {
-            match self.receive().await {
+            match by(deadline, self.receive()).await {
                 Ok(response) => responses.push(response),
                 Err(error) => return (responses, Some(error)),
             }

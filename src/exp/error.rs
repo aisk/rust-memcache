@@ -28,7 +28,10 @@ pub enum Error {
     /// Transport failure before the request was fully written: it was
     /// definitely not applied.
     Io(io::Error),
-    /// The exchange deadline passed before the request was written.
+    /// The exchange deadline passed. On its own the request was not
+    /// fully written and was definitely not applied; wrapped in
+    /// [`Ambiguous`](Error::Ambiguous) it was written and the outcome is
+    /// unknown.
     Timeout { key: Vec<u8> },
     /// The request was written but the outcome could not be observed.
     /// Retrying may duplicate the effect.
@@ -122,7 +125,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Io(error) => write!(f, "i/o error: {error}"),
-            Error::Timeout { key } => write!(f, "timed out before sending request for {:?}", Key(key)),
+            Error::Timeout { key } => write!(f, "timed out on request for {:?}", Key(key)),
             Error::Ambiguous { key, source } => {
                 write!(f, "outcome of request for {:?} is unknown: {source}", Key(key))
             }
@@ -248,6 +251,6 @@ mod tests {
         let error = Error::Timeout {
             key: b"user:1".to_vec(),
         };
-        assert_eq!(error.to_string(), "timed out before sending request for \"user:1\"");
+        assert_eq!(error.to_string(), "timed out on request for \"user:1\"");
     }
 }

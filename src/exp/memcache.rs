@@ -10,19 +10,19 @@ use std::time::Duration;
 
 use super::client::{MetaClient, MetaClientBuilder};
 use super::core::scenario::{
-    FetchStep, ItemInfo, ReadView, StaleWin, TakeStep, UPDATE_ATTEMPTS, WAIT_BACKOFF, encode_value, fetch_step,
-    finish_concat, finish_counter, finish_erase, finish_get, finish_inspect, finish_store, grace_ttl, plan_concat,
-    plan_counter, plan_election, plan_erase, plan_get, plan_inspect, plan_probe, plan_release_lease, plan_return_win,
-    plan_store, plan_touch, plan_write_back, read_view, take_step, update_step,
+    FetchStep, ItemInfo, ReadView, StaleWin, TakeStep, Token, UPDATE_ATTEMPTS, WAIT_BACKOFF, encode_value, fetch_step,
+    finish_concat, finish_counter, finish_erase, finish_get, finish_inspect, finish_set, finish_store, grace_ttl,
+    plan_concat, plan_counter, plan_election, plan_erase, plan_get, plan_give_back, plan_inspect, plan_probe,
+    plan_return_win, plan_store, plan_touch, plan_write_back, read_view, take_step, update_step,
 };
 use super::error::{Error, Result};
 use super::meta_api::{MetaCommandResult, SetMode};
 use super::meta_command::MetaCommand;
-use super::router::Router;
+use super::router::{Router, ServerAddress};
 use super::ttl::{Freshness, Ttl};
 use super::value::{Decode, Encode, Encoded};
 
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
+pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Why an [`ErrorEvent`] was raised.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +88,18 @@ impl Policy {
             )
     }
 
+    /// Whether degrade mode swallows this failure on a read. A read has
+    /// no outcome the caller relies on even when it takes a lease or
+    /// slides a ttl on the way, so one written but unanswered is as much
+    /// "the cache is unavailable" as one never written: the caller takes
+    /// the miss path either way.
+    pub(crate) fn absorbs_read(&self, error: &Error) -> bool {
+        match error {
+            Error::Ambiguous { source, .. } => self.absorbs(source),
+            other => self.absorbs(other),
+        }
+    }
+
     /// Resolve a verb's outcome under the policy: an absorbed failure is
     /// reported and replaced by `fallback`.
     pub(crate) fn settle<T>(
@@ -97,8 +109,31 @@ impl Policy {
         result: Result<T>,
         fallback: impl FnOnce() -> T,
     ) -> Result<T> {
+        self.settle_by(Policy::absorbs, op, key, result, fallback)
+    }
+
+    /// [`settle`](Self::settle) for a read, absorbing by
+    /// [`absorbs_read`](Self::absorbs_read).
+    pub(crate) fn settle_read<T>(
+        &self,
+        op: &'static str,
+        key: &[u8],
+        result: Result<T>,
+        fallback: impl FnOnce() -> T,
+    ) -> Result<T> {
+        self.settle_by(Policy::absorbs_read, op, key, result, fallback)
+    }
+
+    fn settle_by<T>(
+        &self,
+        absorbs: fn(&Policy, &Error) -> bool,
+        op: &'static str,
+        key: &[u8],
+        result: Result<T>,
+        fallback: impl FnOnce() -> T,
+    ) -> Result<T> {
         match result {
-            Err(error) if self.absorbs(&error) => {
+            Err(error) if absorbs(self, &error) => {
                 self.report(ErrorKind::Degraded, op, key, &error);
                 Ok(fallback())
             }
@@ -196,7 +231,7 @@ impl MemcacheBuilder {
 
     /// Connect to one or more servers. Addresses are resolved now and
     /// connections dialed lazily.
-    pub fn connect<A: ToSocketAddrs>(self, addrs: impl IntoIterator<Item = A>) -> Result<Memcache> {
+    pub fn connect<A: ToSocketAddrs + ServerAddress>(self, addrs: impl IntoIterator<Item = A>) -> Result<Memcache> {
         Ok(Memcache {
             meta: self.meta.connect_multiple(addrs)?,
             shared: Arc::new(Shared {
@@ -309,11 +344,11 @@ impl Shared {
     }
 }
 
-fn callback_error(error: impl Into<BoxError>) -> Error {
+pub(crate) fn callback_error(error: impl Into<BoxError>) -> Error {
     Error::Callback(Arc::from(error.into()))
 }
 
-fn decode_shared<T: Decode>(encoded: Arc<Encoded>) -> Result<T> {
+pub(crate) fn decode_shared<T: Decode>(encoded: Arc<Encoded>) -> Result<T> {
     Ok(T::decode(encoded.bytes.clone(), encoded.flags)?)
 }
 
@@ -360,7 +395,7 @@ impl fmt::Debug for Memcache {
 
 impl Memcache {
     /// Connect with the default configuration; see [`builder`](Self::builder).
-    pub fn connect<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<Memcache> {
+    pub fn connect<A: ToSocketAddrs + ServerAddress>(addrs: impl IntoIterator<Item = A>) -> Result<Memcache> {
         MemcacheBuilder::new().connect(addrs)
     }
 
@@ -416,7 +451,7 @@ impl Memcache {
         let key = key.as_ref();
         let result = plan_get(key, Some(ttl.into())).and_then(|command| self.read("get_touch", key, &command));
         self.policy()
-            .settle("get_touch", key, result, ReadView::default)
+            .settle_read("get_touch", key, result, ReadView::default)
             .and_then(finish_get)
     }
 
@@ -436,7 +471,7 @@ impl Memcache {
         }
         let mut found = HashMap::with_capacity(keys.len());
         let mut first_error = None;
-        for (key, result) in keys.into_iter().zip(self.meta.exchange_many(commands)) {
+        for (key, result) in keys.into_iter().zip(self.meta.exchange_many(&commands)) {
             let view = match result.and_then(read_view) {
                 Ok(view) => view,
                 Err(error) => {
@@ -471,13 +506,8 @@ impl Memcache {
     pub fn set(&self, key: impl AsRef<[u8]>, value: impl Encode, ttl: impl Into<Ttl>) -> Result<()> {
         let key = key.as_ref();
         let encoded = encode_value(value)?;
-        let result = self.store(key, &encoded, ttl.into(), SetMode::Set).and_then(|stored| {
-            if stored {
-                Ok(())
-            } else {
-                Err(Error::protocol("unconditional set was not stored"))
-            }
-        });
+        let command = plan_store(key, &encoded, ttl.into(), SetMode::Set, None);
+        let result = command.and_then(|command| finish_set(&self.exchange(key, &command)?));
         self.policy().settle("set", key, result, || ())
     }
 
@@ -500,15 +530,7 @@ impl Memcache {
                 plan_store(key.as_ref(), &encoded, ttl, SetMode::Set, None)?,
             ));
         }
-        self.finish_writes("set_many", commands, |wire| {
-            finish_store(wire).and_then(|stored| {
-                if stored {
-                    Ok(())
-                } else {
-                    Err(Error::protocol("unconditional set was not stored"))
-                }
-            })
-        })
+        self.finish_writes("set_many", commands, finish_set)
     }
 
     fn finish_writes(
@@ -517,9 +539,8 @@ impl Memcache {
         commands: Vec<(Vec<u8>, MetaCommand)>,
         finish: impl Fn(&MetaCommandResult) -> Result<()>,
     ) -> Result<()> {
-        let keys: Vec<Vec<u8>> = commands.iter().map(|(key, _)| key.clone()).collect();
         let mut first_error = None;
-        for (key, result) in keys.iter().zip(self.meta.exchange_many(commands)) {
+        for ((key, _), result) in commands.iter().zip(self.meta.exchange_many(&commands)) {
             if let Err(error) = result.and_then(|wire| finish(&wire)) {
                 if self.policy().absorbs(&error) {
                     self.policy().report(ErrorKind::Degraded, op, key, &error);
@@ -757,7 +778,7 @@ impl Memcache {
             let view = match self.exchange(key, &command).and_then(read_view) {
                 Ok(view) => view,
                 Err(error) => {
-                    if self.policy().absorbs(&error) {
+                    if self.policy().absorbs_read(&error) {
                         // Cache outage is not a site outage: compute
                         // locally, skip the cache, keep it observable.
                         self.policy().report(ErrorKind::Degraded, "fetch", key, &error);
@@ -771,8 +792,8 @@ impl Memcache {
                 // The synchronous winner recomputes now; who pays how
                 // much latency stays predictable, this client owns no
                 // threads.
-                FetchStep::Refresh { cas, .. } => return self.lead(key, ttl, cas, false, loader_now()),
-                FetchStep::Lead { cas } => return self.lead(key, ttl, cas, true, loader_now()),
+                FetchStep::Refresh { win, .. } => return self.lead(key, ttl, Token::Win(win), loader_now()),
+                FetchStep::Lead { cas } => return self.lead(key, ttl, Token::Lease { cas }, loader_now()),
                 FetchStep::Local => return self.local_compute(key, loader_now()),
                 FetchStep::Wait => {
                     // Same-process callers share the leader's pending
@@ -790,12 +811,14 @@ impl Memcache {
         unreachable!("fetch wait loop exits by return")
     }
 
-    /// Run the loader as the elected winner, write back through `cas`,
-    /// publish the encoded result to same-process waiters. The loader's
-    /// error goes to everyone; write-back failures only to `on_error`.
-    /// With `release`, a lease that cannot be repaid is given back so the
-    /// next reader re-elects instead of waiting out the placeholder.
-    fn lead<T, E, F>(&self, key: &[u8], ttl: Ttl, cas: u64, release: bool, loader: F) -> Result<T>
+    /// Run the loader as the elected winner, write back through the
+    /// token, publish the encoded result to same-process waiters. The
+    /// loader's error goes to everyone; write-back failures only to
+    /// `on_error`. A token that is not repaid, because the loader failed
+    /// or because another caller of this process already leads the key,
+    /// is given back so the next reader re-elects instead of waiting out
+    /// the placeholder or the grace period.
+    fn lead<T, E, F>(&self, key: &[u8], ttl: Ttl, token: Token, loader: F) -> Result<T>
     where
         T: Encode + Decode,
         E: Into<BoxError>,
@@ -803,6 +826,7 @@ impl Memcache {
     {
         let (flight, leader) = self.shared.claim(key);
         if !leader {
+            self.give_back(key, token);
             return decode_shared(flight.wait()?);
         }
         let lead = Lead {
@@ -818,16 +842,14 @@ impl Memcache {
             Ok(ok) => ok,
             Err(error) => {
                 lead.finish(Err(error.duplicate()));
-                if release {
-                    self.release_lease(key, cas);
-                }
+                self.give_back(key, token);
                 if matches!(error, Error::EmptyValue | Error::Encode(_)) {
                     self.policy().report(ErrorKind::WriteBack, "fetch", key, &error);
                 }
                 return Err(error);
             }
         };
-        self.write_back(key, &encoded, ttl, cas);
+        self.write_back(key, &encoded, ttl, token.cas());
         lead.finish(Ok(Arc::new(encoded)));
         Ok(value)
     }
@@ -879,8 +901,8 @@ impl Memcache {
         self.policy().report(ErrorKind::WriteBack, "fetch", key, &error);
     }
 
-    fn release_lease(&self, key: &[u8], cas: u64) {
-        let outcome = plan_release_lease(key, cas).and_then(|command| self.exchange(key, &command));
+    fn give_back(&self, key: &[u8], token: Token) {
+        let outcome = plan_give_back(key, token).and_then(|command| self.exchange(key, &command));
         if let Err(error) = outcome {
             self.policy().report(ErrorKind::LeaseReturn, "fetch", key, &error);
         }

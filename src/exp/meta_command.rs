@@ -17,6 +17,12 @@ use super::error::{Error, Result};
 /// bytes.
 pub const MAX_KEY_LENGTH: usize = 250;
 
+/// The largest data block a `VA` response may announce: memcached's own
+/// item size ceiling (`-I` caps at 1 GiB). A larger length is a protocol
+/// violation or a desynchronized stream, and is rejected instead of being
+/// allocated.
+pub const MAX_VALUE_LENGTH: usize = 1 << 30;
+
 const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 pub(crate) fn base64_encode(input: &[u8]) -> Vec<u8> {
@@ -254,6 +260,16 @@ impl MetaCommand {
     }
 
     pub fn encode_into(&self, buffer: &mut Vec<u8>) -> Result<()> {
+        self.encode_flagged(None, buffer)
+    }
+
+    /// Encode with an `O<position>` opaque token appended to the flags,
+    /// without copying the value into a flagged clone first.
+    pub(crate) fn encode_with_opaque(&self, position: usize, buffer: &mut Vec<u8>) -> Result<()> {
+        self.encode_flagged(Some(position), buffer)
+    }
+
+    fn encode_flagged(&self, opaque: Option<usize>, buffer: &mut Vec<u8>) -> Result<()> {
         buffer.extend_from_slice(self.op.wire());
         if self.op == MetaOp::Noop {
             // mn takes no key, flags or value.
@@ -271,6 +287,9 @@ impl MetaCommand {
         for flag in &self.flags {
             buffer.push(b' ');
             buffer.extend_from_slice(flag);
+        }
+        if let Some(position) = opaque {
+            buffer.extend_from_slice(format!(" O{position}").as_bytes());
         }
         if needs_base64 && !self.flags.iter().any(|flag| flag.as_slice() == b"b") {
             buffer.extend_from_slice(b" b");
@@ -343,12 +362,16 @@ impl MetaResponse {
                 return Err(Error::protocol("VA response missing data length"));
             }
             let token = flags.remove(0);
-            datalen = Some(
-                std::str::from_utf8(&token)
-                    .ok()
-                    .and_then(|token| token.parse::<usize>().ok())
-                    .ok_or_else(|| Error::protocol("VA response has an invalid data length"))?,
-            );
+            let length = std::str::from_utf8(&token)
+                .ok()
+                .and_then(|token| token.parse::<usize>().ok())
+                .ok_or_else(|| Error::protocol("VA response has an invalid data length"))?;
+            if length > MAX_VALUE_LENGTH {
+                return Err(Error::Protocol(format!(
+                    "VA response announces {length} bytes, above the {MAX_VALUE_LENGTH} byte limit"
+                )));
+            }
+            datalen = Some(length);
         }
         Ok(MetaResponse {
             rc,
@@ -362,6 +385,23 @@ impl MetaResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn va_length_is_bounded() {
+        assert_eq!(MetaResponse::parse_header(b"VA 3 c7").unwrap().datalen, Some(3));
+        assert_eq!(
+            MetaResponse::parse_header(b"VA 1073741824").unwrap().datalen,
+            Some(MAX_VALUE_LENGTH)
+        );
+        for header in [
+            b"VA 1073741825".as_slice(),
+            b"VA 18446744073709551615",
+            b"VA 99999999999999999999",
+        ] {
+            let error = MetaResponse::parse_header(header).unwrap_err();
+            assert!(matches!(error, Error::Protocol(_)), "{header:?}: {error:?}");
+        }
+    }
 
     #[test]
     fn base64_roundtrip() {

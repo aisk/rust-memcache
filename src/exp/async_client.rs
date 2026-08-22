@@ -21,7 +21,7 @@ use super::meta_command::{MetaCommand, MetaResponse, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
-use super::router::Router;
+use super::router::{Router, ServerAddress};
 
 /// Bound a transport future by a timeout; `None` means unbounded. A
 /// timeout surfaces as an io error and so poisons the connection like any
@@ -33,6 +33,13 @@ async fn timed<T>(timeout: Option<Duration>, future: impl Future<Output = Result
             Err(_) => Err(std::io::Error::from(std::io::ErrorKind::TimedOut).into()),
         },
         None => future.await,
+    }
+}
+
+impl Engine {
+    /// The io deadline for an exchange starting now.
+    fn deadline(&self) -> Option<tokio::time::Instant> {
+        self.io_timeout.map(|timeout| tokio::time::Instant::now() + timeout)
     }
 }
 
@@ -176,7 +183,7 @@ impl AsyncServer {
 #[derive(Clone)]
 pub struct AsyncMetaClient {
     servers: Arc<Vec<AsyncServer>>,
-    ids: Arc<Vec<SocketAddr>>,
+    ids: Arc<Vec<String>>,
     router: Arc<dyn Router>,
     engine: Engine,
 }
@@ -184,18 +191,20 @@ pub struct AsyncMetaClient {
 impl MetaClientBuilder {
     /// Connect to one server with this configuration; the async
     /// counterpart of [`connect`](Self::connect).
-    pub async fn connect_async<A: ToSocketAddrs>(self, addr: A) -> Result<AsyncMetaClient> {
+    pub async fn connect_async<A: ToSocketAddrs + ServerAddress>(self, addr: A) -> Result<AsyncMetaClient> {
         self.connect_multiple_async([addr]).await
     }
 
     /// Connect to several servers with this configuration; the async
     /// counterpart of [`connect_multiple`](Self::connect_multiple).
-    pub async fn connect_multiple_async<A: ToSocketAddrs>(
+    pub async fn connect_multiple_async<A: ToSocketAddrs + ServerAddress>(
         self,
         addrs: impl IntoIterator<Item = A>,
     ) -> Result<AsyncMetaClient> {
         let mut servers = Vec::new();
+        let mut ids = Vec::new();
         for addr in addrs {
+            ids.push(addr.identity());
             let resolved: Vec<SocketAddr> = lookup_host(addr).await?.collect();
             if resolved.is_empty() {
                 return Err(Error::Usage("address resolved to no socket addresses"));
@@ -205,7 +214,6 @@ impl MetaClientBuilder {
         if servers.is_empty() {
             return Err(Error::Usage("at least one server address is required"));
         }
-        let ids = servers.iter().map(|server| server.addrs[0]).collect();
         Ok(AsyncMetaClient {
             servers: Arc::new(servers),
             ids: Arc::new(ids),
@@ -218,7 +226,7 @@ impl MetaClientBuilder {
 impl AsyncMetaClient {
     /// Connect to one server with the default configuration; use
     /// [`builder`](Self::builder) to change it.
-    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<AsyncMetaClient> {
+    pub async fn connect<A: ToSocketAddrs + ServerAddress>(addr: A) -> Result<AsyncMetaClient> {
         AsyncMetaClient::connect_multiple([addr]).await
     }
 
@@ -227,7 +235,9 @@ impl AsyncMetaClient {
     /// [`Router`](super::Router)). Addresses are resolved here, but
     /// connections are dialed lazily, so a down server surfaces at the
     /// first operation; [`noop`](Self::noop) verifies connectivity eagerly.
-    pub async fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<AsyncMetaClient> {
+    pub async fn connect_multiple<A: ToSocketAddrs + ServerAddress>(
+        addrs: impl IntoIterator<Item = A>,
+    ) -> Result<AsyncMetaClient> {
         AsyncMetaClient::builder().connect_multiple_async(addrs).await
     }
 
@@ -250,18 +260,19 @@ impl AsyncMetaClient {
     /// mid-exchange drops the checked-out connection instead of returning
     /// it to the pool, since it may carry half a request or an unread
     /// response.
-    async fn execute_on(&self, server: usize, command: &MetaCommand) -> std::result::Result<MetaResponse, Failure> {
+    async fn execute_on(&self, server: usize, payload: &[u8]) -> std::result::Result<MetaResponse, Failure> {
         let server = &self.servers[server];
         let mut checkout = server.checkout(&self.engine).await.map_err(Failure::before_write)?;
         loop {
-            match timed(self.engine.io_timeout, checkout.connection().execute(command)).await {
+            let deadline = self.engine.deadline();
+            match checkout.connection().execute_encoded(payload, deadline).await {
                 Ok(response) => {
                     checkout.put_back(&self.engine);
                     return Ok(response);
                 }
                 Err(error) => {
                     let written = checkout.connection().written();
-                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                    if Failure::redialable(checkout.pooled, written, &error) {
                         checkout.connection = Some(server.dial(&self.engine).await.map_err(Failure::before_write)?);
                         checkout.pooled = false;
                         continue;
@@ -272,13 +283,15 @@ impl AsyncMetaClient {
         }
     }
 
-    /// One command on its server, attributed: a request written but not
-    /// answered is [`Error::Ambiguous`] when it has side effects.
+    /// One command on its server, attributed: a request written in full
+    /// but not answered is [`Error::Ambiguous`] when it has side effects;
+    /// a partially written one was never parsed by the server.
     async fn execute(&self, key: &[u8], command: &MetaCommand) -> Result<MetaResponse> {
         let index = self.connection_index(key);
-        self.execute_on(index, command)
+        let payload = command.encode()?;
+        self.execute_on(index, &payload)
             .await
-            .map_err(|failure| failure.attribute(key, failure.written > 0 && command.has_side_effect()))
+            .map_err(|failure| failure.attribute(key, failure.written >= payload.len() && command.has_side_effect()))
     }
 
     /// One batch on one server, with opaque tokens checked; see the
@@ -290,21 +303,12 @@ impl AsyncMetaClient {
             Err(error) => return (Vec::new(), Some(Failure::before_write(error))),
         };
         loop {
-            let exchange = checkout.connection().execute_payload(&batch.payload, batch.len());
-            let (responses, error) = match timed(self.engine.io_timeout, async { Ok(exchange.await) }).await {
-                Ok(outcome) => outcome,
-                Err(error) => (Vec::new(), Some(error)),
-            };
-            // A response out of order means every pairing is suspect:
-            // drop them all, the attribution below says which commands
-            // may have landed.
-            let (responses, error) = match error {
-                Some(error) => (responses, Some(error)),
-                None => match core::check_batch_order(&responses) {
-                    Ok(()) => (responses, None),
-                    Err(error) => (Vec::new(), Some(error)),
-                },
-            };
+            let deadline = self.engine.deadline();
+            let (responses, error) = checkout
+                .connection()
+                .execute_payload(&batch.payload, batch.len(), deadline)
+                .await;
+            let (responses, error) = core::check_batch(responses, error);
             match error {
                 None => {
                     checkout.put_back(&self.engine);
@@ -312,7 +316,7 @@ impl AsyncMetaClient {
                 }
                 Some(error) => {
                     let written = checkout.connection().written();
-                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                    if Failure::redialable(checkout.pooled, written, &error) {
                         match server.dial(&self.engine).await {
                             Ok(connection) => {
                                 checkout.connection = Some(connection);
@@ -339,7 +343,7 @@ impl AsyncMetaClient {
     /// concurrently, and return one result per command in input order.
     /// Every group runs even when another fails; a failed group's commands
     /// each carry the group's error, attributed per command.
-    pub(crate) async fn exchange_many(&self, commands: Vec<(Vec<u8>, MetaCommand)>) -> Vec<Result<MetaCommandResult>> {
+    pub(crate) async fn exchange_many(&self, commands: &[(Vec<u8>, MetaCommand)]) -> Vec<Result<MetaCommandResult>> {
         let mut groups: Vec<Vec<usize>> = vec![Vec::new(); self.servers.len()];
         let mut outputs: Vec<Option<Result<MetaCommandResult>>> = (0..commands.len()).map(|_| None).collect();
         for (index, (key, command)) in commands.iter().enumerate() {
@@ -367,9 +371,10 @@ impl AsyncMetaClient {
             .map(|(server, _, batch)| self.execute_batch(*server, batch))
             .collect();
         for ((_, indices, batch), (responses, failure)) in batches.iter().zip(join_all(exchanges).await) {
+            let mut responses = responses.into_iter().map(Some);
             for (position, &index) in indices.iter().enumerate() {
-                outputs[index] = Some(match (responses.get(position), &failure) {
-                    (Some(response), _) => parse_meta_result(response.clone()),
+                outputs[index] = Some(match (responses.next().flatten(), &failure) {
+                    (Some(response), _) => parse_meta_result(response),
                     (None, Some(failure)) => Err(batch.attribute(position, &commands[index].0, failure)),
                     (None, None) => Err(Error::protocol("batch response missing")),
                 });
@@ -468,11 +473,10 @@ impl AsyncMetaClient {
             .map(|(server, _, batch)| self.execute_batch(*server, batch))
             .collect();
         for ((_, indices, batch), (responses, failure)) in batches.iter().zip(join_all(exchanges).await) {
+            let mut responses = responses.into_iter().map(Some);
             for (position, &index) in indices.iter().enumerate() {
-                outputs[index] = Some(match (responses.get(position), &failure) {
-                    (Some(response), _) => {
-                        parse_meta_result(response.clone()).and_then(|wire| operations[index].parse(wire))
-                    }
+                outputs[index] = Some(match (responses.next().flatten(), &failure) {
+                    (Some(response), _) => parse_meta_result(response).and_then(|wire| operations[index].parse(wire)),
                     (None, Some(failure)) => Err(batch.attribute(position, operations[index].key(), failure)),
                     (None, None) => Err(Error::protocol("batch response missing")),
                 });
@@ -487,7 +491,7 @@ impl AsyncMetaClient {
     /// Round-trip an `mn` no-op on every server; useful as a connection
     /// health check.
     pub async fn noop(&self) -> Result<()> {
-        let noop = build_noop();
+        let noop = build_noop().encode()?;
         for server in 0..self.servers.len() {
             let response = self
                 .execute_on(server, &noop)

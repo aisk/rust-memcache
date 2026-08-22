@@ -197,7 +197,7 @@ pub use request::Request;
 pub use result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
 };
-pub use router::{Rendezvous, Router, default_hash_function};
+pub use router::{Rendezvous, Router, ServerAddress, default_hash_function};
 pub use ttl::{Freshness, Ttl};
 #[cfg(feature = "serde_json")]
 pub use value::Json;

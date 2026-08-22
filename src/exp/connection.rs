@@ -120,10 +120,18 @@ impl MetaConnection {
 
     /// Send a command and read its response under one shared deadline.
     pub fn execute(&mut self, command: &MetaCommand) -> Result<MetaResponse> {
-        self.written = 0;
-        let deadline = self.deadline();
-        self.send_by(deadline, command)?;
-        self.receive_by(deadline)
+        self.execute_encoded(&command.encode()?)
+    }
+
+    /// Send one pre-encoded command and read its response under one
+    /// shared deadline; the caller knows the payload length and can tell
+    /// from [`written`](Self::written) whether the request left in full.
+    pub(crate) fn execute_encoded(&mut self, payload: &[u8]) -> Result<MetaResponse> {
+        let (mut responses, error) = self.execute_payload(payload, 1);
+        match error {
+            Some(error) => Err(error),
+            None => responses.pop().ok_or_else(|| Error::protocol("response missing")),
+        }
     }
 
     /// Write all commands in one payload, then read one response per
@@ -194,9 +202,20 @@ impl MetaConnection {
         Ok(())
     }
 
+    /// Arm the deadline only when the next read has to hit the socket:
+    /// bytes already buffered are served without a syscall, and a
+    /// response that arrived in time must not fail because the deadline
+    /// passed while it was being parsed.
+    fn arm_for_read(&mut self, deadline: Option<Instant>) -> Result<()> {
+        if self.reader.buffer().is_empty() {
+            self.arm(deadline)?;
+        }
+        Ok(())
+    }
+
     fn read_exact_by(&mut self, deadline: Option<Instant>, mut buffer: &mut [u8]) -> Result<()> {
         while !buffer.is_empty() {
-            self.arm(deadline)?;
+            self.arm_for_read(deadline)?;
             let read = self.reader.read(buffer).map_err(Self::io_error)?;
             if read == 0 {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
@@ -209,7 +228,7 @@ impl MetaConnection {
     fn read_line(&mut self, deadline: Option<Instant>) -> Result<Vec<u8>> {
         let mut line = Vec::new();
         loop {
-            self.arm(deadline)?;
+            self.arm_for_read(deadline)?;
             let buffer = self.reader.fill_buf().map_err(Self::io_error)?;
             if buffer.is_empty() {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());

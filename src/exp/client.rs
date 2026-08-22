@@ -16,13 +16,13 @@ use super::meta_command::{MetaCommand, MetaResponse, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
-use super::router::{Rendezvous, Router};
+use super::router::{Rendezvous, Router, ServerAddress};
 
 pub(crate) const DEFAULT_MAX_IDLE: usize = 8;
 
 /// Route a key with a [`Router`], clamping a misbehaving result into
 /// range.
-pub(crate) fn route(router: &dyn Router, key: &[u8], servers: &[SocketAddr]) -> usize {
+pub(crate) fn route(router: &dyn Router, key: &[u8], servers: &[String]) -> usize {
     router.route(key, servers).min(servers.len() - 1)
 }
 
@@ -288,7 +288,7 @@ impl MetaClientBuilder {
     }
 
     /// Connect to one server with this configuration.
-    pub fn connect<A: ToSocketAddrs>(self, addr: A) -> Result<MetaClient> {
+    pub fn connect<A: ToSocketAddrs + ServerAddress>(self, addr: A) -> Result<MetaClient> {
         self.connect_multiple([addr])
     }
 
@@ -298,15 +298,19 @@ impl MetaClientBuilder {
     /// moves that server's keys). Addresses are resolved here, but
     /// connections are dialed lazily, so a down server surfaces at the
     /// first operation; `noop()` verifies connectivity eagerly.
-    pub fn connect_multiple<A: ToSocketAddrs>(self, addrs: impl IntoIterator<Item = A>) -> Result<MetaClient> {
+    pub fn connect_multiple<A: ToSocketAddrs + ServerAddress>(
+        self,
+        addrs: impl IntoIterator<Item = A>,
+    ) -> Result<MetaClient> {
         let mut servers = Vec::new();
+        let mut ids = Vec::new();
         for addr in addrs {
+            ids.push(addr.identity());
             servers.push(Server::new(resolve(addr)?));
         }
         if servers.is_empty() {
             return Err(Error::Usage("at least one server address is required"));
         }
-        let ids = servers.iter().map(|server| server.addrs[0]).collect();
         Ok(MetaClient {
             servers: Arc::new(servers),
             ids: Arc::new(ids),
@@ -351,7 +355,7 @@ impl Default for MetaClientBuilder {
 pub struct MetaClient {
     servers: Arc<Vec<Server>>,
     /// One identifying address per server, handed to the router.
-    ids: Arc<Vec<SocketAddr>>,
+    ids: Arc<Vec<String>>,
     router: Arc<dyn Router>,
     engine: Engine,
 }
@@ -359,7 +363,7 @@ pub struct MetaClient {
 impl MetaClient {
     /// Connect to one server with the default configuration; use
     /// [`builder`](Self::builder) to change it.
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<MetaClient> {
+    pub fn connect<A: ToSocketAddrs + ServerAddress>(addr: A) -> Result<MetaClient> {
         MetaClient::connect_multiple([addr])
     }
 
@@ -368,7 +372,9 @@ impl MetaClient {
     /// [`Router`]). Addresses are resolved here, but connections are
     /// dialed lazily, so a down server surfaces at the first operation;
     /// [`noop`](Self::noop) verifies connectivity eagerly.
-    pub fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<MetaClient> {
+    pub fn connect_multiple<A: ToSocketAddrs + ServerAddress>(
+        addrs: impl IntoIterator<Item = A>,
+    ) -> Result<MetaClient> {
         MetaClient::builder().connect_multiple(addrs)
     }
 
@@ -403,7 +409,7 @@ impl MetaClient {
                 }
                 Err(error) => {
                     let written = checkout.connection().written();
-                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                    if Failure::redialable(checkout.pooled, written, &error) {
                         checkout.connection = Some(dial(&server.addrs, &self.engine).map_err(Failure::before_write)?);
                         checkout.pooled = false;
                         continue;
@@ -414,12 +420,14 @@ impl MetaClient {
         }
     }
 
-    /// One command on its server, attributed: a request written but not
-    /// answered is [`Error::Ambiguous`] when it has side effects.
+    /// One command on its server, attributed: a request written in full
+    /// but not answered is [`Error::Ambiguous`] when it has side effects;
+    /// a partially written one was never parsed by the server.
     fn execute(&self, key: &[u8], command: &MetaCommand) -> Result<MetaResponse> {
         let index = self.connection_index(key);
-        self.with_connection(index, |connection| connection.execute(command))
-            .map_err(|failure| failure.attribute(key, failure.written > 0 && command.has_side_effect()))
+        let payload = command.encode()?;
+        self.with_connection(index, |connection| connection.execute_encoded(&payload))
+            .map_err(|failure| failure.attribute(key, failure.written >= payload.len() && command.has_side_effect()))
     }
 
     /// One batch on one server: the payload is written whole, the
@@ -434,16 +442,7 @@ impl MetaClient {
         };
         loop {
             let (responses, error) = checkout.connection().execute_payload(&batch.payload, batch.len());
-            // A response out of order means every pairing is suspect:
-            // drop them all, the attribution below says which commands
-            // may have landed.
-            let (responses, error) = match error {
-                Some(error) => (responses, Some(error)),
-                None => match core::check_batch_order(&responses) {
-                    Ok(()) => (responses, None),
-                    Err(error) => (Vec::new(), Some(error)),
-                },
-            };
+            let (responses, error) = core::check_batch(responses, error);
             match error {
                 None => {
                     checkout.put_back(&self.engine);
@@ -451,7 +450,7 @@ impl MetaClient {
                 }
                 Some(error) => {
                     let written = checkout.connection().written();
-                    if checkout.pooled && written == 0 && matches!(error, Error::Io(_)) {
+                    if Failure::redialable(checkout.pooled, written, &error) {
                         match dial(&server.addrs, &self.engine) {
                             Ok(connection) => {
                                 checkout.connection = Some(connection);
@@ -478,7 +477,7 @@ impl MetaClient {
     /// return one result per command in input order. Every group runs
     /// even when another fails; a failed group's commands each carry the
     /// group's error, attributed per command (see [`Batch`]).
-    pub(crate) fn exchange_many(&self, commands: Vec<(Vec<u8>, MetaCommand)>) -> Vec<Result<MetaCommandResult>> {
+    pub(crate) fn exchange_many(&self, commands: &[(Vec<u8>, MetaCommand)]) -> Vec<Result<MetaCommandResult>> {
         let mut groups: Vec<Vec<usize>> = vec![Vec::new(); self.servers.len()];
         let mut outputs: Vec<Option<Result<MetaCommandResult>>> = (0..commands.len()).map(|_| None).collect();
         for (index, (key, command)) in commands.iter().enumerate() {
@@ -501,9 +500,10 @@ impl MetaClient {
                 }
             };
             let (responses, failure) = self.execute_batch(server, &batch);
+            let mut responses = responses.into_iter().map(Some);
             for (position, &index) in indices.iter().enumerate() {
-                outputs[index] = Some(match (responses.get(position), &failure) {
-                    (Some(response), _) => parse_meta_result(response.clone()),
+                outputs[index] = Some(match (responses.next().flatten(), &failure) {
+                    (Some(response), _) => parse_meta_result(response),
                     (None, Some(failure)) => Err(batch.attribute(position, &commands[index].0, failure)),
                     (None, None) => Err(Error::protocol("batch response missing")),
                 });
@@ -600,11 +600,10 @@ impl MetaClient {
             }
             let batch = Batch::new(indices.iter().map(|&index| &plan.commands[index]))?;
             let (responses, failure) = self.execute_batch(server, &batch);
+            let mut responses = responses.into_iter().map(Some);
             for (position, &index) in indices.iter().enumerate() {
-                outputs[index] = Some(match (responses.get(position), &failure) {
-                    (Some(response), _) => {
-                        parse_meta_result(response.clone()).and_then(|wire| operations[index].parse(wire))
-                    }
+                outputs[index] = Some(match (responses.next().flatten(), &failure) {
+                    (Some(response), _) => parse_meta_result(response).and_then(|wire| operations[index].parse(wire)),
                     (None, Some(failure)) => Err(batch.attribute(position, operations[index].key(), failure)),
                     (None, None) => Err(Error::protocol("batch response missing")),
                 });
@@ -690,7 +689,7 @@ pub(crate) mod tests {
     pub(crate) struct FirstByte;
 
     impl Router for FirstByte {
-        fn route(&self, key: &[u8], servers: &[SocketAddr]) -> usize {
+        fn route(&self, key: &[u8], servers: &[String]) -> usize {
             key[0] as usize % servers.len()
         }
     }
@@ -703,7 +702,7 @@ pub(crate) mod tests {
     fn misbehaving_router_is_clamped() {
         struct Beyond;
         impl Router for Beyond {
-            fn route(&self, _: &[u8], _: &[SocketAddr]) -> usize {
+            fn route(&self, _: &[u8], _: &[String]) -> usize {
                 usize::MAX
             }
         }
@@ -1171,6 +1170,39 @@ pub(crate) mod tests {
             assert!(matches!(std::error::Error::source(error), Some(source) if source.to_string().contains("opaque")));
         }
         assert!(client.delete("c").send().unwrap().applied());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn partial_batch_responses_are_order_checked() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = Vec::new();
+            for _ in 0..3 {
+                line.clear();
+                reader.read_until(b'\n', &mut line).unwrap();
+            }
+            // Two swapped responses, then the connection drops: the two
+            // must not be paired with the wrong commands just because the
+            // third never came.
+            reader.get_mut().write_all(b"HD O1\r\nNF O0\r\n").unwrap();
+        });
+        let client = MetaClient::connect(addr).unwrap();
+        let results = client
+            .run_batch(vec![
+                Delete::new("a").into(),
+                Delete::new("b").into(),
+                Delete::new("c").into(),
+            ])
+            .unwrap();
+        for result in &results {
+            let error = result.as_ref().unwrap_err();
+            assert!(error.is_ambiguous(), "{error:?}");
+            assert!(matches!(std::error::Error::source(error), Some(source) if source.to_string().contains("opaque")));
+        }
         handle.join().unwrap();
     }
 
