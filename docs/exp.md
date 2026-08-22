@@ -1,5 +1,7 @@
 # High-level client guide (Experimental)
 
+English | [简体中文](https://github.com/aisk/rust-memcache/blob/master/docs/exp.zh-CN.md)
+
 > **Experimental.** The high-level client lives under `memcache::exp` and its API
 > may change in any minor release. If you depend on it, pin the **minor version**
 > in `Cargo.toml`. Patch releases (`x.y.Z`) will not introduce breaking changes,
