@@ -18,7 +18,9 @@ The module is layered bottom-up:
 - Operations ([`Get`], [`Set`], [`Delete`], [`Arithmetic`]) and typed results
   ([`GetResult`], [`MutationResult`], [`ArithmeticResult`]): the semantic
   layer, interpreting return codes and lease/stale flags. Each operation
-  implements [`Operation`] with a typed `Output`. Values are raw bytes.
+  implements [`Operation`] with a typed `Output`. Values are raw bytes plus
+  client flags; the [`Encode`] / [`Decode`] traits belong to the scenario
+  layer built on top.
 - [`MetaClient`] (blocking) and [`AsyncMetaClient`] (tokio, behind the
   `tokio` feature): single-server clients whose verbs return lazy
   [`Request`] builders, executed with `send()`.
@@ -36,9 +38,11 @@ server. Routing is positional: append or drop servers at the tail of the
 list to move the minimal share of keys; removing an entry from the middle
 reroutes every key of the servers after it.
 
-TTLs are in seconds and follow the protocol's rules: `0` means "never
-expires", and a value above 30 days (2592000) is taken as an absolute unix
-timestamp instead of a duration.
+TTLs are [`Ttl`] values: `Ttl::secs(n)`, a `Duration`, `Ttl::at(time)` or
+`Ttl::NEVER`. A zero TTL is a usage error rather than "never expires", and
+a relative TTL above 30 days is sent as an absolute timestamp, so the
+protocol's rules cannot be tripped by accident. The `*_raw(u32)` variants
+pass a wire value through untouched.
 
 Clients are cheap to clone and shareable across threads or tasks; clones
 share per-server pools of idle connections. Key hashing, the idle-pool
@@ -62,17 +66,14 @@ let result = client.get("foo").send().unwrap();
 assert_eq!(result.value.as_deref(), Some(&b"bar"[..]));
 
 // Options are chained before send():
-client.set("foo", "bar").ttl(60).add().send().unwrap();
+use memcache::exp::Ttl;
+client.set("foo", "bar").ttl(Ttl::secs(60)).add().send().unwrap();
 let counter = client.increment("hits").delta(2).initial(0, 60).send().unwrap();
-
-// Values are encoded via ToValue and decoded by the requested type:
-client.set("visits", 41u64).send().unwrap();
-let visits: Option<u64> = client.get("visits").send().unwrap().decode().unwrap();
 
 // Several operations in one round trip; each gets its own result:
 use memcache::exp::{Get, Set};
 let results = client
-    .run_batch(vec![Set::new("a", "1").ttl(60).into(), Get::new("b").into()])
+    .run_batch(vec![Set::new("a", "1").ttl(Ttl::secs(60)).into(), Get::new("b").into()])
     .unwrap();
 assert!(results[0].is_ok());
 
@@ -104,7 +105,7 @@ if result.won_lease() {
     let fresh = String::from("recomputed here");
     client
         .set("report", &fresh)
-        .ttl(300)
+        .ttl(memcache::exp::Ttl::secs(300))
         .compare_cas(result.item.cas.unwrap())
         .send()
         .unwrap();
@@ -135,11 +136,13 @@ if result.ok() {
 mod client;
 mod connection;
 mod core;
+mod error;
 mod meta_api;
 mod meta_command;
 mod operation;
 mod request;
 mod result;
+mod ttl;
 mod value;
 
 #[cfg(feature = "tokio")]
@@ -154,6 +157,7 @@ pub use async_connection::AsyncMetaConnection;
 pub use client::{MetaClient, MetaClientBuilder};
 pub use connection::MetaConnection;
 pub use core::Operation;
+pub use error::{Error, Result};
 pub use meta_api::{
     ArithmeticMode, ArithmeticOptions, DeleteOptions, GetOptions, MetaCommandResult, SetMode, SetOptions,
     build_arithmetic, build_debug, build_delete, build_get, build_noop, build_set, parse_debug_result,
@@ -165,4 +169,7 @@ pub use request::Request;
 pub use result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
 };
-pub use value::{FLAG_BYTES, FLAG_INT, FLAG_STR, FromValue, ToValue};
+pub use ttl::{Freshness, Ttl};
+#[cfg(feature = "serde_json")]
+pub use value::Json;
+pub use value::{Decode, DecodeError, Encode, EncodeError, Encoded, FLAG_BYTES, FLAG_INT, FLAG_JSON, FLAG_STR};
