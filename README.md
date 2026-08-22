@@ -122,7 +122,7 @@ client.hash_function = |key: &str| -> u64 {
 >
 > ```toml
 > [dependencies]
-> memcache = "0.20"   # allows 0.20.x, blocks 0.21+
+> memcache = "0.21"   # allows 0.21.x, blocks 0.22+
 > ```
 
 `memcache::exp::Memcache` hides the [meta protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt) behind verbs named for what you are doing. CAS tokens and leases never surface in caller code: `update` runs the read, compare and swap, retry loop for you, and `fetch` makes sure a missing value is computed once. The full guide, including the builder options, every verb, batches, the failure policy, the async client and raw protocol access, is in [docs/exp.md](docs/exp.md).

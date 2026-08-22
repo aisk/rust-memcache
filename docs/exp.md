@@ -9,7 +9,7 @@ English | [简体中文](https://github.com/aisk/rust-memcache/blob/master/docs/
 >
 > ```toml
 > [dependencies]
-> memcache = "0.20"   # allows 0.20.x, blocks 0.21+
+> memcache = "0.21"   # allows 0.21.x, blocks 0.22+
 > ```
 
 `memcache::exp::Memcache` hides the [meta protocol](https://github.com/memcached/memcached/blob/master/doc/protocol.txt) behind verbs named for what you are doing. The protocol's CAS tokens and leases never surface in caller code. Instead of reading a version and writing it back, call `update` with a transform closure and the client runs the read, compare and swap, retry loop internally. Instead of building dogpile protection, call `fetch` with a loader and the client makes sure the value is computed once. When you do need the raw protocol, every meta command is still reachable through `cache.meta()`.

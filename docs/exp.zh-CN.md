@@ -8,7 +8,7 @@
 >
 > ```toml
 > [dependencies]
-> memcache = "0.20"   # 允许 0.20.x，排除 0.21+
+> memcache = "0.21"   # 允许 0.21.x，排除 0.22+
 > ```
 
 `memcache::exp::Memcache` 把 [meta 协议](https://github.com/memcached/memcached/blob/master/doc/protocol.txt) 藏在一组按用途命名的动词后面。协议里的 CAS 令牌和 lease 从不出现在调用方代码中。你不需要先读出版本号再写回去，而是带一个变换闭包调用 `update`，客户端内部完成读取、比较交换、重试的循环。你也不需要自己实现 dogpile 保护，带一个 loader 调用 `fetch`，客户端保证值只被计算一次。真正需要原始协议时，每条 meta 命令仍可通过 `cache.meta()` 访问。
