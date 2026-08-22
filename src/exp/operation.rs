@@ -4,12 +4,12 @@
 //! requested metadata) independently of the wire encoding. The core layer
 //! turns operations into [`MetaCommand`](super::MetaCommand)s and pairs them
 //! with their responses. Construct with `new` and chain builder methods:
-//! `Get::new("foo").touch(60).lease_ttl(30)`. The structs are
+//! `Get::new("foo").touch(Ttl::secs(60)).lease_ttl(30)`. The structs are
 //! `#[non_exhaustive]` so new options can be added without breaking callers;
 //! the fields stay public for reading and mutation.
 
 use super::meta_api::{ArithmeticMode, SetMode};
-use super::value::ToValue;
+use super::ttl::Ttl;
 
 /// Which item metadata a [`Get`] should fetch into
 /// [`ItemMeta`](super::ItemMeta).
@@ -78,7 +78,7 @@ pub struct Get {
     /// Metadata to fetch alongside the value.
     pub meta: Meta,
     /// Update the item TTL while reading.
-    pub touch: Option<u32>,
+    pub touch: Option<Ttl>,
     /// Don't bump the item in the LRU.
     pub no_lru_bump: bool,
     /// Suppress the value when the item CAS still matches; the result status
@@ -118,11 +118,18 @@ impl Get {
         self
     }
 
-    /// Update the item TTL while reading. Seconds: `0` never expires, and
-    /// a value above 30 days is an absolute unix timestamp.
+    /// Update the item TTL while reading.
     #[must_use]
-    pub fn touch(mut self, ttl: u32) -> Get {
-        self.touch = Some(ttl);
+    pub fn touch(mut self, ttl: impl Into<Ttl>) -> Get {
+        self.touch = Some(ttl.into());
+        self
+    }
+
+    /// Update the item TTL while reading, with a raw protocol value: `0`
+    /// never expires, a value above 30 days is an absolute unix timestamp.
+    #[must_use]
+    pub fn touch_raw(mut self, ttl: u32) -> Get {
+        self.touch = Some(Ttl::raw(ttl));
         self
     }
 
@@ -162,17 +169,17 @@ impl Get {
     }
 }
 
-/// A store operation (`ms`). The value is encoded up front via
-/// [`ToValue`]; `value` holds the raw bytes and `client_flags` the flags
-/// stored with the item.
+/// A store operation (`ms`). The protocol layer does no serialization:
+/// `value` holds the raw bytes and `client_flags` the flags stored with the
+/// item (zero unless set).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Set {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
-    /// `F<flags>` - client flags stored with the item, from [`ToValue`].
+    /// `F<flags>` - client flags stored with the item.
     pub client_flags: u32,
-    pub ttl: Option<u32>,
+    pub ttl: Option<Ttl>,
     pub mode: SetMode,
     /// Store only when the item CAS matches.
     pub compare_cas: Option<u64>,
@@ -189,12 +196,11 @@ pub struct Set {
 }
 
 impl Set {
-    pub fn new(key: impl AsRef<[u8]>, value: impl ToValue) -> Set {
-        let (value, client_flags) = value.to_value();
+    pub fn new(key: impl AsRef<[u8]>, value: impl AsRef<[u8]>) -> Set {
         Set {
             key: key.as_ref().to_vec(),
-            value,
-            client_flags,
+            value: value.as_ref().to_vec(),
+            client_flags: 0,
             ttl: None,
             mode: SetMode::Set,
             compare_cas: None,
@@ -204,16 +210,22 @@ impl Set {
         }
     }
 
-    /// Item TTL in seconds: `0` (and the protocol default) never expires,
-    /// and a value above 30 days is an absolute unix timestamp.
+    /// Item TTL; the protocol default (no `T` flag) never expires.
     #[must_use]
-    pub fn ttl(mut self, ttl: u32) -> Set {
-        self.ttl = Some(ttl);
+    pub fn ttl(mut self, ttl: impl Into<Ttl>) -> Set {
+        self.ttl = Some(ttl.into());
         self
     }
 
-    /// Override the client flags stored with the item (normally chosen by
-    /// [`ToValue`]) - for interop with other clients' flag conventions.
+    /// Item TTL as a raw protocol value: `0` never expires, a value above
+    /// 30 days is an absolute unix timestamp.
+    #[must_use]
+    pub fn ttl_raw(mut self, ttl: u32) -> Set {
+        self.ttl = Some(Ttl::raw(ttl));
+        self
+    }
+
+    /// The client flags stored with the item (default zero).
     #[must_use]
     pub fn client_flags(mut self, flags: u32) -> Set {
         self.client_flags = flags;
@@ -291,7 +303,7 @@ pub struct Delete {
     /// value flagged stale until someone refreshes it.
     pub invalidate: bool,
     /// For invalidate, how long the stale item stays readable.
-    pub stale_for: Option<u32>,
+    pub stale_for: Option<Ttl>,
 }
 
 impl Delete {
@@ -320,8 +332,16 @@ impl Delete {
 
     /// For invalidate, how long the stale item stays readable.
     #[must_use]
-    pub fn stale_for(mut self, ttl: u32) -> Delete {
-        self.stale_for = Some(ttl);
+    pub fn stale_for(mut self, ttl: impl Into<Ttl>) -> Delete {
+        self.stale_for = Some(ttl.into());
+        self
+    }
+
+    /// For invalidate, how long the stale item stays readable, as a raw
+    /// protocol value.
+    #[must_use]
+    pub fn stale_for_raw(mut self, ttl: u32) -> Delete {
+        self.stale_for = Some(Ttl::raw(ttl));
         self
     }
 }
@@ -340,7 +360,7 @@ pub struct Arithmetic {
     /// and [`Set::vivify_ttl`].
     pub initial_ttl: Option<u32>,
     /// Update the item TTL while applying the delta.
-    pub ttl: Option<u32>,
+    pub ttl: Option<Ttl>,
     /// Apply only when the item CAS matches.
     pub compare_cas: Option<u64>,
     /// Overwrite the item CAS with this value instead of a server-chosen one
@@ -391,11 +411,19 @@ impl Arithmetic {
         self
     }
 
-    /// Update the item TTL while applying the delta. Seconds: `0` never
-    /// expires, and a value above 30 days is an absolute unix timestamp.
+    /// Update the item TTL while applying the delta.
     #[must_use]
-    pub fn ttl(mut self, ttl: u32) -> Arithmetic {
-        self.ttl = Some(ttl);
+    pub fn ttl(mut self, ttl: impl Into<Ttl>) -> Arithmetic {
+        self.ttl = Some(ttl.into());
+        self
+    }
+
+    /// Update the item TTL while applying the delta, with a raw protocol
+    /// value: `0` never expires, a value above 30 days is an absolute unix
+    /// timestamp.
+    #[must_use]
+    pub fn ttl_raw(mut self, ttl: u32) -> Arithmetic {
+        self.ttl = Some(Ttl::raw(ttl));
         self
     }
 
@@ -472,32 +500,35 @@ mod tests {
     fn builders_set_fields() {
         let get = Get::new("foo")
             .meta(Meta::NONE.cas().ttl())
-            .touch(60)
+            .touch(Ttl::secs(60))
             .no_lru_bump()
             .lease_ttl(30)
             .refresh_before(10);
         assert!(get.meta.cas && get.meta.ttl && !get.meta.size);
-        assert_eq!(get.touch, Some(60));
+        assert_eq!(get.touch, Some(Ttl::secs(60)));
         assert!(get.no_lru_bump);
         assert_eq!(get.lease_ttl, Some(30));
         assert_eq!(get.refresh_before, Some(10));
         assert!(!Get::new("foo").without_value().value);
 
         let set = Set::new("foo", "bar")
-            .ttl(60)
+            .ttl(Ttl::secs(60))
             .add()
             .compare_cas(7)
             .return_cas()
             .client_flags(9);
-        assert_eq!(set.ttl, Some(60));
+        assert_eq!(set.ttl, Some(Ttl::secs(60)));
+        assert_eq!(Set::new("foo", "bar").ttl_raw(5_000_000).ttl, Some(Ttl::raw(5_000_000)));
+        let owned = String::from("bar");
+        assert_eq!(Set::new("foo", &owned).value, b"bar".to_vec());
         assert_eq!(set.mode, SetMode::Add);
         assert_eq!(set.compare_cas, Some(7));
         assert!(set.return_cas);
         assert_eq!(set.client_flags, 9);
 
-        let delete = Delete::new("foo").invalidate().stale_for(30);
+        let delete = Delete::new("foo").invalidate().stale_for(Ttl::secs(30));
         assert!(delete.invalidate);
-        assert_eq!(delete.stale_for, Some(30));
+        assert_eq!(delete.stale_for, Some(Ttl::secs(30)));
 
         let arithmetic = Arithmetic::new("counter").delta(2).decrement().initial(0, 60);
         assert_eq!(arithmetic.delta, 2);

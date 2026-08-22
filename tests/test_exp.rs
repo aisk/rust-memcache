@@ -1,7 +1,7 @@
 extern crate memcache;
 extern crate rand;
 
-use memcache::exp::{Delete, Get, GetStatus, Meta, MetaClient, MutationStatus, Set};
+use memcache::exp::{Delete, Error, Get, GetStatus, Meta, MetaClient, MutationStatus, Set, Ttl};
 use rand::distr::{Alphanumeric, SampleString};
 use rand::rng;
 
@@ -100,7 +100,7 @@ fn exp_item_meta() {
     let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
-    client.set(&*key, "bar").ttl(100).send().unwrap();
+    client.set(&*key, "bar").ttl(Ttl::secs(100)).send().unwrap();
     let result = client.get(&*key).meta(Meta::NONE.cas().ttl().size()).send().unwrap();
     assert!(result.item.cas.is_some());
     assert_eq!(result.item.size, Some(3));
@@ -127,7 +127,7 @@ fn exp_run_batch() {
 
     let results: Vec<_> = client
         .run_batch(vec![
-            Set::new(&*key_a, "1").ttl(60).into(),
+            Set::new(&*key_a, "1").ttl(Ttl::secs(60)).into(),
             Get::new(&*key_a).into(),
             Get::new(&*key_b).into(),
             Delete::new(&*key_b).into(),
@@ -182,23 +182,47 @@ fn exp_lease() {
 }
 
 #[test]
-fn exp_typed_values() {
+fn exp_client_flags_roundtrip() {
     let client = MetaClient::connect(SERVER).unwrap();
     let key = gen_random_key();
 
-    // Numbers are stored as decimal ASCII, so arithmetic works on them.
-    client.set(&*key, 41u64).send().unwrap();
+    client.set(&*key, "41").client_flags(7).send().unwrap();
+    let fetched = client.get(&*key).send().unwrap();
+    assert_eq!(fetched.value.as_deref(), Some(&b"41"[..]));
+    assert_eq!(fetched.client_flags, Some(7));
+    // Decimal ASCII bytes stay usable by arithmetic.
     assert_eq!(client.increment(&*key).send().unwrap().value, Some(42));
-    let count: Option<u64> = client.get(&*key).send().unwrap().decode().unwrap();
-    assert_eq!(count, Some(42));
+}
 
-    client.set(&*key, String::from("text")).send().unwrap();
-    let text: Option<String> = client.get(&*key).send().unwrap().decode().unwrap();
-    assert_eq!(text.as_deref(), Some("text"));
-    assert!(client.get(&*key).send().unwrap().decode::<u64>().is_err());
+#[test]
+fn exp_ttl_rules() {
+    let client = MetaClient::connect(SERVER).unwrap();
+    let key = gen_random_key();
 
-    let missing: Option<String> = client.get(&*gen_random_key()).send().unwrap().decode().unwrap();
-    assert_eq!(missing, None);
+    assert!(matches!(
+        client.set(&*key, "x").ttl(Ttl::secs(0)).send(),
+        Err(Error::Usage(_))
+    ));
+    assert!(matches!(
+        client.set(&*key, "x").ttl(std::time::Duration::ZERO).send(),
+        Err(Error::Usage(_))
+    ));
+
+    client.set(&*key, "x").ttl(Ttl::NEVER).send().unwrap();
+    let result = client.get(&*key).meta(Meta::NONE.ttl()).send().unwrap();
+    assert_eq!(result.item.ttl, Some(-1));
+
+    // A relative ttl above 30 days is sent as an absolute timestamp, so the
+    // server still reports the remaining duration.
+    let long = 40 * 24 * 3600;
+    client.set(&*key, "x").ttl(Ttl::secs(long)).send().unwrap();
+    let result = client.get(&*key).meta(Meta::NONE.ttl()).send().unwrap();
+    let ttl = result.item.ttl.unwrap();
+    assert!((ttl - i64::from(long)).abs() <= 5, "unexpected ttl {}", ttl);
+
+    client.set(&*key, "x").ttl_raw(0).send().unwrap();
+    let result = client.get(&*key).meta(Meta::NONE.ttl()).send().unwrap();
+    assert_eq!(result.item.ttl, Some(-1));
 }
 
 #[test]
@@ -254,7 +278,7 @@ fn exp_debug() {
     let key = gen_random_key();
 
     assert!(client.debug(&*key).unwrap().is_none());
-    client.set(&*key, "bar").ttl(60).send().unwrap();
+    client.set(&*key, "bar").ttl(Ttl::secs(60)).send().unwrap();
     let fields = client.debug(&*key).unwrap().unwrap();
     assert!(fields.contains_key("exp"), "unexpected debug fields: {:?}", fields);
 }
@@ -271,7 +295,15 @@ mod async_tests {
 
         client.noop().await.unwrap();
 
-        assert!(client.set(&*key, "bar").ttl(60).send().await.unwrap().applied());
+        assert!(
+            client
+                .set(&*key, "bar")
+                .ttl(Ttl::secs(60))
+                .send()
+                .await
+                .unwrap()
+                .applied()
+        );
         let fetched = client.get(&*key).send().await.unwrap();
         assert_eq!(fetched.status, GetStatus::Hit);
         assert_eq!(fetched.value.as_deref(), Some(&b"bar"[..]));

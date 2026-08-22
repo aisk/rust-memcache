@@ -1,6 +1,5 @@
 //! Tokio client over the semantic layer.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -10,25 +9,20 @@ use std::time::Duration;
 
 use tokio::net::{ToSocketAddrs, lookup_host};
 
-use crate::error::{ClientError, MemcacheError, ServerError};
-
 use super::async_connection::AsyncMetaConnection;
 use super::client::{MetaClientBuilder, Timeouts, jump_hash};
 use super::core::{self, Operation};
+use super::error::{Error, Result};
 use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
 use super::meta_command::{MetaCommand, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
-use super::value::ToValue;
 
 /// Bound a transport future by a timeout; `None` means unbounded. A
 /// timeout surfaces as an io error and so poisons the connection like any
 /// other transport failure.
-async fn timed<T>(
-    timeout: Option<Duration>,
-    future: impl Future<Output = Result<T, MemcacheError>>,
-) -> Result<T, MemcacheError> {
+async fn timed<T>(timeout: Option<Duration>, future: impl Future<Output = Result<T>>) -> Result<T> {
     match timeout {
         Some(duration) => match tokio::time::timeout(duration, future).await {
             Ok(result) => result,
@@ -72,7 +66,7 @@ struct AsyncServer {
 }
 
 impl AsyncServer {
-    async fn checkout(&self, timeouts: &Timeouts) -> Result<AsyncMetaConnection, MemcacheError> {
+    async fn checkout(&self, timeouts: &Timeouts) -> Result<AsyncMetaConnection> {
         // Idle connections may have been closed by the server or a
         // middlebox while pooled; probe and discard instead of handing a
         // dead connection to the caller.
@@ -103,10 +97,10 @@ impl AsyncServer {
 /// stays fixed for the client's lifetime.
 ///
 /// ```no_run
-/// # use memcache::exp::AsyncMetaClient;
-/// # async fn example() -> Result<(), memcache::MemcacheError> {
+/// # use memcache::exp::{AsyncMetaClient, Ttl};
+/// # async fn example() -> memcache::exp::Result<()> {
 /// let client = AsyncMetaClient::connect("127.0.0.1:11211").await?;
-/// client.set("foo", "bar").ttl(60).send().await?;
+/// client.set("foo", "bar").ttl(Ttl::secs(60)).send().await?;
 /// let result = client.get("foo").send().await?;
 /// # Ok(())
 /// # }
@@ -122,7 +116,7 @@ pub struct AsyncMetaClient {
 impl MetaClientBuilder {
     /// Connect to one server with this configuration; the async
     /// counterpart of [`connect`](Self::connect).
-    pub async fn connect_async<A: ToSocketAddrs>(self, addr: A) -> Result<AsyncMetaClient, MemcacheError> {
+    pub async fn connect_async<A: ToSocketAddrs>(self, addr: A) -> Result<AsyncMetaClient> {
         self.connect_multiple_async([addr]).await
     }
 
@@ -131,12 +125,12 @@ impl MetaClientBuilder {
     pub async fn connect_multiple_async<A: ToSocketAddrs>(
         self,
         addrs: impl IntoIterator<Item = A>,
-    ) -> Result<AsyncMetaClient, MemcacheError> {
+    ) -> Result<AsyncMetaClient> {
         let mut servers = Vec::new();
         for addr in addrs {
             let resolved: Vec<SocketAddr> = lookup_host(addr).await?.collect();
             if resolved.is_empty() {
-                return Err(ClientError::Error(Cow::Borrowed("address resolved to no socket addresses")).into());
+                return Err(Error::Usage("address resolved to no socket addresses"));
             }
             servers.push(AsyncServer {
                 addrs: resolved,
@@ -144,7 +138,7 @@ impl MetaClientBuilder {
             });
         }
         if servers.is_empty() {
-            return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
+            return Err(Error::Usage("at least one server address is required"));
         }
         Ok(AsyncMetaClient {
             servers: Arc::new(servers),
@@ -158,7 +152,7 @@ impl MetaClientBuilder {
 impl AsyncMetaClient {
     /// Connect to one server with the default configuration; use
     /// [`builder`](Self::builder) to change it.
-    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<AsyncMetaClient, MemcacheError> {
+    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<AsyncMetaClient> {
         AsyncMetaClient::connect_multiple([addr]).await
     }
 
@@ -169,9 +163,7 @@ impl AsyncMetaClient {
     /// here, but connections are dialed lazily, so a down server surfaces
     /// at the first operation; [`noop`](Self::noop) verifies connectivity
     /// eagerly.
-    pub async fn connect_multiple<A: ToSocketAddrs>(
-        addrs: impl IntoIterator<Item = A>,
-    ) -> Result<AsyncMetaClient, MemcacheError> {
+    pub async fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<AsyncMetaClient> {
         AsyncMetaClient::builder().connect_multiple_async(addrs).await
     }
 
@@ -190,14 +182,10 @@ impl AsyncMetaClient {
         Request::new(self, Get::new(key))
     }
 
-    /// Store a value under a key. The value is encoded via
-    /// [`ToValue`](super::ToValue), which also picks the stored client
-    /// flags: [`FLAG_STR`](super::FLAG_STR) for strings,
-    /// [`FLAG_INT`](super::FLAG_INT) for integers and
-    /// [`FLAG_BYTES`](super::FLAG_BYTES) (zero) otherwise. Other clients
-    /// may not share these conventions; override with
+    /// Store raw bytes under a key. The protocol layer does no
+    /// serialization; set the stored client flags with
     /// [`client_flags`](Request::client_flags).
-    pub fn set(&self, key: impl AsRef<[u8]>, value: impl ToValue) -> Request<'_, AsyncMetaClient, Set> {
+    pub fn set(&self, key: impl AsRef<[u8]>, value: impl AsRef<[u8]>) -> Request<'_, AsyncMetaClient, Set> {
         Request::new(self, Set::new(key, value))
     }
 
@@ -222,13 +210,15 @@ impl AsyncMetaClient {
 
     /// Run a standalone operation value; [`send`](Request::send) is sugar
     /// for this.
-    pub async fn run<O: Operation>(&self, operation: O) -> Result<O::Output, MemcacheError> {
+    pub async fn run<O: Operation>(&self, operation: O) -> Result<O::Output> {
         let command = operation.prepare()?;
         let server = &self.servers[self.connection_index(operation.key())];
         let mut connection = server.checkout(&self.timeouts).await?;
         // A failed exchange leaves the stream in an unknown state, so the
         // connection is dropped instead of returned to the pool.
-        let response = timed(self.timeouts.io, connection.execute(&command)).await?;
+        let response = timed(self.timeouts.io, connection.execute(&command))
+            .await
+            .map_err(|error| error.for_key(operation.key()))?;
         server.put_back(connection, self.max_idle);
         operation.parse(parse_meta_result(response)?)
     }
@@ -245,10 +235,7 @@ impl AsyncMetaClient {
     /// while the remaining groups still execute. Semantic outcomes (miss,
     /// CAS mismatch, ...) are not errors; they show up inside [`OpResult`].
     /// A batch is not a transaction.
-    pub async fn run_batch(
-        &self,
-        operations: impl IntoIterator<Item = Op>,
-    ) -> Result<Vec<Result<OpResult, MemcacheError>>, MemcacheError> {
+    pub async fn run_batch(&self, operations: impl IntoIterator<Item = Op>) -> Result<Vec<Result<OpResult, Error>>> {
         let operations: Vec<Op> = operations.into_iter().collect();
         self.run_all(&operations).await
     }
@@ -260,17 +247,14 @@ impl AsyncMetaClient {
     pub async fn run_many<O: Operation>(
         &self,
         operations: impl IntoIterator<Item = O>,
-    ) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
+    ) -> Result<Vec<Result<O::Output, Error>>> {
         let operations: Vec<O> = operations.into_iter().collect();
         self.run_all(&operations).await
     }
 
-    async fn run_all<O: Operation>(
-        &self,
-        operations: &[O],
-    ) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
+    async fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<Result<O::Output, Error>>> {
         let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
-        let mut outputs: Vec<Option<Result<O::Output, MemcacheError>>> = (0..operations.len()).map(|_| None).collect();
+        let mut outputs: Vec<Option<Result<O::Output>>> = (0..operations.len()).map(|_| None).collect();
         // One exchange future per non-empty server group, run concurrently:
         // the batch takes one round trip total, not one per server.
         let exchanges = plan
@@ -288,7 +272,7 @@ impl AsyncMetaClient {
                     let mut connection = server.checkout(&self.timeouts).await?;
                     let responses = timed(self.timeouts.io, connection.execute_batch(&commands)).await?;
                     server.put_back(connection, self.max_idle);
-                    Ok::<_, MemcacheError>(responses)
+                    Ok::<_, Error>(responses)
                 }
             })
             .collect();
@@ -304,7 +288,7 @@ impl AsyncMetaClient {
                 }
                 Err(error) => {
                     for &index in indices {
-                        outputs[index] = Some(Err(core::duplicate_error(&error)));
+                        outputs[index] = Some(Err(error.duplicate().for_key(operations[index].key())));
                     }
                 }
             }
@@ -317,20 +301,20 @@ impl AsyncMetaClient {
 
     /// Round-trip an `mn` no-op on every server; useful as a connection
     /// health check.
-    pub async fn noop(&self) -> Result<(), MemcacheError> {
+    pub async fn noop(&self) -> Result<()> {
         for server in self.servers.iter() {
             let mut connection = server.checkout(&self.timeouts).await?;
             let response = timed(self.timeouts.io, connection.execute(&build_noop())).await?;
             server.put_back(connection, self.max_idle);
             if response.rc != ReturnCode::Mn {
-                return Err(ServerError::BadResponse("unexpected no-op response".into()).into());
+                return Err(Error::protocol("unexpected no-op response"));
             }
         }
         Ok(())
     }
 
     /// Fetch `me` debug fields for a key; `None` on a miss.
-    pub async fn debug(&self, key: impl AsRef<[u8]>) -> Result<Option<HashMap<String, String>>, MemcacheError> {
+    pub async fn debug(&self, key: impl AsRef<[u8]>) -> Result<Option<HashMap<String, String>>> {
         let key = key.as_ref().to_vec();
         let server = &self.servers[self.connection_index(&key)];
         let command = build_debug(key)?;
@@ -343,7 +327,7 @@ impl AsyncMetaClient {
 
 impl<'a, O: Operation> Request<'a, AsyncMetaClient, O> {
     /// Execute the request and return its typed result.
-    pub async fn send(self) -> Result<O::Output, MemcacheError> {
+    pub async fn send(self) -> Result<O::Output> {
         let Request { client, operation } = self;
         client.run(operation).await
     }

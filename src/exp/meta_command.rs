@@ -7,7 +7,7 @@
 
 use std::borrow::Cow;
 
-use crate::error::{ClientError, CommandError, MemcacheError, ServerError};
+use super::error::{Error, Result};
 
 /// memcached limits the key token *on the wire* to 250 bytes and the legacy
 /// text key may not contain whitespace or control characters. Keys that
@@ -40,11 +40,11 @@ pub(crate) fn base64_encode(input: &[u8]) -> Vec<u8> {
     output
 }
 
-pub(crate) fn base64_decode(input: &[u8]) -> Result<Vec<u8>, MemcacheError> {
-    fn bad_base64() -> MemcacheError {
-        ServerError::BadResponse(Cow::Borrowed("invalid base64 token")).into()
+pub(crate) fn base64_decode(input: &[u8]) -> Result<Vec<u8>> {
+    fn bad_base64() -> Error {
+        Error::protocol("invalid base64 token")
     }
-    fn value(byte: u8) -> Result<u32, MemcacheError> {
+    fn value(byte: u8) -> Result<u32> {
         match byte {
             b'A'..=b'Z' => Ok((byte - b'A') as u32),
             b'a'..=b'z' => Ok((byte - b'a') as u32 + 26),
@@ -93,14 +93,14 @@ fn is_legacy_safe(key: &[u8]) -> bool {
 }
 
 /// Return `(wire_key, needs_base64_flag)` for a raw key.
-pub(crate) fn encode_key(key: &[u8]) -> Result<(Cow<'_, [u8]>, bool), MemcacheError> {
+pub(crate) fn encode_key(key: &[u8]) -> Result<(Cow<'_, [u8]>, bool)> {
     let (wire_key, needs_base64) = if is_legacy_safe(key) {
         (Cow::Borrowed(key), false)
     } else {
         (Cow::Owned(base64_encode(key)), true)
     };
     if wire_key.len() > MAX_KEY_LENGTH {
-        return Err(ClientError::KeyTooLong.into());
+        return Err(Error::Usage("key exceeds 250 bytes on the wire"));
     }
     Ok((wire_key, needs_base64))
 }
@@ -162,7 +162,7 @@ pub enum ReturnCode {
 }
 
 impl ReturnCode {
-    pub fn from_wire(token: &[u8]) -> Result<ReturnCode, MemcacheError> {
+    pub fn from_wire(token: &[u8]) -> Result<ReturnCode> {
         match token {
             b"HD" => Ok(ReturnCode::Hd),
             b"VA" => Ok(ReturnCode::Va),
@@ -172,11 +172,10 @@ impl ReturnCode {
             b"NF" => Ok(ReturnCode::Nf),
             b"MN" => Ok(ReturnCode::Mn),
             b"ME" => Ok(ReturnCode::Me),
-            _ => Err(ServerError::BadResponse(Cow::Owned(format!(
+            _ => Err(Error::Protocol(format!(
                 "unknown return code {:?}",
                 String::from_utf8_lossy(token)
-            )))
-            .into()),
+            ))),
         }
     }
 }
@@ -221,13 +220,13 @@ impl MetaCommand {
     }
 
     /// Encode the full request (header line plus data block) to wire bytes.
-    pub fn encode(&self) -> Result<Vec<u8>, MemcacheError> {
+    pub fn encode(&self) -> Result<Vec<u8>> {
         let mut buffer = Vec::new();
         self.encode_into(&mut buffer)?;
         Ok(buffer)
     }
 
-    pub fn encode_into(&self, buffer: &mut Vec<u8>) -> Result<(), MemcacheError> {
+    pub fn encode_into(&self, buffer: &mut Vec<u8>) -> Result<()> {
         buffer.extend_from_slice(self.op.wire());
         if self.op == MetaOp::Noop {
             // mn takes no key, flags or value.
@@ -235,7 +234,7 @@ impl MetaCommand {
             return Ok(());
         }
         if self.key.is_empty() {
-            return Err(ClientError::Error(Cow::Borrowed("key must not be empty")).into());
+            return Err(Error::Usage("key must not be empty"));
         }
         let (wire_key, needs_base64) = encode_key(&self.key)?;
         buffer.push(b' ');
@@ -293,21 +292,19 @@ impl MetaResponse {
 
     /// Parse a response header line (without the trailing CRLF).
     ///
-    /// Legacy `ERROR` / `CLIENT_ERROR` / `SERVER_ERROR` lines are converted
-    /// to the corresponding [`MemcacheError`].
-    pub fn parse_header(line: &[u8]) -> Result<MetaResponse, MemcacheError> {
+    /// Legacy `ERROR` / `CLIENT_ERROR` lines become [`Error::Rejected`]
+    /// and `SERVER_ERROR` lines [`Error::Server`].
+    pub fn parse_header(line: &[u8]) -> Result<MetaResponse> {
         let mut tokens = line.split(|&byte| byte == b' ').filter(|token| !token.is_empty());
-        let rc_token = tokens
-            .next()
-            .ok_or(ServerError::BadResponse(Cow::Borrowed("empty response line")))?;
+        let rc_token = tokens.next().ok_or_else(|| Error::protocol("empty response line"))?;
         match rc_token {
-            b"ERROR" => return Err(CommandError::InvalidCommand.into()),
+            b"ERROR" => return Err(Error::Rejected("ERROR".to_string())),
             b"CLIENT_ERROR" | b"SERVER_ERROR" => {
                 let message = String::from_utf8_lossy(&line[rc_token.len()..]).trim().to_string();
                 if rc_token == b"CLIENT_ERROR" {
-                    return Err(ClientError::Error(Cow::Owned(message)).into());
+                    return Err(Error::Rejected(message));
                 }
-                return Err(ServerError::Error(message).into());
+                return Err(Error::Server(message));
             }
             _ => {}
         }
@@ -318,10 +315,15 @@ impl MetaResponse {
         // may itself start with a digit.
         if rc == ReturnCode::Va {
             if flags.is_empty() {
-                return Err(ServerError::BadResponse(Cow::Borrowed("VA response missing data length")).into());
+                return Err(Error::protocol("VA response missing data length"));
             }
             let token = flags.remove(0);
-            datalen = Some(std::str::from_utf8(&token)?.parse::<usize>()?);
+            datalen = Some(
+                std::str::from_utf8(&token)
+                    .ok()
+                    .and_then(|token| token.parse::<usize>().ok())
+                    .ok_or_else(|| Error::protocol("VA response has an invalid data length"))?,
+            );
         }
         Ok(MetaResponse {
             rc,
@@ -375,12 +377,21 @@ mod tests {
 
     #[test]
     fn encode_rejects_bad_keys() {
-        assert!(MetaCommand::new(MetaOp::Get, "").encode().is_err());
+        assert!(matches!(
+            MetaCommand::new(MetaOp::Get, "").encode(),
+            Err(Error::Usage(_))
+        ));
         let long_key = vec![b'x'; MAX_KEY_LENGTH + 1];
-        assert!(MetaCommand::new(MetaOp::Get, long_key).encode().is_err());
+        assert!(matches!(
+            MetaCommand::new(MetaOp::Get, long_key).encode(),
+            Err(Error::Usage(_))
+        ));
         // The base64 form is what must fit in 250 bytes.
         let binary_key = vec![b' '; 200];
-        assert!(MetaCommand::new(MetaOp::Get, binary_key).encode().is_err());
+        assert!(matches!(
+            MetaCommand::new(MetaOp::Get, binary_key).encode(),
+            Err(Error::Usage(_))
+        ));
     }
 
     #[test]
@@ -402,19 +413,17 @@ mod tests {
 
     #[test]
     fn parse_header_errors() {
-        assert!(matches!(
-            MetaResponse::parse_header(b"ERROR"),
-            Err(MemcacheError::CommandError(CommandError::InvalidCommand))
-        ));
+        assert!(matches!(MetaResponse::parse_header(b"ERROR"), Err(Error::Rejected(_))));
         assert!(matches!(
             MetaResponse::parse_header(b"CLIENT_ERROR bad data chunk"),
-            Err(MemcacheError::ClientError(_))
+            Err(Error::Rejected(message)) if message == "bad data chunk"
         ));
         assert!(matches!(
             MetaResponse::parse_header(b"SERVER_ERROR out of memory"),
-            Err(MemcacheError::ServerError(_))
+            Err(Error::Server(message)) if message == "out of memory"
         ));
-        assert!(MetaResponse::parse_header(b"XX").is_err());
-        assert!(MetaResponse::parse_header(b"").is_err());
+        assert!(matches!(MetaResponse::parse_header(b"XX"), Err(Error::Protocol(_))));
+        assert!(matches!(MetaResponse::parse_header(b""), Err(Error::Protocol(_))));
+        assert!(matches!(MetaResponse::parse_header(b"VA x"), Err(Error::Protocol(_))));
     }
 }

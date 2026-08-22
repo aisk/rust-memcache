@@ -2,13 +2,8 @@
 //!
 //! Results describe protocol-level outcomes (miss, CAS mismatch, lease
 //! state); transport and parse failures surface as
-//! [`MemcacheError`](crate::MemcacheError) instead. Batch-only outcomes
-//! (failed/ambiguous operations inside a pipeline) will be added together
-//! with the pipeline executor.
-
-use crate::error::MemcacheError;
-
-use super::value::FromValue;
+//! [`Error`](super::Error) instead. Values are raw bytes plus the stored
+//! client flags; decoding belongs to the scenario layer.
 
 /// Outcome of a [`Get`](super::Get) operation.
 ///
@@ -112,8 +107,7 @@ pub struct GetResult {
     /// The raw value; present only on a [`Hit`](GetStatus::Hit) that
     /// requested the value.
     pub value: Option<Vec<u8>>,
-    /// The client flags stored with the item, used by
-    /// [`decode`](Self::decode).
+    /// The client flags stored with the item.
     pub client_flags: Option<u32>,
     pub item: ItemMeta,
     pub value_state: ValueState,
@@ -123,19 +117,6 @@ pub struct GetResult {
 impl GetResult {
     pub fn hit(&self) -> bool {
         self.status == GetStatus::Hit
-    }
-
-    /// Decode the value into the requested type via
-    /// [`FromValue`](super::FromValue); `Ok(None)` when there is no value.
-    ///
-    /// ```no_run
-    /// # use memcache::exp::MetaClient;
-    /// # let client = MetaClient::connect("127.0.0.1:11211").unwrap();
-    /// let count: Option<u64> = client.get("hits").send().unwrap().decode().unwrap();
-    /// ```
-    pub fn decode<V: FromValue>(self) -> Result<Option<V>, MemcacheError> {
-        let flags = self.client_flags.unwrap_or(0);
-        self.value.map(|value| V::from_value(value, flags)).transpose()
     }
 
     pub fn is_stale(&self) -> bool {

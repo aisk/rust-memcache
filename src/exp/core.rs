@@ -3,9 +3,7 @@
 //! results. Both clients (blocking and tokio) are thin I/O loops around
 //! these functions, and the future pipeline executor will reuse them.
 
-use std::borrow::Cow;
-
-use crate::error::{ClientError, MemcacheError, ServerError};
+use super::error::{Error, Result};
 
 use super::meta_api::{
     ArithmeticOptions, DeleteOptions, GetOptions, MetaCommandResult, SetMode, SetOptions, build_arithmetic,
@@ -16,6 +14,7 @@ use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::result::{
     ArithmeticResult, GetResult, GetStatus, ItemMeta, LeaseState, MutationResult, MutationStatus, OpResult, ValueState,
 };
+use super::ttl::Ttl;
 
 mod sealed {
     pub trait Sealed {}
@@ -37,10 +36,10 @@ pub trait Operation: sealed::Sealed {
     fn key(&self) -> &[u8];
 
     #[doc(hidden)]
-    fn prepare(&self) -> Result<MetaCommand, MemcacheError>;
+    fn prepare(&self) -> Result<MetaCommand>;
 
     #[doc(hidden)]
-    fn parse(&self, wire: MetaCommandResult) -> Result<Self::Output, MemcacheError>;
+    fn parse(&self, wire: MetaCommandResult) -> Result<Self::Output>;
 }
 
 impl Operation for Get {
@@ -50,11 +49,11 @@ impl Operation for Get {
         &self.key
     }
 
-    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+    fn prepare(&self) -> Result<MetaCommand> {
         prepare_get(self)
     }
 
-    fn parse(&self, wire: MetaCommandResult) -> Result<GetResult, MemcacheError> {
+    fn parse(&self, wire: MetaCommandResult) -> Result<GetResult> {
         parse_get(self, wire)
     }
 }
@@ -66,11 +65,11 @@ impl Operation for Set {
         &self.key
     }
 
-    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+    fn prepare(&self) -> Result<MetaCommand> {
         prepare_set(self)
     }
 
-    fn parse(&self, wire: MetaCommandResult) -> Result<MutationResult, MemcacheError> {
+    fn parse(&self, wire: MetaCommandResult) -> Result<MutationResult> {
         parse_set(self, wire)
     }
 }
@@ -82,11 +81,11 @@ impl Operation for Delete {
         &self.key
     }
 
-    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+    fn prepare(&self) -> Result<MetaCommand> {
         prepare_delete(self)
     }
 
-    fn parse(&self, wire: MetaCommandResult) -> Result<MutationResult, MemcacheError> {
+    fn parse(&self, wire: MetaCommandResult) -> Result<MutationResult> {
         parse_delete(self, wire)
     }
 }
@@ -98,11 +97,11 @@ impl Operation for Arithmetic {
         &self.key
     }
 
-    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+    fn prepare(&self) -> Result<MetaCommand> {
         prepare_arithmetic(self)
     }
 
-    fn parse(&self, wire: MetaCommandResult) -> Result<ArithmeticResult, MemcacheError> {
+    fn parse(&self, wire: MetaCommandResult) -> Result<ArithmeticResult> {
         parse_arithmetic(self, wire)
     }
 }
@@ -119,7 +118,7 @@ impl Operation for Op {
         }
     }
 
-    fn prepare(&self) -> Result<MetaCommand, MemcacheError> {
+    fn prepare(&self) -> Result<MetaCommand> {
         match self {
             Op::Get(operation) => operation.prepare(),
             Op::Set(operation) => operation.prepare(),
@@ -128,7 +127,7 @@ impl Operation for Op {
         }
     }
 
-    fn parse(&self, wire: MetaCommandResult) -> Result<OpResult, MemcacheError> {
+    fn parse(&self, wire: MetaCommandResult) -> Result<OpResult> {
         match self {
             Op::Get(operation) => operation.parse(wire).map(OpResult::Get),
             Op::Set(operation) => operation.parse(wire).map(OpResult::Mutation),
@@ -138,23 +137,8 @@ impl Operation for Op {
     }
 }
 
-fn invalid<T>(message: &'static str) -> Result<T, MemcacheError> {
-    Err(ClientError::Error(Cow::Borrowed(message)).into())
-}
-
-/// Best-effort duplicate of an error, so a failure that covers a whole batch
-/// group can be reported on each of the group's operations. io errors keep
-/// their kind and message but lose the source chain; variants that cannot
-/// arise from meta connections fall back to their rendered message.
-pub(crate) fn duplicate_error(error: &MemcacheError) -> MemcacheError {
-    match error {
-        MemcacheError::IOError(err) => MemcacheError::IOError(std::io::Error::new(err.kind(), err.to_string())),
-        MemcacheError::ClientError(err) => err.clone().into(),
-        MemcacheError::ServerError(err) => err.clone().into(),
-        MemcacheError::CommandError(err) => err.clone().into(),
-        MemcacheError::ParseError(err) => err.clone().into(),
-        other => ClientError::Error(Cow::Owned(other.to_string())).into(),
-    }
+fn invalid<T>(message: &'static str) -> Result<T> {
+    Err(Error::Usage(message))
 }
 
 /// A validated batch: every operation prepared into a wire command, and the
@@ -173,7 +157,7 @@ pub(crate) fn plan<O: Operation>(
     operations: &[O],
     servers: usize,
     index_for: impl Fn(&[u8]) -> usize,
-) -> Result<BatchPlan, MemcacheError> {
+) -> Result<BatchPlan> {
     let mut commands = Vec::with_capacity(operations.len());
     for operation in operations {
         commands.push(Some(operation.prepare()?));
@@ -185,11 +169,11 @@ pub(crate) fn plan<O: Operation>(
     Ok(BatchPlan { commands, groups })
 }
 
-fn unexpected<T>(message: &'static str) -> Result<T, MemcacheError> {
-    Err(ServerError::BadResponse(Cow::Borrowed(message)).into())
+fn unexpected<T>(message: &'static str) -> Result<T> {
+    Err(Error::protocol(message))
 }
 
-pub(crate) fn prepare_get(operation: &Get) -> Result<MetaCommand, MemcacheError> {
+pub(crate) fn prepare_get(operation: &Get) -> Result<MetaCommand> {
     if operation.lease_ttl == Some(0) {
         return invalid("lease_ttl must be >= 1");
     }
@@ -213,7 +197,7 @@ pub(crate) fn prepare_get(operation: &Get) -> Result<MetaCommand, MemcacheError>
         return_last_access: operation.meta.last_access,
         return_hit_before: operation.meta.hit_before,
         no_lru_bump: operation.no_lru_bump,
-        touch: operation.touch,
+        touch: operation.touch.map(Ttl::wire).transpose()?,
         vivify_ttl: operation.lease_ttl,
         recache_ttl: operation.refresh_before,
         unless_cas: operation.unless_cas,
@@ -222,14 +206,14 @@ pub(crate) fn prepare_get(operation: &Get) -> Result<MetaCommand, MemcacheError>
     build_get(operation.key.clone(), &options)
 }
 
-pub(crate) fn prepare_set(operation: &Set) -> Result<MetaCommand, MemcacheError> {
+pub(crate) fn prepare_set(operation: &Set) -> Result<MetaCommand> {
     if operation.vivify_ttl == Some(0) {
         return invalid("vivify_ttl must be >= 1");
     }
     let options = SetOptions {
         // An omitted F stores flags 0, so only non-zero flags go on the wire.
         client_flags: (operation.client_flags != 0).then_some(operation.client_flags),
-        ttl: operation.ttl,
+        ttl: operation.ttl.map(Ttl::wire).transpose()?,
         mode: operation.mode,
         compare_cas: operation.compare_cas,
         new_cas: operation.force_cas,
@@ -240,20 +224,20 @@ pub(crate) fn prepare_set(operation: &Set) -> Result<MetaCommand, MemcacheError>
     build_set(operation.key.clone(), operation.value.clone(), &options)
 }
 
-pub(crate) fn prepare_delete(operation: &Delete) -> Result<MetaCommand, MemcacheError> {
+pub(crate) fn prepare_delete(operation: &Delete) -> Result<MetaCommand> {
     if operation.stale_for.is_some() && !operation.invalidate {
         return invalid("stale_for is only valid for invalidate");
     }
     let options = DeleteOptions {
         compare_cas: operation.compare_cas,
         invalidate: operation.invalidate,
-        ttl: operation.stale_for,
+        ttl: operation.stale_for.map(Ttl::wire).transpose()?,
         ..DeleteOptions::default()
     };
     build_delete(operation.key.clone(), &options)
 }
 
-pub(crate) fn prepare_arithmetic(operation: &Arithmetic) -> Result<MetaCommand, MemcacheError> {
+pub(crate) fn prepare_arithmetic(operation: &Arithmetic) -> Result<MetaCommand> {
     if operation.initial_ttl == Some(0) {
         return invalid("initial_ttl must be >= 1");
     }
@@ -265,7 +249,7 @@ pub(crate) fn prepare_arithmetic(operation: &Arithmetic) -> Result<MetaCommand, 
         mode: operation.mode,
         initial: operation.initial,
         initial_ttl: operation.initial_ttl,
-        ttl: operation.ttl,
+        ttl: operation.ttl.map(Ttl::wire).transpose()?,
         compare_cas: operation.compare_cas,
         new_cas: operation.force_cas,
         return_value: true,
@@ -276,7 +260,7 @@ pub(crate) fn prepare_arithmetic(operation: &Arithmetic) -> Result<MetaCommand, 
     build_arithmetic(operation.key.clone(), &options)
 }
 
-fn mutation_status(is_add: bool, rc: ReturnCode) -> Result<MutationStatus, MemcacheError> {
+fn mutation_status(is_add: bool, rc: ReturnCode) -> Result<MutationStatus> {
     match rc {
         ReturnCode::Hd | ReturnCode::Va => Ok(MutationStatus::Applied),
         ReturnCode::Ex => Ok(MutationStatus::CasMismatch),
@@ -290,7 +274,7 @@ fn mutation_status(is_add: bool, rc: ReturnCode) -> Result<MutationStatus, Memca
     }
 }
 
-pub(crate) fn parse_get(operation: &Get, wire: MetaCommandResult) -> Result<GetResult, MemcacheError> {
+pub(crate) fn parse_get(operation: &Get, wire: MetaCommandResult) -> Result<GetResult> {
     if wire.rc == ReturnCode::En {
         return Ok(GetResult {
             key: operation.key.clone(),
@@ -355,7 +339,7 @@ pub(crate) fn parse_get(operation: &Get, wire: MetaCommandResult) -> Result<GetR
     })
 }
 
-pub(crate) fn parse_set(operation: &Set, wire: MetaCommandResult) -> Result<MutationResult, MemcacheError> {
+pub(crate) fn parse_set(operation: &Set, wire: MetaCommandResult) -> Result<MutationResult> {
     Ok(MutationResult {
         key: operation.key.clone(),
         status: mutation_status(operation.mode == SetMode::Add, wire.rc)?,
@@ -363,7 +347,7 @@ pub(crate) fn parse_set(operation: &Set, wire: MetaCommandResult) -> Result<Muta
     })
 }
 
-pub(crate) fn parse_delete(operation: &Delete, wire: MetaCommandResult) -> Result<MutationResult, MemcacheError> {
+pub(crate) fn parse_delete(operation: &Delete, wire: MetaCommandResult) -> Result<MutationResult> {
     Ok(MutationResult {
         key: operation.key.clone(),
         status: mutation_status(false, wire.rc)?,
@@ -371,13 +355,15 @@ pub(crate) fn parse_delete(operation: &Delete, wire: MetaCommandResult) -> Resul
     })
 }
 
-pub(crate) fn parse_arithmetic(
-    operation: &Arithmetic,
-    wire: MetaCommandResult,
-) -> Result<ArithmeticResult, MemcacheError> {
+pub(crate) fn parse_arithmetic(operation: &Arithmetic, wire: MetaCommandResult) -> Result<ArithmeticResult> {
     let status = mutation_status(false, wire.rc)?;
     let value = match (&wire.value, wire.rc) {
-        (Some(value), ReturnCode::Va) if !value.is_empty() => Some(std::str::from_utf8(value)?.parse::<u64>()?),
+        (Some(value), ReturnCode::Va) if !value.is_empty() => Some(
+            std::str::from_utf8(value)
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or_else(|| Error::protocol("arithmetic response is not a number"))?,
+        ),
         _ => None,
     };
     Ok(ArithmeticResult {
@@ -416,7 +402,7 @@ mod tests {
                 ttl: true,
                 ..Meta::NONE
             },
-            touch: Some(60),
+            touch: Some(Ttl::secs(60)),
             ..Get::new("foo")
         };
         let command = prepare_get(&operation).unwrap();
@@ -459,23 +445,35 @@ mod tests {
 
     #[test]
     fn prepare_set_wire_format() {
-        // A &str value carries FLAG_STR (16) from ToValue.
+        // The protocol layer stores bytes as given, flags default to zero.
         let command = prepare_set(&Set::new("foo", "bar")).unwrap();
-        assert_eq!(command.encode().unwrap(), b"ms foo 3 F16\r\nbar\r\n".to_vec());
-
-        let command = prepare_set(&Set::new("foo", b"bar")).unwrap();
         assert_eq!(command.encode().unwrap(), b"ms foo 3\r\nbar\r\n".to_vec());
 
         let operation = Set {
             mode: SetMode::Add,
-            ttl: Some(60),
+            ttl: Some(Ttl::secs(60)),
             return_cas: true,
             ..Set::new("foo", "bar")
         };
         let command = prepare_set(&operation).unwrap();
-        assert_eq!(command.encode().unwrap(), b"ms foo 3 ME c F16 T60\r\nbar\r\n".to_vec());
+        assert_eq!(command.encode().unwrap(), b"ms foo 3 ME c T60\r\nbar\r\n".to_vec());
 
-        // Non-zero client flags from ToValue go on the wire as F.
+        // A zero ttl is a usage error, never a silent "keep forever".
+        let operation = Set {
+            ttl: Some(Ttl::secs(0)),
+            ..Set::new("foo", "bar")
+        };
+        assert!(matches!(prepare_set(&operation), Err(Error::Usage(_))));
+        let operation = Set {
+            ttl: Some(Ttl::NEVER),
+            ..Set::new("foo", "bar")
+        };
+        assert_eq!(
+            prepare_set(&operation).unwrap().encode().unwrap(),
+            b"ms foo 3 T0\r\nbar\r\n".to_vec()
+        );
+
+        // Non-zero client flags go on the wire as F.
         let operation = Set {
             client_flags: 5,
             ..Set::new("foo", "bar")
@@ -490,7 +488,7 @@ mod tests {
         assert_eq!(command.encode().unwrap(), b"md foo\r\n".to_vec());
         assert!(
             prepare_delete(&Delete {
-                stale_for: Some(30),
+                stale_for: Some(Ttl::secs(30)),
                 ..Delete::new("foo")
             })
             .is_err()

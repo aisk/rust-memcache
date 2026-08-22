@@ -1,6 +1,5 @@
 //! Blocking client over the semantic layer.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -8,16 +7,14 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::error::{ClientError, MemcacheError, ServerError};
-
 use super::connection::MetaConnection;
 use super::core::{self, Operation};
+use super::error::{Error, Result};
 use super::meta_api::{ArithmeticMode, build_debug, build_noop, parse_debug_result, parse_meta_result};
 use super::meta_command::{MetaCommand, ReturnCode};
 use super::operation::{Arithmetic, Delete, Get, Op, Set};
 use super::request::Request;
 use super::result::OpResult;
-use super::value::ToValue;
 
 pub(crate) const DEFAULT_MAX_IDLE: usize = 8;
 
@@ -43,10 +40,10 @@ pub(crate) fn jump_hash(mut key: u64, buckets: usize) -> usize {
     b as usize
 }
 
-pub(crate) fn resolve<A: ToSocketAddrs>(addr: A) -> Result<Vec<SocketAddr>, MemcacheError> {
+pub(crate) fn resolve<A: ToSocketAddrs>(addr: A) -> Result<Vec<SocketAddr>> {
     let addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
     if addrs.is_empty() {
-        return Err(ClientError::Error(Cow::Borrowed("address resolved to no socket addresses")).into());
+        return Err(Error::Usage("address resolved to no socket addresses"));
     }
     Ok(addrs)
 }
@@ -61,7 +58,7 @@ struct Server {
 }
 
 impl Server {
-    fn checkout(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
+    fn checkout(&self, timeouts: &Timeouts) -> Result<MetaConnection> {
         // Idle connections may have been closed by the server or a
         // middlebox while pooled; probe and discard instead of handing a
         // dead connection to the caller.
@@ -76,7 +73,7 @@ impl Server {
         self.dial(timeouts)
     }
 
-    fn dial(&self, timeouts: &Timeouts) -> Result<MetaConnection, MemcacheError> {
+    fn dial(&self, timeouts: &Timeouts) -> Result<MetaConnection> {
         let stream = match timeouts.connect {
             Some(duration) => {
                 // One deadline shared by all resolved addresses, matching
@@ -204,7 +201,7 @@ impl MetaClientBuilder {
     }
 
     /// Connect to one server with this configuration.
-    pub fn connect<A: ToSocketAddrs>(self, addr: A) -> Result<MetaClient, MemcacheError> {
+    pub fn connect<A: ToSocketAddrs>(self, addr: A) -> Result<MetaClient> {
         self.connect_multiple([addr])
     }
 
@@ -214,10 +211,7 @@ impl MetaClientBuilder {
     /// tail to move the minimal share of keys. Addresses are resolved
     /// here, but connections are dialed lazily, so a down server surfaces
     /// at the first operation; `noop()` verifies connectivity eagerly.
-    pub fn connect_multiple<A: ToSocketAddrs>(
-        self,
-        addrs: impl IntoIterator<Item = A>,
-    ) -> Result<MetaClient, MemcacheError> {
+    pub fn connect_multiple<A: ToSocketAddrs>(self, addrs: impl IntoIterator<Item = A>) -> Result<MetaClient> {
         let mut servers = Vec::new();
         for addr in addrs {
             servers.push(Server {
@@ -226,7 +220,7 @@ impl MetaClientBuilder {
             });
         }
         if servers.is_empty() {
-            return Err(ClientError::Error(Cow::Borrowed("at least one server address is required")).into());
+            return Err(Error::Usage("at least one server address is required"));
         }
         Ok(MetaClient {
             servers: Arc::new(servers),
@@ -260,9 +254,9 @@ impl Default for MetaClientBuilder {
 /// dials a fresh one.
 ///
 /// ```no_run
-/// # use memcache::exp::MetaClient;
+/// # use memcache::exp::{MetaClient, Ttl};
 /// let client = MetaClient::connect("127.0.0.1:11211").unwrap();
-/// client.set("foo", "bar").ttl(60).send().unwrap();
+/// client.set("foo", "bar").ttl(Ttl::secs(60)).send().unwrap();
 /// let result = client.get("foo").send().unwrap();
 /// ```
 #[derive(Clone)]
@@ -276,7 +270,7 @@ pub struct MetaClient {
 impl MetaClient {
     /// Connect to one server with the default configuration; use
     /// [`builder`](Self::builder) to change it.
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<MetaClient, MemcacheError> {
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<MetaClient> {
         MetaClient::connect_multiple([addr])
     }
 
@@ -287,7 +281,7 @@ impl MetaClient {
     /// here, but connections are dialed lazily, so a down server surfaces
     /// at the first operation; [`noop`](Self::noop) verifies connectivity
     /// eagerly.
-    pub fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<MetaClient, MemcacheError> {
+    pub fn connect_multiple<A: ToSocketAddrs>(addrs: impl IntoIterator<Item = A>) -> Result<MetaClient> {
         MetaClient::builder().connect_multiple(addrs)
     }
 
@@ -304,11 +298,7 @@ impl MetaClient {
     /// Check out a connection, run one transport exchange on it and return
     /// it to the pool. A failed exchange leaves the stream in an unknown
     /// state, so the connection is dropped instead of returned.
-    fn with_connection<T>(
-        &self,
-        server: usize,
-        exchange: impl FnOnce(&mut MetaConnection) -> Result<T, MemcacheError>,
-    ) -> Result<T, MemcacheError> {
+    fn with_connection<T>(&self, server: usize, exchange: impl FnOnce(&mut MetaConnection) -> Result<T>) -> Result<T> {
         let server = &self.servers[server];
         let mut connection = server.checkout(&self.timeouts)?;
         let result = exchange(&mut connection);
@@ -323,14 +313,10 @@ impl MetaClient {
         Request::new(self, Get::new(key))
     }
 
-    /// Store a value under a key. The value is encoded via
-    /// [`ToValue`](super::ToValue), which also picks the stored client
-    /// flags: [`FLAG_STR`](super::FLAG_STR) for strings,
-    /// [`FLAG_INT`](super::FLAG_INT) for integers and
-    /// [`FLAG_BYTES`](super::FLAG_BYTES) (zero) otherwise. Other clients
-    /// may not share these conventions; override with
+    /// Store raw bytes under a key. The protocol layer does no
+    /// serialization; set the stored client flags with
     /// [`client_flags`](Request::client_flags).
-    pub fn set(&self, key: impl AsRef<[u8]>, value: impl ToValue) -> Request<'_, MetaClient, Set> {
+    pub fn set(&self, key: impl AsRef<[u8]>, value: impl AsRef<[u8]>) -> Request<'_, MetaClient, Set> {
         Request::new(self, Set::new(key, value))
     }
 
@@ -355,10 +341,12 @@ impl MetaClient {
 
     /// Run a standalone operation value; [`send`](Request::send) is sugar
     /// for this.
-    pub fn run<O: Operation>(&self, operation: O) -> Result<O::Output, MemcacheError> {
+    pub fn run<O: Operation>(&self, operation: O) -> Result<O::Output> {
         let command = operation.prepare()?;
         let index = self.connection_index(operation.key());
-        let response = self.with_connection(index, |connection| connection.execute(&command))?;
+        let response = self
+            .with_connection(index, |connection| connection.execute(&command))
+            .map_err(|error| error.for_key(operation.key()))?;
         operation.parse(parse_meta_result(response)?)
     }
 
@@ -375,18 +363,15 @@ impl MetaClient {
     /// A batch is not a transaction.
     ///
     /// ```no_run
-    /// # use memcache::exp::{Get, MetaClient, Set};
+    /// # use memcache::exp::{Get, MetaClient, Set, Ttl};
     /// # let client = MetaClient::connect("127.0.0.1:11211").unwrap();
     /// let results = client.run_batch(vec![
-    ///     Set::new("foo", "bar").ttl(60).into(),
+    ///     Set::new("foo", "bar").ttl(Ttl::secs(60)).into(),
     ///     Get::new("baz").into(),
     /// ]).unwrap();
     /// let stored = results[0].as_ref().unwrap();
     /// ```
-    pub fn run_batch(
-        &self,
-        operations: impl IntoIterator<Item = Op>,
-    ) -> Result<Vec<Result<OpResult, MemcacheError>>, MemcacheError> {
+    pub fn run_batch(&self, operations: impl IntoIterator<Item = Op>) -> Result<Vec<Result<OpResult, Error>>> {
         let operations: Vec<Op> = operations.into_iter().collect();
         self.run_all(&operations)
     }
@@ -398,14 +383,14 @@ impl MetaClient {
     pub fn run_many<O: Operation>(
         &self,
         operations: impl IntoIterator<Item = O>,
-    ) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
+    ) -> Result<Vec<Result<O::Output, Error>>> {
         let operations: Vec<O> = operations.into_iter().collect();
         self.run_all(&operations)
     }
 
-    fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<Result<O::Output, MemcacheError>>, MemcacheError> {
+    fn run_all<O: Operation>(&self, operations: &[O]) -> Result<Vec<Result<O::Output, Error>>> {
         let mut plan = core::plan(operations, self.servers.len(), |key| self.connection_index(key))?;
-        let mut outputs: Vec<Option<Result<O::Output, MemcacheError>>> = (0..operations.len()).map(|_| None).collect();
+        let mut outputs: Vec<Option<Result<O::Output>>> = (0..operations.len()).map(|_| None).collect();
         for (server, indices) in plan.groups.iter().enumerate() {
             if indices.is_empty() {
                 continue;
@@ -423,7 +408,7 @@ impl MetaClient {
                 }
                 Err(error) => {
                     for &index in indices {
-                        outputs[index] = Some(Err(core::duplicate_error(&error)));
+                        outputs[index] = Some(Err(error.duplicate().for_key(operations[index].key())));
                     }
                 }
             }
@@ -436,18 +421,18 @@ impl MetaClient {
 
     /// Round-trip an `mn` no-op on every server; useful as a connection
     /// health check.
-    pub fn noop(&self) -> Result<(), MemcacheError> {
+    pub fn noop(&self) -> Result<()> {
         for server in 0..self.servers.len() {
             let response = self.with_connection(server, |connection| connection.execute(&build_noop()))?;
             if response.rc != ReturnCode::Mn {
-                return Err(ServerError::BadResponse("unexpected no-op response".into()).into());
+                return Err(Error::protocol("unexpected no-op response"));
             }
         }
         Ok(())
     }
 
     /// Fetch `me` debug fields for a key; `None` on a miss.
-    pub fn debug(&self, key: impl AsRef<[u8]>) -> Result<Option<HashMap<String, String>>, MemcacheError> {
+    pub fn debug(&self, key: impl AsRef<[u8]>) -> Result<Option<HashMap<String, String>>> {
         let key = key.as_ref().to_vec();
         let index = self.connection_index(&key);
         let command = build_debug(key)?;
@@ -458,7 +443,7 @@ impl MetaClient {
 
 impl<'a, O: Operation> Request<'a, MetaClient, O> {
     /// Execute the request and return its typed result.
-    pub fn send(self) -> Result<O::Output, MemcacheError> {
+    pub fn send(self) -> Result<O::Output> {
         let Request { client, operation } = self;
         client.run(operation)
     }
@@ -471,6 +456,7 @@ mod tests {
     use std::thread::JoinHandle;
 
     use super::super::result::{GetStatus, MutationStatus};
+    use super::super::ttl::Ttl;
     use super::*;
 
     /// A single-connection server that answers each request with the next
@@ -566,9 +552,9 @@ mod tests {
         client.noop().unwrap();
 
         let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms foo 3 F16\r\n".to_vec());
+        assert_eq!(requests[0], b"ms foo 3\r\n".to_vec());
         assert_eq!(requests[1], b"mg foo v f\r\n".to_vec());
-        assert_eq!(requests[2], b"ms foo 3 ME F16\r\n".to_vec());
+        assert_eq!(requests[2], b"ms foo 3 ME\r\n".to_vec());
         assert_eq!(requests[3], b"ma counter v D2\r\n".to_vec());
         assert_eq!(requests[4], b"md foo\r\n".to_vec());
         assert_eq!(requests[5], b"mn\r\n".to_vec());
@@ -581,7 +567,7 @@ mod tests {
 
         let results: Vec<_> = client
             .run_batch(vec![
-                Set::new("a", "1").ttl(60).into(),
+                Set::new("a", "1").ttl(Ttl::secs(60)).into(),
                 Get::new("a").into(),
                 Delete::new("c").into(),
             ])
@@ -596,7 +582,7 @@ mod tests {
 
         // All three commands were written before the first response was read.
         let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms a 1 F16 T60\r\n".to_vec());
+        assert_eq!(requests[0], b"ms a 1 T60\r\n".to_vec());
         assert_eq!(requests[1], b"mg a v f\r\n".to_vec());
         assert_eq!(requests[2], b"md c\r\n".to_vec());
     }
@@ -607,7 +593,10 @@ mod tests {
         let client = MetaClient::connect(addr).unwrap();
 
         // The second operation is invalid; nothing must reach the server.
-        let error = client.run_batch(vec![Set::new("a", "1").into(), Delete::new("b").stale_for(30).into()]);
+        let error = client.run_batch(vec![
+            Set::new("a", "1").into(),
+            Delete::new("b").stale_for(Ttl::secs(30)).into(),
+        ]);
         assert!(error.is_err());
 
         client.noop().unwrap();
@@ -620,14 +609,14 @@ mod tests {
         let (addr, server) = scripted_server(vec![b"HD\r\n", b"VA 1\r\n1\r\n"]);
         let client = MetaClient::connect(addr).unwrap();
 
-        let operation = client.set("foo", "bar").ttl(60).into_operation();
+        let operation = client.set("foo", "bar").ttl(Ttl::secs(60)).into_operation();
         assert!(client.run(operation).unwrap().applied());
 
         let decremented = client.decrement("counter").send().unwrap();
         assert_eq!(decremented.value, Some(1));
 
         let requests = server.join().unwrap();
-        assert_eq!(requests[0], b"ms foo 3 F16 T60\r\n".to_vec());
+        assert_eq!(requests[0], b"ms foo 3 T60\r\n".to_vec());
         assert_eq!(requests[1], b"ma counter MD v D1\r\n".to_vec());
     }
 
@@ -648,7 +637,7 @@ mod tests {
 
         assert_eq!(
             server0.join().unwrap(),
-            vec![format!("ms {} 1 F16\r\n", key0).into_bytes(), b"mn\r\n".to_vec()]
+            vec![format!("ms {} 1\r\n", key0).into_bytes(), b"mn\r\n".to_vec()]
         );
         assert_eq!(
             server1.join().unwrap(),
@@ -690,7 +679,7 @@ mod tests {
         assert_eq!(
             server1.join().unwrap(),
             vec![
-                format!("ms {} 1 F16\r\n", key_set).into_bytes(),
+                format!("ms {} 1\r\n", key_set).into_bytes(),
                 format!("md {}\r\n", key_delete).into_bytes(),
             ]
         );
@@ -749,7 +738,11 @@ mod tests {
             .connect(addr)
             .unwrap();
         let start = std::time::Instant::now();
-        assert!(client.delete("foo").send().is_err());
+        let error = client.delete("foo").send().unwrap_err();
+        assert!(
+            matches!(error, Error::Timeout { ref key } if key == b"foo"),
+            "{error:?}"
+        );
         assert!(start.elapsed() < Duration::from_secs(5));
         assert!(client.delete("foo").send().unwrap().applied());
         handle.join().unwrap();

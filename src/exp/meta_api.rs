@@ -15,20 +15,19 @@
 //! and binary keys are base64-encoded automatically by
 //! [`MetaCommand`](super::MetaCommand).
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 
-use crate::error::{ClientError, MemcacheError};
+use super::error::{Error, Result};
 
 use super::meta_command::{MetaCommand, MetaOp, MetaResponse, ReturnCode, base64_decode, encode_key};
 
 const OPAQUE_MAX: usize = 32;
 
-fn invalid<T>(message: &'static str) -> Result<T, MemcacheError> {
-    Err(ClientError::Error(Cow::Borrowed(message)).into())
+fn invalid<T>(message: &'static str) -> Result<T> {
+    Err(Error::Usage(message))
 }
 
-fn opaque_flag(opaque: &[u8]) -> Result<Vec<u8>, MemcacheError> {
+fn opaque_flag(opaque: &[u8]) -> Result<Vec<u8>> {
     if opaque.is_empty() || opaque.len() > OPAQUE_MAX {
         return invalid("opaque must be 1-32 bytes");
     }
@@ -62,7 +61,7 @@ impl FlagBuilder {
         }
     }
 
-    fn opaque(&mut self, opaque: Option<&[u8]>) -> Result<(), MemcacheError> {
+    fn opaque(&mut self, opaque: Option<&[u8]>) -> Result<()> {
         if let Some(opaque) = opaque {
             self.0.push(opaque_flag(opaque)?);
         }
@@ -132,7 +131,7 @@ impl Default for GetOptions {
     }
 }
 
-pub fn build_get(key: impl AsRef<[u8]>, options: &GetOptions) -> Result<MetaCommand, MemcacheError> {
+pub fn build_get(key: impl AsRef<[u8]>, options: &GetOptions) -> Result<MetaCommand> {
     if options.recache_ttl == Some(0) {
         return invalid("recache_ttl must be >= 1");
     }
@@ -214,11 +213,7 @@ pub struct SetOptions {
     pub opaque: Option<Vec<u8>>,
 }
 
-pub fn build_set(
-    key: impl AsRef<[u8]>,
-    value: impl Into<Vec<u8>>,
-    options: &SetOptions,
-) -> Result<MetaCommand, MemcacheError> {
+pub fn build_set(key: impl AsRef<[u8]>, value: impl Into<Vec<u8>>, options: &SetOptions) -> Result<MetaCommand> {
     let concatenation = matches!(options.mode, SetMode::Append | SetMode::Prepend);
     if options.vivify_ttl.is_some() && !concatenation {
         return invalid("vivify_ttl is only valid for append/prepend");
@@ -273,7 +268,7 @@ pub struct DeleteOptions {
     pub opaque: Option<Vec<u8>>,
 }
 
-pub fn build_delete(key: impl AsRef<[u8]>, options: &DeleteOptions) -> Result<MetaCommand, MemcacheError> {
+pub fn build_delete(key: impl AsRef<[u8]>, options: &DeleteOptions) -> Result<MetaCommand> {
     if options.ttl.is_some() && !options.invalidate {
         // The server only applies T when paired with I; reject the no-op.
         return invalid("ttl is only applied when invalidate is set");
@@ -352,7 +347,7 @@ impl Default for ArithmeticOptions {
     }
 }
 
-pub fn build_arithmetic(key: impl AsRef<[u8]>, options: &ArithmeticOptions) -> Result<MetaCommand, MemcacheError> {
+pub fn build_arithmetic(key: impl AsRef<[u8]>, options: &ArithmeticOptions) -> Result<MetaCommand> {
     if options.initial.is_some() && options.initial_ttl.is_none() {
         // J is silently ignored without N; reject the no-op.
         return invalid("initial requires initial_ttl to vivify on miss");
@@ -381,7 +376,7 @@ pub fn build_noop() -> MetaCommand {
 }
 
 /// Build an `me` debug command.
-pub fn build_debug(key: impl AsRef<[u8]>) -> Result<MetaCommand, MemcacheError> {
+pub fn build_debug(key: impl AsRef<[u8]>) -> Result<MetaCommand> {
     let key = key.as_ref().to_vec();
     let (_, needs_base64) = encode_key(&key)?;
     if needs_base64 {
@@ -444,14 +439,17 @@ impl MetaCommandResult {
     }
 }
 
-fn parse_int<T: std::str::FromStr<Err = std::num::ParseIntError>>(token: &[u8]) -> Result<T, MemcacheError> {
-    Ok(std::str::from_utf8(token)?.parse::<T>()?)
+fn parse_int<T: std::str::FromStr<Err = std::num::ParseIntError>>(token: &[u8]) -> Result<T> {
+    std::str::from_utf8(token)
+        .ok()
+        .and_then(|token| token.parse::<T>().ok())
+        .ok_or_else(|| Error::Protocol(format!("invalid numeric flag {:?}", String::from_utf8_lossy(token))))
 }
 
 /// Decode the response flags of a [`MetaResponse`] into a
 /// [`MetaCommandResult`]. Unknown flags are kept in `flags` but otherwise
 /// ignored.
-pub fn parse_meta_result(response: MetaResponse) -> Result<MetaCommandResult, MemcacheError> {
+pub fn parse_meta_result(response: MetaResponse) -> Result<MetaCommandResult> {
     let mut result = MetaCommandResult {
         rc: response.rc,
         value: response.value,
@@ -497,16 +495,12 @@ pub fn parse_meta_result(response: MetaResponse) -> Result<MetaCommandResult, Me
 
 /// Parse an `me` response into its `name=value` fields. Returns `None` on a
 /// miss (`EN`).
-pub fn parse_debug_result(response: &MetaResponse) -> Result<Option<HashMap<String, String>>, MemcacheError> {
+pub fn parse_debug_result(response: &MetaResponse) -> Result<Option<HashMap<String, String>>> {
     if response.rc == ReturnCode::En {
         return Ok(None);
     }
     if response.rc != ReturnCode::Me {
-        return Err(crate::error::ServerError::BadResponse(Cow::Owned(format!(
-            "unexpected debug response {:?}",
-            response.rc
-        )))
-        .into());
+        return Err(Error::Protocol(format!("unexpected debug response {:?}", response.rc)));
     }
     let mut fields = HashMap::new();
     // The first token is the (possibly base64) key; the rest are name=value.
@@ -514,7 +508,10 @@ pub fn parse_debug_result(response: &MetaResponse) -> Result<Option<HashMap<Stri
         let mut split = token.splitn(2, |&byte| byte == b'=');
         let name = split.next().unwrap_or_default();
         let value = split.next().unwrap_or_default();
-        fields.insert(String::from_utf8(name.to_vec())?, String::from_utf8(value.to_vec())?);
+        fields.insert(
+            String::from_utf8_lossy(name).into_owned(),
+            String::from_utf8_lossy(value).into_owned(),
+        );
     }
     Ok(Some(fields))
 }

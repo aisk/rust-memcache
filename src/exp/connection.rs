@@ -1,11 +1,10 @@
 //! Blocking TCP transport for meta protocol commands.
 
-use std::borrow::Cow;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-use crate::error::{MemcacheError, ServerError};
+use super::error::{Error, Result};
 
 use super::meta_command::{MetaCommand, MetaResponse};
 
@@ -23,7 +22,7 @@ pub struct MetaConnection {
 impl MetaConnection {
     /// Connect without a time limit; combine `TcpStream::connect_timeout`
     /// with [`from_stream`](Self::from_stream) to bound the dial.
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<MetaConnection, MemcacheError> {
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<MetaConnection> {
         let stream = TcpStream::connect(addr)?;
         stream.set_nodelay(true)?;
         Ok(MetaConnection::from_stream(stream))
@@ -43,6 +42,15 @@ impl MetaConnection {
         self.io_timeout = timeout;
     }
 
+    /// A socket timeout (`SO_RCVTIMEO` / `SO_SNDTIMEO`) surfaces as
+    /// `WouldBlock` on most platforms; report it as the timeout it is.
+    fn io_error(error: io::Error) -> Error {
+        if error.kind() == io::ErrorKind::WouldBlock {
+            return Error::Io(io::Error::new(io::ErrorKind::TimedOut, error));
+        }
+        Error::Io(error)
+    }
+
     /// The deadline for an exchange starting now.
     fn deadline(&self) -> Option<Instant> {
         self.io_timeout.map(|timeout| Instant::now() + timeout)
@@ -50,7 +58,7 @@ impl MetaConnection {
 
     /// Arm the socket timeouts for the next syscall with the time left
     /// until the deadline; an already-spent deadline is a timeout.
-    fn arm(&self, deadline: Option<Instant>) -> Result<(), MemcacheError> {
+    fn arm(&self, deadline: Option<Instant>) -> Result<()> {
         let remaining = match deadline {
             Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
                 // A zero socket timeout would mean "unlimited"; a spent
@@ -89,18 +97,18 @@ impl MetaConnection {
     }
 
     /// Encode and write a single command under its own deadline.
-    pub fn send(&mut self, command: &MetaCommand) -> Result<(), MemcacheError> {
+    pub fn send(&mut self, command: &MetaCommand) -> Result<()> {
         self.send_by(self.deadline(), command)
     }
 
     /// Read one framed response, including the data block of a `VA`
     /// response, under its own deadline.
-    pub fn receive(&mut self) -> Result<MetaResponse, MemcacheError> {
+    pub fn receive(&mut self) -> Result<MetaResponse> {
         self.receive_by(self.deadline())
     }
 
     /// Send a command and read its response under one shared deadline.
-    pub fn execute(&mut self, command: &MetaCommand) -> Result<MetaResponse, MemcacheError> {
+    pub fn execute(&mut self, command: &MetaCommand) -> Result<MetaResponse> {
         let deadline = self.deadline();
         self.send_by(deadline, command)?;
         self.receive_by(deadline)
@@ -109,7 +117,7 @@ impl MetaConnection {
     /// Write all commands in one payload, then read one response per
     /// command, all under one shared deadline. Quiet-mode (`q`) commands
     /// would desynchronize the stream and must not be used here.
-    pub fn execute_batch(&mut self, commands: &[MetaCommand]) -> Result<Vec<MetaResponse>, MemcacheError> {
+    pub fn execute_batch(&mut self, commands: &[MetaCommand]) -> Result<Vec<MetaResponse>> {
         let deadline = self.deadline();
         let mut payload = Vec::new();
         for command in commands {
@@ -123,19 +131,19 @@ impl MetaConnection {
         Ok(responses)
     }
 
-    fn send_by(&mut self, deadline: Option<Instant>, command: &MetaCommand) -> Result<(), MemcacheError> {
+    fn send_by(&mut self, deadline: Option<Instant>, command: &MetaCommand) -> Result<()> {
         let payload = command.encode()?;
         self.write_all_by(deadline, &payload)
     }
 
-    fn receive_by(&mut self, deadline: Option<Instant>) -> Result<MetaResponse, MemcacheError> {
+    fn receive_by(&mut self, deadline: Option<Instant>) -> Result<MetaResponse> {
         let line = self.read_line(deadline)?;
         let mut response = MetaResponse::parse_header(&line)?;
         if let Some(datalen) = response.datalen {
             let mut value = vec![0u8; datalen + 2];
             self.read_exact_by(deadline, &mut value)?;
             if &value[datalen..] != b"\r\n" {
-                return Err(ServerError::BadResponse(Cow::Borrowed("data block missing CRLF terminator")).into());
+                return Err(Error::protocol("data block missing CRLF terminator"));
             }
             value.truncate(datalen);
             response.value = Some(value);
@@ -143,10 +151,10 @@ impl MetaConnection {
         Ok(response)
     }
 
-    fn write_all_by(&mut self, deadline: Option<Instant>, mut payload: &[u8]) -> Result<(), MemcacheError> {
+    fn write_all_by(&mut self, deadline: Option<Instant>, mut payload: &[u8]) -> Result<()> {
         while !payload.is_empty() {
             self.arm(deadline)?;
-            let written = self.reader.get_mut().write(payload)?;
+            let written = self.reader.get_mut().write(payload).map_err(Self::io_error)?;
             if written == 0 {
                 return Err(io::Error::from(io::ErrorKind::WriteZero).into());
             }
@@ -155,10 +163,10 @@ impl MetaConnection {
         Ok(())
     }
 
-    fn read_exact_by(&mut self, deadline: Option<Instant>, mut buffer: &mut [u8]) -> Result<(), MemcacheError> {
+    fn read_exact_by(&mut self, deadline: Option<Instant>, mut buffer: &mut [u8]) -> Result<()> {
         while !buffer.is_empty() {
             self.arm(deadline)?;
-            let read = self.reader.read(buffer)?;
+            let read = self.reader.read(buffer).map_err(Self::io_error)?;
             if read == 0 {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
             }
@@ -167,11 +175,11 @@ impl MetaConnection {
         Ok(())
     }
 
-    fn read_line(&mut self, deadline: Option<Instant>) -> Result<Vec<u8>, MemcacheError> {
+    fn read_line(&mut self, deadline: Option<Instant>) -> Result<Vec<u8>> {
         let mut line = Vec::new();
         loop {
             self.arm(deadline)?;
-            let buffer = self.reader.fill_buf()?;
+            let buffer = self.reader.fill_buf().map_err(Self::io_error)?;
             if buffer.is_empty() {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
             }

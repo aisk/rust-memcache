@@ -9,6 +9,7 @@
 
 use super::meta_api::SetMode;
 use super::operation::{Arithmetic, Delete, Get, Meta, Set};
+use super::ttl::Ttl;
 
 /// An operation bound to a client, awaiting [`send`](Request::send).
 #[must_use = "a request does nothing until you call .send()"]
@@ -37,8 +38,14 @@ impl<'a, C> Request<'a, C, Get> {
     }
 
     /// Update the item TTL while reading.
-    pub fn touch(mut self, ttl: u32) -> Self {
+    pub fn touch(mut self, ttl: impl Into<Ttl>) -> Self {
         self.operation = self.operation.touch(ttl);
+        self
+    }
+
+    /// Update the item TTL while reading, with a raw protocol value.
+    pub fn touch_raw(mut self, ttl: u32) -> Self {
+        self.operation = self.operation.touch_raw(ttl);
         self
     }
 
@@ -74,16 +81,20 @@ impl<'a, C> Request<'a, C, Get> {
 }
 
 impl<'a, C> Request<'a, C, Set> {
-    /// Item TTL in seconds: `0` (and the protocol default) never expires,
-    /// and a value above 30 days is an absolute unix timestamp.
-    pub fn ttl(mut self, ttl: u32) -> Self {
+    /// Item TTL; the protocol default (no `T` flag) never expires.
+    pub fn ttl(mut self, ttl: impl Into<Ttl>) -> Self {
         self.operation = self.operation.ttl(ttl);
         self
     }
 
-    /// Override the client flags stored with the item (normally chosen by
-    /// [`ToValue`](super::ToValue)) - for interop with other clients' flag
-    /// conventions.
+    /// Item TTL as a raw protocol value: `0` never expires, a value above
+    /// 30 days is an absolute unix timestamp.
+    pub fn ttl_raw(mut self, ttl: u32) -> Self {
+        self.operation = self.operation.ttl_raw(ttl);
+        self
+    }
+
+    /// The client flags stored with the item (default zero).
     pub fn client_flags(mut self, flags: u32) -> Self {
         self.operation = self.operation.client_flags(flags);
         self
@@ -158,8 +169,15 @@ impl<'a, C> Request<'a, C, Delete> {
     }
 
     /// For invalidate, how long the stale item stays readable.
-    pub fn stale_for(mut self, ttl: u32) -> Self {
+    pub fn stale_for(mut self, ttl: impl Into<Ttl>) -> Self {
         self.operation = self.operation.stale_for(ttl);
+        self
+    }
+
+    /// For invalidate, how long the stale item stays readable, as a raw
+    /// protocol value.
+    pub fn stale_for_raw(mut self, ttl: u32) -> Self {
+        self.operation = self.operation.stale_for_raw(ttl);
         self
     }
 }
@@ -177,8 +195,15 @@ impl<'a, C> Request<'a, C, Arithmetic> {
     }
 
     /// Update the item TTL while applying the delta.
-    pub fn ttl(mut self, ttl: u32) -> Self {
+    pub fn ttl(mut self, ttl: impl Into<Ttl>) -> Self {
         self.operation = self.operation.ttl(ttl);
+        self
+    }
+
+    /// Update the item TTL while applying the delta, with a raw protocol
+    /// value.
+    pub fn ttl_raw(mut self, ttl: u32) -> Self {
+        self.operation = self.operation.ttl_raw(ttl);
         self
     }
 

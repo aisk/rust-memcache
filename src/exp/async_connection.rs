@@ -1,12 +1,11 @@
 //! Tokio TCP transport for meta protocol commands.
 
-use std::borrow::Cow;
 use std::io;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::error::{MemcacheError, ServerError};
+use super::error::{Error, Result};
 
 use super::meta_command::{MetaCommand, MetaResponse};
 
@@ -20,7 +19,7 @@ pub struct AsyncMetaConnection {
 }
 
 impl AsyncMetaConnection {
-    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<AsyncMetaConnection, MemcacheError> {
+    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<AsyncMetaConnection> {
         let stream = TcpStream::connect(addr).await?;
         stream.set_nodelay(true)?;
         Ok(AsyncMetaConnection::from_stream(stream))
@@ -50,7 +49,7 @@ impl AsyncMetaConnection {
     }
 
     /// Encode and write a single command.
-    pub async fn send(&mut self, command: &MetaCommand) -> Result<(), MemcacheError> {
+    pub async fn send(&mut self, command: &MetaCommand) -> Result<()> {
         let payload = command.encode()?;
         self.reader.write_all(&payload).await?;
         self.reader.flush().await?;
@@ -58,14 +57,14 @@ impl AsyncMetaConnection {
     }
 
     /// Read one framed response, including the data block of a `VA` response.
-    pub async fn receive(&mut self) -> Result<MetaResponse, MemcacheError> {
+    pub async fn receive(&mut self) -> Result<MetaResponse> {
         let line = self.read_line().await?;
         let mut response = MetaResponse::parse_header(&line)?;
         if let Some(datalen) = response.datalen {
             let mut value = vec![0u8; datalen + 2];
             self.reader.read_exact(&mut value).await?;
             if &value[datalen..] != b"\r\n" {
-                return Err(ServerError::BadResponse(Cow::Borrowed("data block missing CRLF terminator")).into());
+                return Err(Error::protocol("data block missing CRLF terminator"));
             }
             value.truncate(datalen);
             response.value = Some(value);
@@ -74,7 +73,7 @@ impl AsyncMetaConnection {
     }
 
     /// Send a command and read its response.
-    pub async fn execute(&mut self, command: &MetaCommand) -> Result<MetaResponse, MemcacheError> {
+    pub async fn execute(&mut self, command: &MetaCommand) -> Result<MetaResponse> {
         self.send(command).await?;
         self.receive().await
     }
@@ -82,7 +81,7 @@ impl AsyncMetaConnection {
     /// Write all commands in one payload, then read one response per
     /// command. Quiet-mode (`q`) commands would desynchronize the stream and
     /// must not be used here.
-    pub async fn execute_batch(&mut self, commands: &[MetaCommand]) -> Result<Vec<MetaResponse>, MemcacheError> {
+    pub async fn execute_batch(&mut self, commands: &[MetaCommand]) -> Result<Vec<MetaResponse>> {
         let mut payload = Vec::new();
         for command in commands {
             command.encode_into(&mut payload)?;
@@ -96,7 +95,7 @@ impl AsyncMetaConnection {
         Ok(responses)
     }
 
-    async fn read_line(&mut self) -> Result<Vec<u8>, MemcacheError> {
+    async fn read_line(&mut self) -> Result<Vec<u8>> {
         let mut line = Vec::new();
         self.reader.read_until(b'\n', &mut line).await?;
         if !line.ends_with(b"\n") {
