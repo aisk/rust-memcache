@@ -152,6 +152,7 @@ if result.ok() {
 
 Transports are TCP only.
 */
+#![doc = include_str!("../../docs/exp.md")]
 
 mod client;
 mod connection;
