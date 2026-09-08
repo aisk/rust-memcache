@@ -310,20 +310,15 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
         let mut stats: Stats = HashMap::new();
         loop {
             let status = self.reader.read_line(|response| {
-                if response != END {
+                if response == END {
                     return Ok(Loop::Break);
                 }
                 let s = MemcacheError::try_from(response)?;
-                if !s.starts_with("STAT") {
+                let stat: Vec<_> = s.trim_end_matches("\r\n").splitn(3, ' ').collect();
+                if stat.len() < 3 || stat[0] != "STAT" {
                     return Err(ServerError::BadResponse(Cow::Owned(s.into())))?;
                 }
-                let stat: Vec<_> = s.trim_end_matches("\r\n").split(" ").collect();
-                if stat.len() < 3 {
-                    return Err(ServerError::BadResponse(Cow::Owned(s.into())).into());
-                }
-                let key = stat[1];
-                let value = s.trim_start_matches(format!("STAT {}", key).as_str());
-                stats.insert(key.into(), value.into());
+                stats.insert(stat[1].into(), stat[2].into());
 
                 Ok(Loop::Continue)
             })?;
