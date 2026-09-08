@@ -6,19 +6,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
-use crate::error::MemcacheError;
+use crate::error::{MemcacheError, ServerError};
 
 use crate::protocol::{AsciiProtocol, BinaryProtocol, Protocol, ProtocolTrait};
 use crate::stream::Stream;
 use crate::stream::UdpStream;
 #[cfg(feature = "tls")]
 use crate::tls::{self, TlsConfig, VerifyMode};
-use r2d2::ManageConnection;
+use r2d2::{ManageConnection, Pool};
 
 /// A connection to the memcached server
 pub struct Connection {
     pub protocol: Protocol,
     pub url: Arc<String>,
+    broken: bool,
 }
 
 impl DerefMut for Connection {
@@ -65,10 +66,23 @@ impl ManageConnection for ConnectionManager {
         conn.version().map(|_| ())
     }
 
-    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
-        // TODO: fix this
-        false
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
+        conn.broken
     }
+}
+
+/// Run `f` on a connection taken from `pool`, flagging the connection as
+/// broken when the error means it can no longer be reused.
+pub(crate) fn with_connection<T>(
+    pool: &Pool<ConnectionManager>,
+    f: impl FnOnce(&mut Connection) -> Result<T, MemcacheError>,
+) -> Result<T, MemcacheError> {
+    let mut connection = pool.get()?;
+    let result = f(&mut connection);
+    if let Err(err) = &result {
+        connection.mark_broken_on(err);
+    }
+    result
 }
 
 enum Transport {
@@ -225,6 +239,18 @@ impl Connection {
         self.url.to_string()
     }
 
+    /// Flag the connection so the pool drops it if `err` may have left unread
+    /// data on the stream, otherwise later commands would read stale responses.
+    fn mark_broken_on(&mut self, err: &MemcacheError) {
+        if matches!(
+            err,
+            MemcacheError::IOError(_)
+                | MemcacheError::ServerError(ServerError::BadMagic(_) | ServerError::BadResponse(_))
+        ) {
+            self.broken = true;
+        }
+    }
+
     pub(crate) fn connect(url: &Url) -> Result<Self, MemcacheError> {
         let transport = Transport::from_url(url)?;
         let is_ascii = url.query_pairs().any(|(ref k, ref v)| k == "protocol" && v == "ascii");
@@ -254,6 +280,7 @@ impl Connection {
         Ok(Connection {
             url: Arc::new(url.to_string()),
             protocol: protocol,
+            broken: false,
         })
     }
 }
