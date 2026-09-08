@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use url::Url;
 
-use crate::connection::ConnectionManager;
+use crate::connection::{ConnectionManager, with_connection};
 use crate::error::{ClientError, MemcacheError};
 use crate::protocol::{Protocol, ProtocolTrait};
 use crate::stream::Stream;
@@ -192,9 +192,8 @@ impl Client {
     pub fn version(&self) -> Result<Vec<(String, String)>, MemcacheError> {
         let mut result = Vec::with_capacity(self.connections.len());
         for connection in self.connections.iter() {
-            let mut connection = connection.get()?;
-            let url = connection.get_url();
-            result.push((url, connection.version()?));
+            let (url, version) = with_connection(connection, |c| Ok((c.get_url(), c.version()?)))?;
+            result.push((url, version));
         }
         Ok(result)
     }
@@ -209,7 +208,7 @@ impl Client {
     /// ```
     pub fn flush(&self) -> Result<(), MemcacheError> {
         for connection in self.connections.iter() {
-            connection.get()?.flush()?;
+            with_connection(connection, |c| c.flush())?;
         }
         return Ok(());
     }
@@ -224,7 +223,7 @@ impl Client {
     /// ```
     pub fn flush_with_delay(&self, delay: u32) -> Result<(), MemcacheError> {
         for connection in self.connections.iter() {
-            connection.get()?.flush_with_delay(delay)?;
+            with_connection(connection, |c| c.flush_with_delay(delay))?;
         }
         return Ok(());
     }
@@ -239,7 +238,7 @@ impl Client {
     /// ```
     pub fn get<V: FromMemcacheValueExt>(&self, key: &str) -> Result<Option<V>, MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.get(key);
+        return with_connection(&self.get_connection(key), |c| c.get(key));
     }
 
     /// Get multiple keys from memcached server. Using this function instead of calling `get` multiple times can reduce network workloads.
@@ -267,8 +266,7 @@ impl Client {
             array.push(key);
         }
         for (&connection_index, keys) in con_keys.iter() {
-            let connection = self.connections[connection_index].clone();
-            result.extend(connection.get()?.gets(keys)?);
+            result.extend(with_connection(&self.connections[connection_index], |c| c.gets(keys))?);
         }
         return Ok(result);
     }
@@ -284,7 +282,7 @@ impl Client {
     /// ```
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.set(key, value, expiration);
+        return with_connection(&self.get_connection(key), |c| c.set(key, value, expiration));
     }
 
     /// Compare and swap a key with the associate value into memcached server with expiration seconds.
@@ -308,7 +306,7 @@ impl Client {
         cas_id: u64,
     ) -> Result<bool, MemcacheError> {
         check_key_len(key)?;
-        self.get_connection(key).get()?.cas(key, value, expiration, cas_id)
+        with_connection(&self.get_connection(key), |c| c.cas(key, value, expiration, cas_id))
     }
 
     /// Add a key with associate value into memcached server with expiration seconds.
@@ -324,7 +322,7 @@ impl Client {
     /// ```
     pub fn add<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.add(key, value, expiration);
+        return with_connection(&self.get_connection(key), |c| c.add(key, value, expiration));
     }
 
     /// Replace a key with associate value into memcached server with expiration seconds.
@@ -345,7 +343,7 @@ impl Client {
         expiration: u32,
     ) -> Result<(), MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.replace(key, value, expiration);
+        return with_connection(&self.get_connection(key), |c| c.replace(key, value, expiration));
     }
 
     /// Append value to the key.
@@ -363,7 +361,7 @@ impl Client {
     /// ```
     pub fn append<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.append(key, value);
+        return with_connection(&self.get_connection(key), |c| c.append(key, value));
     }
 
     /// Prepend value to the key.
@@ -381,7 +379,7 @@ impl Client {
     /// ```
     pub fn prepend<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.prepend(key, value);
+        return with_connection(&self.get_connection(key), |c| c.prepend(key, value));
     }
 
     /// Delete a key from memcached server.
@@ -395,7 +393,7 @@ impl Client {
     /// ```
     pub fn delete(&self, key: &str) -> Result<bool, MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.delete(key);
+        return with_connection(&self.get_connection(key), |c| c.delete(key));
     }
 
     /// Increment the value with amount.
@@ -409,7 +407,7 @@ impl Client {
     /// ```
     pub fn increment(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.increment(key, amount);
+        return with_connection(&self.get_connection(key), |c| c.increment(key, amount));
     }
 
     /// Decrement the value with amount.
@@ -423,7 +421,7 @@ impl Client {
     /// ```
     pub fn decrement(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.decrement(key, amount);
+        return with_connection(&self.get_connection(key), |c| c.decrement(key, amount));
     }
 
     /// Set a new expiration time for a exist key.
@@ -439,7 +437,7 @@ impl Client {
     /// ```
     pub fn touch(&self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
         check_key_len(key)?;
-        return self.get_connection(key).get()?.touch(key, expiration);
+        return with_connection(&self.get_connection(key), |c| c.touch(key, expiration));
     }
 
     /// Get all servers' statistics.
@@ -452,9 +450,7 @@ impl Client {
     pub fn stats(&self) -> Result<Vec<(String, Stats)>, MemcacheError> {
         let mut result: Vec<(String, HashMap<String, String>)> = vec![];
         for connection in self.connections.iter() {
-            let mut connection = connection.get()?;
-            let stats_info = connection.stats()?;
-            let url = connection.get_url();
+            let (url, stats_info) = with_connection(connection, |c| Ok((c.get_url(), c.stats()?)))?;
             result.push((url, stats_info));
         }
         return Ok(result);
