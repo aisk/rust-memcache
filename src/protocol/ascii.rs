@@ -144,6 +144,7 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
 
     fn flush(&mut self) -> Result<(), MemcacheError> {
         write!(self.reader.get_mut(), "flush_all\r\n")?;
+        self.reader.get_mut().flush()?;
         self.parse_ok_response()
     }
 
@@ -161,6 +162,7 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
         };
 
         write!(self.reader.get_mut(), "{} {}\r\n", command, key)?;
+        self.reader.get_mut().flush()?;
 
         if let Some((k, v)) = self.parse_get_response(has_cas)? {
             if k != key {
@@ -179,6 +181,7 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
 
     fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
         write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
+        self.reader.get_mut().flush()?;
 
         let mut result: HashMap<String, V> = HashMap::with_capacity(keys.len());
         // there will be atmost keys.len() "VALUE <...>" responses and one END response
@@ -273,11 +276,13 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
 
     fn increment(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         write!(self.reader.get_mut(), "incr {} {}\r\n", key, amount)?;
+        self.reader.get_mut().flush()?;
         self.parse_u64_response()
     }
 
     fn decrement(&mut self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
         write!(self.reader.get_mut(), "decr {} {}\r\n", key, amount)?;
+        self.reader.get_mut().flush()?;
         self.parse_u64_response()
     }
 
