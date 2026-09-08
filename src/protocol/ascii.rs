@@ -161,40 +161,18 @@ impl ProtocolTrait for AsciiProtocol<Stream> {
             ("get", false)
         };
 
-        write!(self.reader.get_mut(), "{} {}\r\n", command, key)?;
-        self.reader.get_mut().flush()?;
-
-        if let Some((k, v)) = self.parse_get_response(has_cas)? {
-            if k != key {
-                Err(ServerError::BadResponse(Cow::Borrowed(
-                    "key doesn't match in the response",
-                )))?
-            } else if self.parse_get_response::<V>(has_cas)?.is_none() {
-                Ok(Some(v))
-            } else {
-                Err(ServerError::BadResponse(Cow::Borrowed("Expected end of get response")))?
-            }
-        } else {
-            Ok(None)
+        let mut values = self.get_values(command, has_cas, &[key])?;
+        let value = values.remove(key);
+        if !values.is_empty() {
+            Err(ServerError::BadResponse(Cow::Borrowed(
+                "key doesn't match in the response",
+            )))?
         }
+        Ok(value)
     }
 
     fn gets<V: FromMemcacheValueExt>(&mut self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
-        write!(self.reader.get_mut(), "gets {}\r\n", keys.join(" "))?;
-        self.reader.get_mut().flush()?;
-
-        let mut result: HashMap<String, V> = HashMap::with_capacity(keys.len());
-        // there will be atmost keys.len() "VALUE <...>" responses and one END response
-        for _ in 0..=keys.len() {
-            match self.parse_get_response(true)? {
-                Some((key, value)) => {
-                    result.insert(key, value);
-                }
-                None => return Ok(result),
-            }
-        }
-
-        Err(ServerError::BadResponse(Cow::Borrowed("Expected end of gets response")))?
+        self.get_values("gets", true, keys)
     }
 
     fn cas<V: ToMemcacheValue<Stream>>(
@@ -420,6 +398,29 @@ impl AsciiProtocol<Stream> {
         })
     }
 
+    fn get_values<V: FromMemcacheValueExt>(
+        &mut self,
+        command: &str,
+        has_cas: bool,
+        keys: &[&str],
+    ) -> Result<HashMap<String, V>, MemcacheError> {
+        write!(self.reader.get_mut(), "{} {}\r\n", command, keys.join(" "))?;
+        self.reader.get_mut().flush()?;
+
+        let mut result: HashMap<String, V> = HashMap::with_capacity(keys.len());
+        // there will be atmost keys.len() "VALUE <...>" responses and one END response
+        for _ in 0..=keys.len() {
+            match self.parse_get_response(has_cas)? {
+                Some((key, value)) => {
+                    result.insert(key, value);
+                }
+                None => return Ok(result),
+            }
+        }
+
+        Err(ServerError::BadResponse(Cow::Borrowed("Expected end of gets response")))?
+    }
+
     fn parse_get_response<V: FromMemcacheValueExt>(
         &mut self,
         has_cas: bool,
@@ -519,5 +520,35 @@ mod tests {
             capped_line_reader.read_line(|x| Ok(x.to_string())).unwrap()
         );
         assert!(capped_line_reader.read_line(|x| Ok(x.to_string())).is_err());
+    }
+
+    #[test]
+    fn get_drains_the_response_on_key_mismatch() {
+        use std::io::BufRead;
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut reader = std::io::BufReader::new(socket.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            socket.write_all(b"VALUE other 0 1\r\nx\r\nEND\r\n").unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            socket.write_all(b"VALUE foo 0 3\r\nbar\r\nEND\r\n").unwrap();
+        });
+
+        let stream = TcpStream::connect(addr).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut protocol = AsciiProtocol::new(Stream::Tcp(stream));
+        assert!(matches!(
+            protocol.get::<String>("foo"),
+            Err(MemcacheError::ServerError(ServerError::BadResponse(_)))
+        ));
+        assert_eq!(protocol.get::<String>("foo").unwrap(), Some("bar".to_string()));
     }
 }

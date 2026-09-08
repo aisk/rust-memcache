@@ -117,10 +117,7 @@ impl Client {
             let pool = builder.build(ConnectionManager::new(parsed))?;
             connections.push(pool);
         }
-        Ok(Client {
-            connections,
-            hash_function: default_hash_function,
-        })
+        Self::with_pools(connections)
     }
 
     pub fn with_pool(pool: Pool<ConnectionManager>) -> Result<Self, MemcacheError> {
@@ -131,6 +128,9 @@ impl Client {
     }
 
     pub fn with_pools(pools: Vec<Pool<ConnectionManager>>) -> Result<Self, MemcacheError> {
+        if pools.is_empty() {
+            return Err(MemcacheError::BadURL("No servers specified".to_string()));
+        }
         Ok(Client {
             connections: pools,
             hash_function: default_hash_function,
@@ -629,6 +629,12 @@ mod tests {
             .unwrap()
             .build();
         assert!(client.is_err());
+    }
+
+    #[test]
+    fn build_client_no_pools() {
+        assert!(super::Client::with_pools(vec![]).is_err());
+        assert!(super::Client::with_pool_size(Vec::<String>::new(), 1).is_err());
     }
 
     #[test]
