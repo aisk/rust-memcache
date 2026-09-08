@@ -55,7 +55,8 @@ impl<'a, C> Request<'a, C, Get> {
         self
     }
 
-    /// Suppress the value when the item CAS still matches.
+    /// Suppress the value when the item CAS still matches. Needs memcached
+    /// 1.6.40 or newer; older servers ignore the flag and return the value.
     pub fn unless_cas(mut self, cas: u64) -> Self {
         self.operation = self.operation.unless_cas(cas);
         self
