@@ -118,9 +118,13 @@ pub fn parse_response<R: io::Read>(reader: &mut R) -> Result<Response, MemcacheE
     let mut key = vec![0x0; header.key_length as usize];
     reader.read_exact(key.as_mut_slice())?;
 
-    // TODO: return error if total_body_length < extras_length + key_length
-    let mut value =
-        vec![0x0; (header.total_body_length - u32::from(header.key_length) - u32::from(header.extras_length)) as usize];
+    let value_length = header
+        .total_body_length
+        .checked_sub(u32::from(header.key_length) + u32::from(header.extras_length))
+        .ok_or(ServerError::BadResponse(Cow::Borrowed(
+            "total body length is shorter than key and extras length",
+        )))?;
+    let mut value = vec![0x0; value_length as usize];
     reader.read_exact(value.as_mut_slice())?;
 
     Ok(Response {
@@ -225,4 +229,40 @@ pub fn parse_stats_response<R: io::Read>(reader: &mut R) -> Result<HashMap<Strin
 
 pub fn parse_start_auth_response<R: io::Read>(reader: &mut R) -> Result<bool, MemcacheError> {
     parse_response(reader)?.err().map(|_| true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response_bytes(key_length: u16, extras_length: u8, total_body_length: u32, body: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        PacketHeader {
+            magic: Magic::Response as u8,
+            key_length,
+            extras_length,
+            total_body_length,
+            ..Default::default()
+        }
+        .write(&mut bytes)
+        .unwrap();
+        bytes.extend_from_slice(body);
+        bytes
+    }
+
+    #[test]
+    fn parse_response_body_length() {
+        let bytes = response_bytes(3, 4, 10, b"\0\0\0\0keyval");
+        let response = parse_response(&mut Cursor::new(bytes)).unwrap();
+        assert_eq!(response.extras, b"\0\0\0\0");
+        assert_eq!(response.key, b"key");
+        assert_eq!(response.value, b"val");
+
+        let bytes = response_bytes(3, 4, 6, b"\0\0\0\0keyval");
+        match parse_response(&mut Cursor::new(bytes)) {
+            Err(MemcacheError::ServerError(ServerError::BadResponse(_))) => (),
+            Err(e) => panic!("unexpected error: {:?}", e),
+            Ok(_) => panic!("expected an error"),
+        }
+    }
 }
