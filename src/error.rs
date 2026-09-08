@@ -125,6 +125,7 @@ impl From<u16> for CommandError {
             0x2 => CommandError::KeyExists,
             0x3 => CommandError::ValueTooLarge,
             0x4 => CommandError::InvalidArguments,
+            0x5 => CommandError::KeyNotFound,
             0x20 => CommandError::AuthenticationRequired,
             e => CommandError::Unknown(e),
         }

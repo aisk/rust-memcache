@@ -113,6 +113,21 @@ fn udp_test() {
     let value: Option<String> = client.get("foo").unwrap();
     assert_eq!(value, None);
 
+    assert!(matches!(
+        client.append("foo", "bar"),
+        Err(memcache::MemcacheError::CommandError(
+            memcache::CommandError::KeyNotFound
+        ))
+    ));
+    assert!(matches!(
+        client.prepend("foo", "bar"),
+        Err(memcache::MemcacheError::CommandError(
+            memcache::CommandError::KeyNotFound
+        ))
+    ));
+    let value: Option<String> = client.get("foo").unwrap();
+    assert_eq!(value, None);
+
     client.add("foo", "bar", 0).unwrap();
     let value: Option<String> = client.get("foo").unwrap();
     assert_eq!(value, Some(String::from("bar")));
