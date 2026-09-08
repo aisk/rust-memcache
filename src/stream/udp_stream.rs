@@ -81,8 +81,7 @@ impl Write for UdpStream {
         self.write_buf.clear(); // clear the buffer for the next command
 
         let mut response_datagrams: HashMap<u16, Vec<u8>> = HashMap::new();
-        let mut total_datagrams;
-        let mut remaining_datagrams = 0;
+        let mut total_datagrams = 0;
         self.read_buf.clear();
         loop {
             // for large values, response can span multiple datagrams, so gather them all
@@ -99,24 +98,68 @@ impl Write for UdpStream {
                 continue;
             }
             let sequence_no = BigEndian::read_u16(&buf[2..]);
-            total_datagrams = BigEndian::read_u16(&buf[4..]);
-            if remaining_datagrams == 0 {
-                remaining_datagrams = total_datagrams;
+            let datagrams = BigEndian::read_u16(&buf[4..]);
+            if datagrams == 0 || sequence_no >= datagrams || (total_datagrams != 0 && datagrams != total_datagrams) {
+                return Err(Error::new(ErrorKind::InvalidData, "Invalid UDP header received"));
             }
+            total_datagrams = datagrams;
 
-            let mut v: Vec<u8> = Vec::new();
-            v.extend_from_slice(&buf[8..bytes_read]);
-            response_datagrams.insert(sequence_no, v);
-            remaining_datagrams -= 1;
-            if remaining_datagrams == 0 {
+            response_datagrams.insert(sequence_no, buf[8..bytes_read].to_vec());
+            if response_datagrams.len() == usize::from(total_datagrams) {
                 break;
             }
         }
         for i in 0..total_datagrams {
-            self.read_buf.append(&mut (response_datagrams[&i].clone()));
+            self.read_buf.append(&mut response_datagrams.remove(&i).unwrap());
         }
 
         self.request_id = (self.request_id % (u16::MAX)) + 1;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    fn flush(datagrams: Vec<(u16, u16, &'static [u8])>) -> io::Result<Vec<u8>> {
+        let server = UdpSocket::bind("127.0.0.1:0")?;
+        let url = Url::parse(&format!("memcache+udp://127.0.0.1:{}", server.local_addr()?.port())).unwrap();
+        thread::spawn(move || {
+            let mut buf = [0; 1400];
+            let (_, peer) = server.recv_from(&mut buf).unwrap();
+            for (sequence_no, total_datagrams, payload) in datagrams {
+                let mut datagram = buf[0..2].to_vec();
+                datagram.write_u16::<BigEndian>(sequence_no).unwrap();
+                datagram.write_u16::<BigEndian>(total_datagrams).unwrap();
+                datagram.write_u16::<BigEndian>(0).unwrap();
+                datagram.extend_from_slice(payload);
+                server.send_to(&datagram, peer).unwrap();
+            }
+        });
+
+        let mut stream = UdpStream::new(&url, None).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        stream.write_all(b"version\r\n")?;
+        stream.flush()?;
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response)?;
+        Ok(response)
+    }
+
+    #[test]
+    fn flush_reassembles_datagrams_in_sequence_order() {
+        assert_eq!(
+            flush(vec![(1, 2, b"world"), (0, 2, b"hello ")]).unwrap(),
+            b"hello world"
+        );
+    }
+
+    #[test]
+    fn flush_rejects_invalid_datagram_headers() {
+        assert!(flush(vec![(0, 0, b"x")]).is_err());
+        assert!(flush(vec![(2, 2, b"x"), (1, 2, b"x")]).is_err());
+        assert!(flush(vec![(0, 2, b"x"), (1, 3, b"x")]).is_err());
     }
 }
