@@ -38,12 +38,30 @@ impl Deref for Connection {
 /// Memcache connection manager implementing rd2d Pool ManageConnection
 pub struct ConnectionManager {
     url: Url,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
 }
 
 impl ConnectionManager {
     /// Initialize connection manager with given Url
     pub fn new(url: Url) -> Self {
-        Self { url }
+        Self {
+            url,
+            read_timeout: None,
+            write_timeout: None,
+        }
+    }
+
+    /// Set the socket read timeout for every connection opened by this manager.
+    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
+        self.read_timeout = Some(timeout);
+        self
+    }
+
+    /// Set the socket write timeout for every connection opened by this manager.
+    pub fn with_write_timeout(mut self, timeout: Duration) -> Self {
+        self.write_timeout = Some(timeout);
+        self
     }
 }
 
@@ -54,6 +72,12 @@ impl ManageConnection for ConnectionManager {
     fn connect(&self) -> Result<Self::Connection, Self::Error> {
         let url = &self.url;
         let mut connection = Connection::connect(url)?;
+        if self.read_timeout.is_some() {
+            connection.set_read_timeout(self.read_timeout)?;
+        }
+        if self.write_timeout.is_some() {
+            connection.set_write_timeout(self.write_timeout)?;
+        }
         if url.has_authority() && !url.username().is_empty() && url.password().is_some() {
             let username = url.username();
             let password = url.password().unwrap();
@@ -237,6 +261,20 @@ fn tcp_stream(url: &Url, opts: &TcpOptions) -> Result<TcpStream, MemcacheError> 
 impl Connection {
     pub(crate) fn get_url(&self) -> String {
         self.url.to_string()
+    }
+
+    pub(crate) fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        match self.protocol {
+            Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout),
+            Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout),
+        }
+    }
+
+    pub(crate) fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
+        match self.protocol {
+            Protocol::Ascii(ref mut protocol) => protocol.stream().set_write_timeout(timeout),
+            Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout),
+        }
     }
 
     /// Flag the connection so the pool drops it if `err` may have left unread

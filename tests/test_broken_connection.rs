@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 
@@ -47,8 +47,7 @@ fn serve(mut stream: TcpStream) {
     }
 }
 
-#[test]
-fn test_connection_dropped_after_read_timeout() {
+fn start_server() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     thread::spawn(move || {
@@ -56,7 +55,40 @@ fn test_connection_dropped_after_read_timeout() {
             thread::spawn(move || serve(stream.unwrap()));
         }
     });
+    port
+}
 
+fn assert_times_out(client: &memcache::Client) {
+    let start = Instant::now();
+    assert!(client.get::<String>("slow").is_err());
+    assert!(start.elapsed() < Duration::from_millis(400));
+}
+
+#[test]
+fn test_url_timeout_survives_connect() {
+    let port = start_server();
+    let client = memcache::connect(format!("memcache://127.0.0.1:{}?timeout=0.1", port)).unwrap();
+    assert_times_out(&client);
+}
+
+#[test]
+fn test_builder_timeout_applies_to_new_connections() {
+    let port = start_server();
+    let client = memcache::Client::builder()
+        .add_server(format!("memcache://127.0.0.1:{}", port))
+        .unwrap()
+        .with_min_idle_conns(0)
+        .with_read_timeout(Duration::from_millis(100))
+        .build()
+        .unwrap();
+
+    assert_times_out(&client);
+    assert_times_out(&client);
+}
+
+#[test]
+fn test_connection_dropped_after_read_timeout() {
+    let port = start_server();
     let client = memcache::Client::builder()
         .add_server(format!("memcache://127.0.0.1:{}", port))
         .unwrap()

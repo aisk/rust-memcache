@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::connection::{ConnectionManager, with_connection};
 use crate::error::{ClientError, MemcacheError};
-use crate::protocol::{Protocol, ProtocolTrait};
+use crate::protocol::ProtocolTrait;
 use crate::stream::Stream;
 use crate::value::{FromMemcacheValueExt, ToMemcacheValue};
 use r2d2::Pool;
@@ -156,11 +156,7 @@ impl Client {
     /// ```
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
-            let mut conn = conn.get()?;
-            match **conn {
-                Protocol::Ascii(ref mut protocol) => protocol.stream().set_read_timeout(timeout)?,
-                Protocol::Binary(ref mut protocol) => protocol.stream.set_read_timeout(timeout)?,
-            }
+            conn.get()?.set_read_timeout(timeout)?;
         }
         Ok(())
     }
@@ -175,11 +171,7 @@ impl Client {
     /// ```
     pub fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), MemcacheError> {
         for conn in self.connections.iter() {
-            let mut conn = conn.get()?;
-            match **conn {
-                Protocol::Ascii(ref mut protocol) => protocol.stream().set_write_timeout(timeout)?,
-                Protocol::Binary(ref mut protocol) => protocol.stream.set_write_timeout(timeout)?,
-            }
+            conn.get()?.set_write_timeout(timeout)?;
         }
         Ok(())
     }
@@ -574,22 +566,23 @@ impl ClientBuilder {
                 builder = builder.connection_timeout(timeout);
             }
 
-            let connection = builder
-                .build(ConnectionManager::new(url))
-                .map_err(|e| MemcacheError::PoolError(e))?;
+            let mut manager = ConnectionManager::new(url);
+            if let Some(timeout) = self.read_timeout {
+                manager = manager.with_read_timeout(timeout);
+            }
+            if let Some(timeout) = self.write_timeout {
+                manager = manager.with_write_timeout(timeout);
+            }
+
+            let connection = builder.build(manager).map_err(|e| MemcacheError::PoolError(e))?;
 
             connections.push(connection);
         }
 
-        let client = Client {
+        Ok(Client {
             connections,
             hash_function: self.hash_function,
-        };
-
-        client.set_read_timeout(self.read_timeout)?;
-        client.set_write_timeout(self.write_timeout)?;
-
-        Ok(client)
+        })
     }
 }
 
