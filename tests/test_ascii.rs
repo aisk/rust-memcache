@@ -59,7 +59,14 @@ fn test_ascii() {
     assert_eq!(client.increment("ascii_counter", 100).unwrap(), 103);
     assert_eq!(client.decrement("ascii_counter", 3).unwrap(), 100);
 
-    client.stats().unwrap();
+    let stats = client.stats().unwrap();
+    assert_eq!(stats.len(), 1);
+    let stats = &stats[0].1;
+    assert_eq!(stats.get("version").unwrap(), &client.version().unwrap()[0].1);
+    assert!(stats.get("uptime").unwrap().parse::<u64>().is_ok());
+
+    let value: Option<String> = client.get("ascii_foo").unwrap();
+    assert_eq!(value, Some("bar".into()));
 }
 
 #[test]
