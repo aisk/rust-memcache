@@ -99,6 +99,7 @@ impl ProtocolTrait for BinaryProtocol {
             ..Default::default()
         };
         noop_request_header.write(&mut self.stream)?;
+        self.stream.flush()?;
         return binary_packet::parse_gets_response(&mut self.stream, keys.len());
     }
 

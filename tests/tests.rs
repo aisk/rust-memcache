@@ -141,7 +141,8 @@ fn udp_test() {
     assert_eq!(client.touch("foooo", 123).unwrap(), false);
     assert_eq!(client.touch("fooo", 12345).unwrap(), true);
 
-    // gets is not supported for udp
+    // memcached sends every response as its own datagram sequence and
+    // UdpStream only reads one, so gets can not work over udp
     let value: Result<std::collections::HashMap<String, String>, _> = client.gets(&["foo", "fooo"]);
     assert_eq!(value.is_ok(), false);
 
@@ -200,6 +201,23 @@ fn udp_test() {
     for i in 0..10 {
         handles[i].take().unwrap().join().unwrap();
     }
+
+    let client = memcache::Client::connect("memcache+udp://localhost:22345?protocol=ascii").unwrap();
+
+    client.set("ascii_udp", "bar", 0).unwrap();
+    let value: Option<String> = client.get("ascii_udp").unwrap();
+    assert_eq!(value, Some(String::from("bar")));
+
+    client.set("ascii_udp_counter", 41, 0).unwrap();
+    assert_eq!(client.increment("ascii_udp_counter", 2).unwrap(), 43);
+    assert_eq!(client.decrement("ascii_udp_counter", 1).unwrap(), 42);
+
+    let values: Result<std::collections::HashMap<String, String>, _> = client.gets(&["ascii_udp", "ascii_udp_counter"]);
+    assert_eq!(values.is_ok(), false);
+
+    client.flush().unwrap();
+    let value: Option<String> = client.get("ascii_udp").unwrap();
+    assert_eq!(value, None);
 }
 
 #[test]
