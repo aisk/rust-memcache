@@ -11,6 +11,8 @@ use std::string;
 pub enum ClientError {
     /// The key provided was longer than 250 bytes.
     KeyTooLong,
+    /// The key provided contained whitespace or control characters.
+    InvalidKey,
     /// The server returned an error prefixed with CLIENT_ERROR in response to a command.
     Error(Cow<'static, str>),
 }
@@ -19,6 +21,7 @@ impl fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ClientError::KeyTooLong => write!(f, "The provided key was too long."),
+            ClientError::InvalidKey => write!(f, "The provided key contained whitespace or control characters."),
             ClientError::Error(s) => write!(f, "{}", s),
         }
     }

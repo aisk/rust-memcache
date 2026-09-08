@@ -15,6 +15,11 @@ fn test_ascii() {
     let value: Option<String> = client.get("ascii_foo").unwrap();
     assert_eq!(value, Some("bar".into()));
 
+    assert!(client.get::<String>("ascii_foo\r\nflush_all").is_err());
+    assert!(client.set("ascii foo", "bar", 0).is_err());
+    let value: Option<String> = client.get("ascii_foo").unwrap();
+    assert_eq!(value, Some("bar".into()));
+
     client.set("ascii_baz", "qux", 0).unwrap();
     let values: HashMap<String, (Vec<u8>, u32)> = client.gets(&["ascii_foo", "ascii_baz", "not_exists_key"]).unwrap();
     assert_eq!(values.len(), 2);

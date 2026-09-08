@@ -78,9 +78,12 @@ fn default_hash_function(key: &str) -> u64 {
     return hasher.finish();
 }
 
-pub(crate) fn check_key_len(key: &str) -> Result<(), MemcacheError> {
+pub(crate) fn check_key(key: &str) -> Result<(), MemcacheError> {
     if key.len() > 250 {
         Err(ClientError::KeyTooLong)?
+    }
+    if key.bytes().any(|b| b <= b' ' || b == 0x7f) {
+        Err(ClientError::InvalidKey)?
     }
     Ok(())
 }
@@ -237,7 +240,7 @@ impl Client {
     /// let _: Option<String> = client.get("foo").unwrap();
     /// ```
     pub fn get<V: FromMemcacheValueExt>(&self, key: &str) -> Result<Option<V>, MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.get(key));
     }
 
@@ -254,7 +257,7 @@ impl Client {
     /// ```
     pub fn gets<V: FromMemcacheValueExt>(&self, keys: &[&str]) -> Result<HashMap<String, V>, MemcacheError> {
         for key in keys {
-            check_key_len(key)?;
+            check_key(key)?;
         }
         let mut con_keys: HashMap<usize, Vec<&str>> = HashMap::new();
         let mut result: HashMap<String, V> = HashMap::new();
@@ -281,7 +284,7 @@ impl Client {
     /// client.flush().unwrap();
     /// ```
     pub fn set<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.set(key, value, expiration));
     }
 
@@ -305,7 +308,7 @@ impl Client {
         expiration: u32,
         cas_id: u64,
     ) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         with_connection(&self.get_connection(key), |c| c.cas(key, value, expiration, cas_id))
     }
 
@@ -321,7 +324,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn add<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V, expiration: u32) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.add(key, value, expiration));
     }
 
@@ -342,7 +345,7 @@ impl Client {
         value: V,
         expiration: u32,
     ) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.replace(key, value, expiration));
     }
 
@@ -360,7 +363,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn append<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.append(key, value));
     }
 
@@ -378,7 +381,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn prepend<V: ToMemcacheValue<Stream>>(&self, key: &str, value: V) -> Result<(), MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.prepend(key, value));
     }
 
@@ -392,7 +395,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn delete(&self, key: &str) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.delete(key));
     }
 
@@ -406,7 +409,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn increment(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.increment(key, amount));
     }
 
@@ -420,7 +423,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn decrement(&self, key: &str, amount: u64) -> Result<u64, MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.decrement(key, amount));
     }
 
@@ -436,7 +439,7 @@ impl Client {
     /// # client.flush().unwrap();
     /// ```
     pub fn touch(&self, key: &str, expiration: u32) -> Result<bool, MemcacheError> {
-        check_key_len(key)?;
+        check_key(key)?;
         return with_connection(&self.get_connection(key), |c| c.touch(key, expiration));
     }
 
@@ -593,6 +596,28 @@ impl ClientBuilder {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+
+    #[test]
+    fn check_key() {
+        use crate::error::{ClientError, MemcacheError};
+
+        assert!(super::check_key("foo").is_ok());
+        assert!(super::check_key(&"k".repeat(250)).is_ok());
+        assert!(matches!(
+            super::check_key(&"k".repeat(251)),
+            Err(MemcacheError::ClientError(ClientError::KeyTooLong))
+        ));
+        for key in ["foo bar", "foo\r\nflush_all", "foo\n", "\tfoo", "foo\0", "foo\x7f"] {
+            assert!(
+                matches!(
+                    super::check_key(key),
+                    Err(MemcacheError::ClientError(ClientError::InvalidKey))
+                ),
+                "{:?}",
+                key
+            );
+        }
+    }
 
     #[test]
     fn build_client_happy_path() {
