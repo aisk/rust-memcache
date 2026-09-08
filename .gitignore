@@ -4,4 +4,3 @@ Cargo.lock
 *.dSYM
 target/
 
-tests/memcached-*/

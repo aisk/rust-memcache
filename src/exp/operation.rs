@@ -83,6 +83,8 @@ pub struct Get {
     pub no_lru_bump: bool,
     /// Suppress the value when the item CAS still matches; the result status
     /// becomes [`Unchanged`](super::GetStatus::Unchanged). Requires `value`.
+    /// Needs memcached 1.6.40 or newer; older servers ignore the flag and
+    /// return the value.
     pub unless_cas: Option<u64>,
     /// Whether to read the value at all; `false` fetches metadata only.
     pub value: bool,
@@ -140,7 +142,8 @@ impl Get {
         self
     }
 
-    /// Suppress the value when the item CAS still matches.
+    /// Suppress the value when the item CAS still matches. Needs memcached
+    /// 1.6.40 or newer; older servers ignore the flag and return the value.
     #[must_use]
     pub fn unless_cas(mut self, cas: u64) -> Get {
         self.unless_cas = Some(cas);
