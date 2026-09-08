@@ -40,6 +40,15 @@ fn test_ascii() {
     let value: Option<String> = client.get("ascii_pend").unwrap();
     assert_eq!(value, None);
 
+    assert!(client.add("ascii_foo", "dup", 0).is_err());
+    assert!(client.replace("ascii_pend", "x", 0).is_err());
+    assert!(client.append("ascii_pend", "x").is_err());
+    assert!(client.prepend("ascii_pend", "x").is_err());
+    let value: Option<String> = client.get("ascii_foo").unwrap();
+    assert_eq!(value, Some("bar".into()));
+    let value: Option<String> = client.get("ascii_pend").unwrap();
+    assert_eq!(value, None);
+
     assert!(client.increment("ascii_counter", 1).is_err());
     client.set("ascii_counter", 3, 0).unwrap();
     assert_eq!(client.increment("ascii_counter", 100).unwrap(), 103);

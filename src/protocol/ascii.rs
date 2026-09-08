@@ -398,7 +398,10 @@ impl AsciiProtocol<Stream> {
             let response = MemcacheError::try_from(response)?;
             match response {
                 "STORED\r\n" => Ok(true),
-                "NOT_STORED\r\n" => Ok(false),
+                "NOT_STORED\r\n" => match command {
+                    StoreCommand::Add => Err(CommandError::KeyExists)?,
+                    _ => Err(CommandError::KeyNotFound)?,
+                },
                 "EXISTS\r\n" => Err(CommandError::KeyExists)?,
                 "NOT_FOUND\r\n" => Err(CommandError::KeyNotFound)?,
                 response => Err(ServerError::BadResponse(Cow::Owned(response.into())))?,
