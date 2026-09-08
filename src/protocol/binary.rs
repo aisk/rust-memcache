@@ -158,7 +158,7 @@ impl ProtocolTrait for BinaryProtocol {
         self.stream.write_all(key.as_bytes())?;
         value.write_to(&mut self.stream)?;
         self.stream.flush()?;
-        binary_packet::parse_response(&mut self.stream).map(|_| ())
+        binary_packet::parse_response(&mut self.stream)?.err().map(|_| ())
     }
 
     fn delete(&mut self, key: &str) -> Result<bool, MemcacheError> {
