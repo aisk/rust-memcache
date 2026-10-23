@@ -249,6 +249,15 @@ impl MetaCommand {
         if self.key.is_empty() {
             return Err(Error::Usage("key must not be empty"));
         }
+        if self
+            .flags
+            .iter()
+            .any(|flag| flag.is_empty() || flag.iter().any(|byte| *byte <= 0x20 || *byte == 0x7f))
+        {
+            return Err(Error::Usage(
+                "meta flag must be a non-empty token without whitespace or control bytes",
+            ));
+        }
         encode_key(&self.key).map(|_| ())
     }
 
@@ -414,6 +423,16 @@ mod tests {
         assert_eq!(base64_encode(b"foob"), b"Zm9vYg==".to_vec());
         assert!(base64_decode(b"Zm9vY").is_err());
         assert!(base64_decode(b"Zm=vYg==").is_err());
+    }
+
+    #[test]
+    fn encode_rejects_flags_that_can_break_request_framing() {
+        for flag in [b"".as_slice(), b"v more", b"v\tv", b"v\r\nflush_all"] {
+            assert!(matches!(
+                MetaCommand::new(MetaOp::Get, "key").flag(flag.to_vec()).encode(),
+                Err(Error::Usage(_))
+            ));
+        }
     }
 
     #[test]
