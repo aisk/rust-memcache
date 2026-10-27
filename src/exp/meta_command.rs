@@ -249,11 +249,7 @@ impl MetaCommand {
         if self.key.is_empty() {
             return Err(Error::Usage("key must not be empty"));
         }
-        if self
-            .flags
-            .iter()
-            .any(|flag| flag.is_empty() || flag.iter().any(|byte| *byte <= 0x20 || *byte == 0x7f))
-        {
+        if self.flags.iter().any(|flag| flag.is_empty() || !is_legacy_safe(flag)) {
             return Err(Error::Usage(
                 "meta flag must be a non-empty token without whitespace or control bytes",
             ));
